@@ -255,12 +255,13 @@ function handleRealtimeMessage(msg) {
                     waiterName: msg.order.waiterName
                 });
 
-                // VERIFICACIÓN CLAVE: El aviso le llega exclusivamente al mozo asignado o al admin
+                // VERIFICACIÓN ESTRICTA: El aviso acústico y el banner flotante suenan y se muestran ÚNICAMENTE al mozo asignado
+                // NUNCA a administración / cocina
                 const isAssignedWaiter = currentUser && currentUser.name && msg.order.waiterName &&
                     currentUser.name.trim().toLowerCase() === msg.order.waiterName.trim().toLowerCase();
                 const isAdmin = currentUser && (currentUser.role.includes('Admin') || currentUser.role.includes('Cocina') || currentUser.role.includes('Encargado'));
 
-                if (isAssignedWaiter || isAdmin) {
+                if (isAssignedWaiter && !isAdmin) {
                     playKitchenBellSound();
                     showToast(`¡${msg.order.table} lista en Cocina! Retirar por mostrador`, 'warning');
                 }
@@ -657,9 +658,15 @@ function updateWaiterNotificationUI() {
 
     const isAdmin = currentUser.role.includes('Admin') || currentUser.role.includes('Cocina') || currentUser.role.includes('Encargado');
 
-    // Filtrar notificaciones activas: SOLO las del mozo actual, o todas si es Admin
+    // NUNCA mostrar banner flotante de "Retirar por mostrador" ni badge a administración / cocina
+    if (isAdmin) {
+        if (banner) banner.classList.add('hidden');
+        if (notifBadge) notifBadge.classList.add('hidden');
+        return;
+    }
+
+    // Filtrar notificaciones activas: SOLO las del mozo actual
     const pendingNotifs = waiterNotifications.filter(n => {
-        if (isAdmin) return true;
         return n.waiterName && currentUser.name && n.waiterName.trim().toLowerCase() === currentUser.name.trim().toLowerCase();
     });
 
@@ -792,20 +799,20 @@ function renderTablesGrid() {
 
         if (activeCmd) {
             if (activeCmd.status === 'ready') {
-                statusText = "¡Listo en Cocina!";
-                statusBadge = "bg-amber-100 text-amber-800 border-amber-300 font-bold";
-                borderClass = "border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/50";
+                statusText = "¡LISTO PARA ENTREGAR!";
+                statusBadge = "bg-amber-500 text-white border-amber-600 font-extrabold shadow-sm";
+                borderClass = "border-2 border-amber-500 bg-amber-50/80 shadow-lg shadow-amber-500/20 ring-4 ring-amber-400/40 animate-pulse";
                 dotColor = "bg-amber-500 animate-ping";
                 isReadyInKitchen = true;
             } else if (activeCmd.status === 'pending') {
                 statusText = "En Preparación";
-                statusBadge = "bg-blue-50 text-[#2563eb] border-blue-200";
-                borderClass = "border-blue-300 bg-white";
+                statusBadge = "bg-blue-50 text-[#2563eb] border-blue-200 font-semibold";
+                borderClass = "border-blue-300 bg-white hover:border-blue-500";
                 dotColor = "bg-[#2563eb]";
             } else if (activeCmd.status === 'delivered') {
                 statusText = "Entregado";
-                statusBadge = "bg-emerald-50 text-emerald-700 border-emerald-200";
-                borderClass = "border-emerald-300 bg-white";
+                statusBadge = "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold";
+                borderClass = "border-emerald-300 bg-white hover:border-emerald-500";
                 dotColor = "bg-emerald-600";
             }
         } else if (hasLocalItems) {
@@ -818,6 +825,9 @@ function renderTablesGrid() {
         const itemsCount = hasLocalItems
             ? tableOrder.items.reduce((acc, i) => acc + i.qty, 0)
             : (activeCmd ? activeCmd.items.reduce((acc, i) => acc + i.qty, 0) : 0);
+
+        // Detectar si la mesa tiene platos nuevos agregados pendientes de envío
+        const hasUnsentItems = hasLocalItems && tableOrder.items.some(i => i.qty > (i.sentQty || 0));
 
         return `
             <div onclick="selectTable('${tName}')" class="border rounded-3xl p-4 sm:p-5 shadow-sm transition-all cursor-pointer flex flex-col justify-between group ${borderClass} relative">
@@ -834,20 +844,29 @@ function renderTablesGrid() {
                         </div>
                     </div>
 
-                    <div class="flex items-center space-x-1.5">
-                        <span class="text-[10px] px-2 py-0.5 rounded-full border ${statusBadge} flex items-center gap-1 font-semibold">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="text-[10px] px-2 py-0.5 rounded-full border ${statusBadge} flex items-center gap-1">
                             ${statusText}
                         </span>
+                        ${(hasUnsentItems && activeCmd) ? `
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold">
+                                + Agregados nuevos
+                            </span>
+                        ` : ''}
                     </div>
 
                     ${isReadyInKitchen ? `
-                        <div class="bg-amber-500 text-white text-[10px] px-2 py-1 rounded-xl font-bold flex items-center justify-between">
-                            <span>Retirar Mozo</span>
+                        <div class="bg-amber-500 text-white text-xs px-2.5 py-1.5 rounded-xl font-bold flex items-center justify-between shadow-sm">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-bell-concierge"></i> ¡LISTO! Retirar por cocina</span>
                             <i class="fa-solid fa-arrow-right"></i>
                         </div>
                     ` : ''}
 
                     <div class="pt-2 text-xs">
+                        <span class="text-slate-400 text-[11px] block">${itemsCount} producto${itemsCount === 1 ? '' : 's'}</span>
+                        <strong class="text-sm font-bold text-slate-800">$${total.toLocaleString()}</strong>
+                    </div>
+                </div>
                         <span class="text-slate-400 text-[11px] block">${itemsCount} producto${itemsCount === 1 ? '' : 's'}</span>
                         <strong class="text-sm font-bold text-slate-800">$${total.toLocaleString()}</strong>
                     </div>
@@ -1050,6 +1069,7 @@ function addToOrder(itemId) {
             id: item.id,
             name: item.name,
             qty: 1,
+            sentQty: 0,
             price: item.price
         });
     }
@@ -1064,10 +1084,13 @@ function updateQuantity(itemId, delta) {
     const itemIndex = tableItems.findIndex(i => i.id === itemId);
     if (itemIndex < 0) return;
 
-    tableItems[itemIndex].qty += delta;
+    const item = tableItems[itemIndex];
+    item.qty += delta;
 
-    if (tableItems[itemIndex].qty <= 0) {
+    if (item.qty <= 0) {
         tableItems.splice(itemIndex, 1);
+    } else if (item.sentQty && item.qty < item.sentQty) {
+        item.sentQty = item.qty;
     }
 
     saveCurrentTableState();
@@ -1133,6 +1156,7 @@ function renderOrderList() {
 
     const totalQty = items.reduce((acc, i) => acc + i.qty, 0);
     const totalPrice = items.reduce((acc, i) => acc + (i.price * i.qty), 0);
+    const newItemsCount = items.reduce((acc, i) => acc + Math.max(0, i.qty - (i.sentQty || 0)), 0);
 
     if (itemCountBadge) itemCountBadge.innerText = `${totalQty} ítem${totalQty === 1 ? '' : 's'}`;
     if (drawerTitleMobile) drawerTitleMobile.innerText = `Ver Comanda (${totalQty} ítem${totalQty === 1 ? '' : 's'})`;
@@ -1146,45 +1170,102 @@ function renderOrderList() {
                 <p class="text-xs">No hay productos agregados en ${currentTable}</p>
             </div>
         `;
-        sendBtn.disabled = true;
-        payBtn.disabled = true;
+        if (sendBtn) {
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina</span>';
+        }
+        if (payBtn) payBtn.disabled = true;
         return;
     }
 
-    sendBtn.disabled = false;
-    payBtn.disabled = false;
+    if (payBtn) payBtn.disabled = false;
 
-    container.innerHTML = items.map(item => `
-        <div class="py-2 flex items-center justify-between gap-2 text-xs">
-            <div class="flex-1 min-w-0">
-                <h5 class="font-bold text-slate-800 truncate">${item.name}</h5>
-                <span class="text-slate-400 text-[11px]">$${item.price.toLocaleString()} c/u</span>
+    if (sendBtn) {
+        if (newItemsCount > 0) {
+            sendBtn.disabled = false;
+            sendBtn.className = "w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 cursor-pointer";
+            sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina (${newItemsCount} nuevo${newItemsCount === 1 ? '' : 's'})</span>`;
+        } else {
+            sendBtn.disabled = true;
+            sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 cursor-not-allowed";
+            sendBtn.innerHTML = '<i class="fa-solid fa-check-double text-emerald-500"></i><span>Todo enviado a cocina</span>';
+        }
+    }
+
+    container.innerHTML = items.map(item => {
+        const sent = item.sentQty || 0;
+        const unsent = Math.max(0, item.qty - sent);
+
+        let statusPill = '';
+        if (sent > 0 && unsent === 0) {
+            statusPill = `<span class="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-semibold">${sent} en cocina</span>`;
+        } else if (sent > 0 && unsent > 0) {
+            statusPill = `<span class="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded font-semibold">${sent} en cocina</span> <span class="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded font-bold">+${unsent} nuevo</span>`;
+        } else {
+            statusPill = `<span class="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded font-bold">Por enviar</span>`;
+        }
+
+        return `
+            <div class="py-2 flex items-center justify-between gap-2 text-xs border-b border-slate-50 last:border-b-0">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <h5 class="font-bold text-slate-800 truncate">${item.name}</h5>
+                        ${statusPill}
+                    </div>
+                    <span class="text-slate-400 text-[11px]">$${item.price.toLocaleString()} c/u</span>
+                </div>
+
+                <div class="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
+                    <button onclick="updateQuantity('${item.id}', -1)" class="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer">
+                        <i class="fa-solid fa-minus text-[9px]"></i>
+                    </button>
+                    <span class="font-bold w-5 text-center text-slate-800 text-xs">${item.qty}</span>
+                    <button onclick="updateQuantity('${item.id}', 1)" class="w-6 h-6 rounded-lg bg-white text-[#2563eb] hover:bg-blue-50 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer">
+                        <i class="fa-solid fa-plus text-[9px]"></i>
+                    </button>
+                </div>
+
+                <span class="font-bold text-slate-900 w-16 text-right shrink-0">
+                    $${(item.price * item.qty).toLocaleString()}
+                </span>
             </div>
-
-            <div class="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
-                <button onclick="updateQuantity('${item.id}', -1)" class="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold shadow-sm transition-all">
-                    <i class="fa-solid fa-minus text-[9px]"></i>
-                </button>
-                <span class="font-bold w-5 text-center text-slate-800 text-xs">${item.qty}</span>
-                <button onclick="updateQuantity('${item.id}', 1)" class="w-6 h-6 rounded-lg bg-white text-[#2563eb] hover:bg-blue-50 flex items-center justify-center font-bold shadow-sm transition-all">
-                    <i class="fa-solid fa-plus text-[9px]"></i>
-                </button>
-            </div>
-
-            <span class="font-bold text-slate-900 w-16 text-right shrink-0">
-                $${(item.price * item.qty).toLocaleString()}
-            </span>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function sendOrderToKitchen() {
     const tableOrder = ordersByTable[currentTable];
     if (!tableOrder || tableOrder.items.length === 0) return;
 
-    const waiter = currentUser ? currentUser.name : "Lucas Gómez";
+    // Calcular SOLAMENTE los ítems nuevos o cantidades agregadas que no fueron enviadas antes
+    const newItemsToSend = [];
+    tableOrder.items.forEach(item => {
+        const sent = item.sentQty || 0;
+        const diff = item.qty - sent;
+        if (diff > 0) {
+            newItemsToSend.push({
+                id: item.id,
+                name: item.name,
+                price: item.price,
+                qty: diff,
+                isAddon: sent > 0
+            });
+        }
+    });
+
+    if (newItemsToSend.length === 0) {
+        showToast('Todos los platos de esta mesa ya fueron enviados a cocina', 'info');
+        return;
+    }
+
+    // Determinar si es la comanda inicial o una ronda de agregados
+    const activeTableCmds = kitchenOrders.filter(o => o.table === currentTable && o.status !== 'paid');
+    const roundNumber = activeTableCmds.length + 1;
+    const isAddon = roundNumber > 1;
+
+    const waiter = currentUser ? currentUser.name : "Mozo";
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const total = tableOrder.items.reduce((acc, i) => acc + (i.price * i.qty), 0);
+    const roundTotal = newItemsToSend.reduce((acc, i) => acc + (i.price * i.qty), 0);
     const cmdId = `CMD-${Math.floor(100 + Math.random() * 900)}`;
 
     const newCmd = {
@@ -1194,13 +1275,21 @@ async function sendOrderToKitchen() {
         time: timeStr,
         status: "pending",
         printed: false,
-        items: [...tableOrder.items.map(i => ({ ...i }))],
-        total: total,
-        note: tableOrder.note || ""
+        items: newItemsToSend,
+        total: roundTotal,
+        round: roundNumber,
+        note: tableOrder.note ? (tableOrder.note + (isAddon ? ` [Ronda ${roundNumber}]` : '')) : (isAddon ? `[Ronda ${roundNumber} - Agregado]` : "")
     };
 
+    // Marcar como enviados todos los ítems actuales de la mesa
+    tableOrder.items.forEach(item => {
+        item.sentQty = item.qty;
+    });
+
+    // Guardar mesa actualizada (con los sentQty) en Neon DB
+    saveCurrentTableState();
+
     kitchenOrders.unshift(newCmd);
-    saveLocalState();
 
     try {
         const res = await fetch('/api/orders/send-kitchen', {
@@ -1220,7 +1309,10 @@ async function sendOrderToKitchen() {
     backToTablesView();
 
     // Notificación sutil no intrusiva de éxito
-    showToast(`Comanda enviada a cocina (${newCmd.table})`, 'success');
+    const toastMsg = isAddon
+        ? `Agregado (Ronda ${roundNumber}) enviado a cocina (${newCmd.table})`
+        : `Comanda enviada a cocina (${newCmd.table})`;
+    showToast(toastMsg, 'success');
 }
 
 // ================= CHECKOUT Y PROPINA A VOLUNTAD (POR RESTA) =================
@@ -1573,7 +1665,14 @@ function renderKitchenOrders() {
                     <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                         <div>
                             <span class="text-xs font-bold text-slate-400 block">${cmd.id}</span>
-                            <h3 class="text-lg font-bold text-slate-900">${cmd.table}</h3>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <h3 class="text-lg font-bold text-slate-900">${cmd.table}</h3>
+                                ${(cmd.round && cmd.round > 1) ? `
+                                    <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                        Ronda ${cmd.round} (Agregado)
+                                    </span>
+                                ` : ''}
+                            </div>
                         </div>
                         <div class="text-right">
                             <span class="text-[11px] text-slate-400 font-semibold block">${cmd.time} hs</span>
