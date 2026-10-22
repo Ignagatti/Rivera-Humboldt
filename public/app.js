@@ -885,10 +885,6 @@ function renderTablesGrid() {
                         <strong class="text-sm font-bold text-slate-800">$${total.toLocaleString()}</strong>
                     </div>
                 </div>
-                        <span class="text-slate-400 text-[11px] block">${itemsCount} producto${itemsCount === 1 ? '' : 's'}</span>
-                        <strong class="text-sm font-bold text-slate-800">$${total.toLocaleString()}</strong>
-                    </div>
-                </div>
 
                 ${total > 0 ? `
                     <div class="pt-3 border-t border-slate-100 mt-3" onclick="event.stopPropagation()">
