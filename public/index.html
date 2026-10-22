@@ -47,6 +47,17 @@
             border-radius: 9999px;
         }
 
+        /* Ocultar barra de scroll en elementos táctiles deslizables */
+        .scrollbar-none::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+        .scrollbar-none {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
         /* Estilos exclusivos para impresión de comanda térmica (80mm) */
         @media print {
             body * {
@@ -127,65 +138,65 @@
 
         <!-- ================= BARRA SUPERIOR (HEADER) ================= -->
         <header id="main-header"
-            class="bg-white border-b border-slate-200 px-3 sm:px-4 py-2.5 flex justify-between items-center shrink-0 z-20 shadow-sm hidden">
-            <div class="flex items-center space-x-2.5">
+            class="bg-white border-b border-slate-200 px-3 sm:px-4 py-2 sm:py-2.5 flex justify-between items-center shrink-0 z-20 shadow-sm hidden">
+            <div class="flex items-center space-x-2 sm:space-x-2.5 min-w-0">
                 <div
-                    class="bg-[#2563eb] w-9 h-9 rounded-xl text-white font-bold shadow-md shadow-blue-500/20 flex items-center justify-center border border-blue-400">
-                    <i class="fa-solid fa-shield-halved text-sm"></i>
+                    class="bg-[#2563eb] w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-white font-bold shadow-md shadow-blue-500/20 flex items-center justify-center border border-blue-400 shrink-0">
+                    <i class="fa-solid fa-shield-halved text-xs sm:text-sm"></i>
                 </div>
-                <div>
-                    <h2 class="font-bold text-xs sm:text-sm tracking-tight text-slate-900 flex items-center gap-1.5">
-                        <span id="header-user-name">Mozo</span>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-xs sm:text-sm tracking-tight text-slate-900 flex items-center gap-1 sm:gap-1.5 truncate">
+                        <span id="header-user-name" class="truncate max-w-[90px] xs:max-w-[140px] sm:max-w-none">Mozo</span>
                         <span
-                            class="text-[10px] bg-blue-50 text-[#2563eb] px-2 py-0.5 rounded-full border border-blue-200 font-semibold"
+                            class="text-[9px] sm:text-[10px] bg-blue-50 text-[#2563eb] px-1.5 sm:px-2 py-0.5 rounded-full border border-blue-200 font-semibold shrink-0"
                             id="header-role-badge">Mozo</span>
-                        <span id="header-live-dot" class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm"
+                        <span id="header-live-dot" class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shrink-0"
                             title="Sincronización en vivo activa"></span>
                     </h2>
-                    <p class="text-[11px] text-slate-500 font-medium" id="header-tips-summary">Caja Propinas: $0</p>
+                    <p class="text-[10px] sm:text-[11px] text-slate-500 font-medium truncate" id="header-tips-summary">Caja Propinas: $0</p>
                 </div>
             </div>
 
             <!-- Botonera de Navegación Rápida -->
-            <div class="flex items-center space-x-1.5 sm:space-x-2">
+            <div class="flex items-center space-x-1 sm:space-x-2 shrink-0">
                 <!-- Botón para Admin: Volver a Cocina / Pedidos (cuando visualiza el salón) -->
                 <button id="header-admin-nav-btn" onclick="switchToAdminWorkspace()"
-                    class="hidden bg-[#2563eb] hover:bg-blue-600 text-white border border-blue-400 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
+                    class="hidden bg-[#2563eb] hover:bg-blue-600 text-white border border-blue-400 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-sm transition-all cursor-pointer active:scale-95"
                     title="Volver al Panel de Cocina y Pedidos">
                     <i class="fa-solid fa-fire-burner"></i>
-                    <span>Cocina / Pedidos</span>
+                    <span class="hidden xs:inline">Cocina</span>
                 </button>
 
                 <!-- Botón para Admin: Ver Salón / Mesas (cuando está en el panel admin) -->
                 <button id="header-salon-nav-btn" onclick="switchToWaiterTables()"
-                    class="hidden bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
+                    class="hidden bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-sm transition-all cursor-pointer active:scale-95"
                     title="Ver Salón y Mesas">
                     <i class="fa-solid fa-table-cells-large"></i>
-                    <span>Ver Mesas</span>
+                    <span class="hidden xs:inline">Mesas</span>
                 </button>
 
                 <!-- Campana de Notificaciones para Mozos -->
                 <button onclick="openWaiterNotificationsModal()"
-                    class="relative bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-600 border border-slate-200 p-2 rounded-xl text-xs font-semibold flex items-center justify-center shadow-sm transition-all"
+                    class="relative bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-600 border border-slate-200 p-1.5 sm:p-2 rounded-xl text-xs font-semibold flex items-center justify-center shadow-sm transition-all active:scale-95"
                     title="Avisos de Cocina">
-                    <i class="fa-solid fa-bell text-sm"></i>
+                    <i class="fa-solid fa-bell text-xs sm:text-sm"></i>
                     <span id="waiter-notif-badge"
-                        class="hidden absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[10px] w-5 h-5 rounded-full font-bold flex items-center justify-center animate-bounce shadow">0</span>
+                        class="hidden absolute -top-1 -right-1 bg-rose-600 text-white text-[9px] w-4 h-4 rounded-full font-bold flex items-center justify-center animate-bounce shadow">0</span>
                 </button>
 
                 <!-- Registro de Pagos -->
                 <button onclick="openPaymentHistoryModal()"
-                    class="bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition-all"
+                    class="bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm transition-all active:scale-95"
                     title="Registro de Pagos">
                     <i class="fa-solid fa-clipboard-list text-[#2563eb]"></i>
                     <span class="hidden sm:inline">Pagos</span>
                     <span id="header-payments-count"
-                        class="bg-blue-100 text-[#2563eb] text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
+                        class="bg-blue-100 text-[#2563eb] text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
                 </button>
 
                 <!-- Caja de Propinas General -->
                 <button onclick="openTipsModal()"
-                    class="bg-slate-50 hover:bg-blue-50 text-[#2563eb] border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition-all"
+                    class="bg-slate-50 hover:bg-blue-50 text-[#2563eb] border border-slate-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm transition-all active:scale-95"
                     title="Caja General de Propinas">
                     <i class="fa-solid fa-wallet"></i>
                     <span class="hidden md:inline">Propinas</span>
@@ -193,7 +204,7 @@
 
                 <!-- Salir / Cambiar Usuario -->
                 <button onclick="logoutStaff()"
-                    class="bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 p-2 rounded-xl text-xs transition-all"
+                    class="bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 p-1.5 sm:p-2 rounded-xl text-xs transition-all active:scale-95"
                     title="Cambiar Usuario">
                     <i class="fa-solid fa-right-from-bracket"></i>
                 </button>
@@ -406,109 +417,106 @@
 
         <!-- ================= PANEL DE ADMINISTRACIÓN Y COCINA (4 PESTAÑAS) ================= -->
         <div id="admin-workspace" class="flex-1 bg-slate-50 flex flex-col hidden overflow-hidden">
-            <div
-                class="bg-white px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-sm">
-                <div class="flex items-center space-x-3">
-                    <div class="bg-[#2563eb] p-2 rounded-xl text-white shadow-md shadow-blue-500/20">
-                        <i class="fa-solid fa-fire-burner text-base"></i>
+            <div class="bg-white px-3 sm:px-4 py-2.5 sm:py-3 border-b border-slate-200 shrink-0 shadow-sm space-y-2.5">
+                <!-- Fila 1: Título y Botón Ver Salón -->
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2.5 min-w-0">
+                        <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2563eb] text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                            <i class="fa-solid fa-fire-burner text-sm sm:text-base"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h2 class="font-bold text-xs sm:text-sm md:text-base text-slate-900 truncate">Panel Admin & Cocina</h2>
+                            <p class="text-[10px] sm:text-[11px] text-slate-500 truncate hidden xs:block">Comandas, carta, personal y cierre nocturno</p>
+                        </div>
                     </div>
-                    <div>
-                        <h2 class="font-bold text-sm sm:text-base text-slate-900">Panel de Administración y Cocina</h2>
-                        <p class="text-[11px] text-slate-500">Comandas en vivo, carta, personal y cierre nocturno</p>
-                    </div>
+
+                    <button onclick="switchToWaiterTables()"
+                        class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] text-xs px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-blue-200 transition-all flex items-center space-x-1.5 font-bold shrink-0 shadow-sm active:scale-95">
+                        <i class="fa-solid fa-table-cells-large"></i>
+                        <span>Ver Salón</span>
+                    </button>
                 </div>
 
-                <!-- Pestañas del Panel Admin -->
-                <div
-                    class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto max-w-full">
+                <!-- Fila 2: 4 Pestañas Horizontales Deslizables (Segmented / Swipeable Tabs) -->
+                <div class="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200 overflow-x-auto w-full scrollbar-none gap-1">
                     <button onclick="switchAdminTab('kitchen')" id="admin-tab-kitchen"
-                        class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-[#2563eb] shadow-sm transition-all flex items-center space-x-1.5 whitespace-nowrap">
+                        class="flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-[#2563eb] shadow-sm transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95">
                         <i class="fa-solid fa-fire-burner"></i>
-                        <span>Cocina en Vivo</span>
+                        <span>Cocina</span>
                     </button>
                     <button onclick="switchAdminTab('menu')" id="admin-tab-menu"
-                        class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center space-x-1.5 whitespace-nowrap">
+                        class="flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95">
                         <i class="fa-solid fa-book-open"></i>
-                        <span>Carta / Menú</span>
+                        <span>Carta</span>
                     </button>
                     <button onclick="switchAdminTab('report')" id="admin-tab-report"
-                        class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center space-x-1.5 whitespace-nowrap">
+                        class="flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95">
                         <i class="fa-solid fa-chart-pie"></i>
-                        <span>Reporte y PDF</span>
+                        <span>Reporte</span>
                     </button>
                     <button onclick="switchAdminTab('staff')" id="admin-tab-staff"
-                        class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center space-x-1.5 whitespace-nowrap">
+                        class="flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95">
                         <i class="fa-solid fa-users-gear"></i>
-                        <span>Mozos / Personal</span>
-                    </button>
-                </div>
-
-                <div class="flex items-center space-x-2">
-                    <button onclick="switchToWaiterTables()"
-                        class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] text-xs px-3 py-2 rounded-xl border border-blue-200 transition-all flex items-center space-x-1.5 font-semibold">
-                        <i class="fa-solid fa-table-cells-large"></i>
-                        <span>Ver Salón / Mesas</span>
+                        <span>Personal</span>
                     </button>
                 </div>
             </div>
 
             <!-- PESTAÑA 1: Cocina en Vivo (Tablero de Comandas) -->
-            <div id="admin-subview-kitchen" class="flex-1 overflow-y-auto p-4 sm:p-6">
+            <div id="admin-subview-kitchen" class="flex-1 overflow-y-auto p-3 sm:p-6">
                 <!-- Filtros rápidos de cocina -->
-                <div
-                    class="mb-4 flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-xs font-bold text-slate-700">Filtrar Comandas:</span>
-                        <button onclick="setKitchenFilter('all')" id="kfilter-all"
-                            class="px-3 py-1 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all">Todas
-                            Activas</button>
-                        <button onclick="setKitchenFilter('pending')" id="kfilter-pending"
-                            class="px-3 py-1 rounded-xl text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all">Pendientes</button>
-                        <button onclick="setKitchenFilter('ready')" id="kfilter-ready"
-                            class="px-3 py-1 rounded-xl text-xs font-semibold bg-blue-50 text-[#2563eb] border border-blue-200 hover:bg-blue-100 transition-all">¡Listos
-                            para Mozo!</button>
-                        <button onclick="setKitchenFilter('delivered')" id="kfilter-delivered"
-                            class="px-3 py-1 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-all">Entregadas
-                            (En Mesa)</button>
+                <div class="mb-4 bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <i class="fa-solid fa-filter text-[#2563eb] text-[11px]"></i>
+                            <span>Filtrar Comandas</span>
+                        </span>
+                        <span class="text-[10px] text-slate-400 hidden sm:inline">Toca "¡Listo!" para notificar al celular del mozo</span>
                     </div>
-                    <span class="text-[11px] text-slate-400">Al tocar "¡Listo!" se notifica al celular del mozo con
-                        sonido de campana</span>
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                        <button onclick="setKitchenFilter('all')" id="kfilter-all"
+                            class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm whitespace-nowrap active:scale-95">Todas Activas</button>
+                        <button onclick="setKitchenFilter('pending')" id="kfilter-pending"
+                            class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">Pendientes</button>
+                        <button onclick="setKitchenFilter('ready')" id="kfilter-ready"
+                            class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">¡Listos para Mozo!</button>
+                        <button onclick="setKitchenFilter('delivered')" id="kfilter-delivered"
+                            class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">Entregadas</button>
+                    </div>
                 </div>
 
                 <div id="kitchen-orders-grid"
-                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                     <!-- Tarjetas de comandas -->
                 </div>
             </div>
 
             <!-- PESTAÑA 2: Carta / Menú (Gestor de Categorías y Productos) -->
-            <div id="admin-subview-menu" class="flex-1 overflow-y-auto p-4 sm:p-6 hidden">
-                <div class="max-w-5xl mx-auto space-y-6">
+            <div id="admin-subview-menu" class="flex-1 overflow-y-auto p-3 sm:p-6 hidden">
+                <div class="max-w-5xl mx-auto space-y-4 sm:space-y-6">
 
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
                         <!-- Formulario para Crear Categoría -->
-                        <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 h-fit">
+                        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5 h-fit">
                             <div class="flex items-center space-x-2.5 border-b border-slate-100 pb-3">
                                 <div
-                                    class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                                    class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
                                     <i class="fa-solid fa-folder-plus text-sm"></i>
                                 </div>
-                                <div>
-                                    <h3 class="font-bold text-sm text-slate-900">Crear Categoría</h3>
-                                    <p class="text-[11px] text-slate-500">Ej: Postres, Promociones, Cafetería</p>
+                                <div class="min-w-0">
+                                    <h3 class="font-bold text-sm text-slate-900 truncate">Crear Categoría</h3>
+                                    <p class="text-[11px] text-slate-500 truncate">Ej: Postres, Promociones, Cafetería</p>
                                 </div>
                             </div>
 
                             <div class="space-y-3">
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre de la
-                                        Categoría</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre de la Categoría</label>
                                     <input type="text" id="new-cat-name" placeholder="Ej: Postres Caseros"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Ícono Vectorial
-                                        FontAwesome</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Ícono Vectorial FontAwesome</label>
                                     <select id="new-cat-icon"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                         <option value="fa-pizza-slice">Pizza / Masas (fa-pizza-slice)</option>
@@ -522,7 +530,7 @@
                                     </select>
                                 </div>
                                 <button onclick="createNewCategory()"
-                                    class="w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all flex items-center justify-center space-x-1.5">
+                                    class="w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all flex items-center justify-center space-x-1.5 active:scale-95">
                                     <i class="fa-solid fa-plus"></i>
                                     <span>Guardar Categoría</span>
                                 </button>
@@ -530,8 +538,7 @@
 
                             <!-- Lista de Categorías Existentes -->
                             <div class="pt-3 border-t border-slate-100 space-y-2">
-                                <span class="text-[11px] font-bold text-slate-500 uppercase block">Categorías
-                                    Activas</span>
+                                <span class="text-[11px] font-bold text-slate-500 uppercase block">Categorías Activas</span>
                                 <div id="admin-categories-list" class="space-y-1.5">
                                     <!-- Dinámicas -->
                                 </div>
@@ -539,34 +546,30 @@
                         </div>
 
                         <!-- Formulario para Agregar Plato o Bebida -->
-                        <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:col-span-2 space-y-4">
+                        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm lg:col-span-2 space-y-3.5">
                             <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                                <div class="flex items-center space-x-2.5">
+                                <div class="flex items-center space-x-2.5 min-w-0">
                                     <div
-                                        class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200">
+                                        class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200 shrink-0">
                                         <i class="fa-solid fa-utensils text-sm"></i>
                                     </div>
-                                    <div>
-                                        <h3 class="font-bold text-sm sm:text-base text-slate-900">Agregar Plato o Bebida
-                                            a la Carta</h3>
-                                        <p class="text-[11px] text-slate-500">Se actualiza en tiempo real en los
-                                            celulares de todos los mozos</p>
+                                    <div class="min-w-0">
+                                        <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Agregar Plato o Bebida</h3>
+                                        <p class="text-[11px] text-slate-500 truncate">Se actualiza en tiempo real en los celulares</p>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Categoría
-                                        Destino</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Categoría Destino</label>
                                     <select id="new-item-cat"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                         <!-- Opciones dinámicas -->
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre del
-                                        Producto</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre del Producto</label>
                                     <input type="text" id="new-item-name" placeholder="Ej: Milanesa Napolitana XXL"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
@@ -576,15 +579,14 @@
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
                                 <div class="sm:col-span-2">
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción /
-                                        Ingredientes (Opcional)</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción / Ingredientes (Opcional)</label>
                                     <input type="text" id="new-item-desc"
                                         placeholder="Ej: Salsa fileto, jamón natural y queso gratinado con papas fritas"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
                                 <div class="flex items-end">
                                     <button onclick="addNewMenuItem()"
-                                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center space-x-1.5">
+                                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center space-x-1.5 active:scale-95">
                                         <i class="fa-solid fa-plus"></i>
                                         <span>Agregar al Menú</span>
                                     </button>
@@ -594,13 +596,11 @@
                             <!-- Catálogo Completo Agrupado -->
                             <div class="pt-4 border-t border-slate-100 space-y-3">
                                 <div class="flex items-center justify-between">
-                                    <h4 class="font-bold text-xs uppercase tracking-wider text-slate-500">Productos
-                                        Cargados en la Carta</h4>
+                                    <h4 class="font-bold text-xs uppercase tracking-wider text-slate-500">Productos Cargados</h4>
                                     <span id="admin-total-products-badge"
-                                        class="text-xs font-bold text-[#2563eb] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">0
-                                        ítems</span>
+                                        class="text-xs font-bold text-[#2563eb] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">0 ítems</span>
                                 </div>
-                                <div id="admin-menu-items-list" class="space-y-4 max-h-[420px] overflow-y-auto pr-1">
+                                <div id="admin-menu-items-list" class="space-y-4 max-h-[360px] sm:max-h-[420px] overflow-y-auto pr-1">
                                     <!-- Catálogo -->
                                 </div>
                             </div>
@@ -611,92 +611,84 @@
             </div>
 
             <!-- PESTAÑA 3: Reporte de la Noche y Descarga en PDF -->
-            <div id="admin-subview-report" class="flex-1 overflow-y-auto p-4 sm:p-6 hidden">
-                <div class="max-w-5xl mx-auto space-y-6">
+            <div id="admin-subview-report" class="flex-1 overflow-y-auto p-3 sm:p-6 hidden">
+                <div class="max-w-5xl mx-auto space-y-4 sm:space-y-6">
 
                     <!-- Barra de Acciones del Reporte -->
                     <div
-                        class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
+                        class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+                        <div class="min-w-0">
                             <span
-                                class="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563eb] px-2.5 py-0.5 rounded-full border border-blue-200">Turno
-                                en Vivo</span>
-                            <h3 class="text-lg font-bold text-slate-900 mt-1" id="report-current-date">Resumen Nocturno
-                            </h3>
-                            <p class="text-xs text-slate-500">KPIs de ventas, ranking de lo más vendido, balance de
-                                propinas y cierre</p>
+                                class="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563eb] px-2.5 py-0.5 rounded-full border border-blue-200">Turno en Vivo</span>
+                            <h3 class="text-base sm:text-lg font-bold text-slate-900 mt-1 truncate" id="report-current-date">Resumen Nocturno</h3>
+                            <p class="text-xs text-slate-500">KPIs de ventas, ranking de salida y propinas</p>
                         </div>
-                        <div class="flex flex-wrap items-center gap-2 shrink-0">
+                        <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
                             <button onclick="downloadNightReportPDF()"
-                                class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all shadow-md shadow-rose-500/20 flex items-center space-x-1.5">
+                                class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2.5 rounded-xl text-xs transition-all shadow-md shadow-rose-500/20 flex items-center justify-center space-x-1.5 active:scale-95">
                                 <i class="fa-solid fa-file-pdf"></i>
                                 <span>Descargar PDF</span>
                             </button>
                             <button onclick="copyNightReportText()"
-                                class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center space-x-1.5">
+                                class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5 active:scale-95">
                                 <i class="fa-solid fa-copy"></i>
                                 <span>Copiar Resumen</span>
                             </button>
                             <button onclick="downloadNightReportCSV()"
-                                class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center space-x-1.5">
+                                class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold px-3 py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5 active:scale-95">
                                 <i class="fa-solid fa-file-csv"></i>
                                 <span>CSV</span>
                             </button>
                             <button onclick="openCloseNightModal()"
-                                class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center space-x-1.5">
+                                class="col-span-2 sm:col-span-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center space-x-1.5 active:scale-95">
                                 <i class="fa-solid fa-box-archive"></i>
-                                <span>Guardar Cierre de Noche</span>
+                                <span>Cierre Nocturno</span>
                             </button>
                         </div>
                     </div>
 
                     <!-- Contenedor Exportable a PDF A4 -->
-                    <div id="pdf-report-container" class="space-y-5 bg-slate-50 p-1 rounded-2xl">
+                    <div id="pdf-report-container" class="space-y-4 sm:space-y-5 bg-slate-50 p-1 rounded-2xl">
                         <!-- 5 Tarjetas KPI -->
-                        <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                            <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm">
-                                <span class="text-[11px] text-slate-500 font-semibold block">Facturación Total</span>
-                                <span id="rep-kpi-total" class="text-xl font-bold text-slate-900 mt-1 block">$0</span>
-                                <span id="rep-kpi-orders" class="text-[10px] text-slate-400">0 mesas cobradas</span>
+                        <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3">
+                            <div class="bg-white border border-slate-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
+                                <span class="text-[10px] sm:text-[11px] text-slate-500 font-semibold block truncate">Facturación Total</span>
+                                <span id="rep-kpi-total" class="text-base sm:text-xl font-bold text-slate-900 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span id="rep-kpi-orders" class="text-[10px] text-slate-400 block truncate">0 mesas cobradas</span>
                             </div>
-                            <div class="bg-white border border-emerald-200 p-4 rounded-2xl shadow-sm">
-                                <span class="text-[11px] text-emerald-700 font-semibold block">Efectivo en Caja</span>
-                                <span id="rep-kpi-cash" class="text-xl font-bold text-emerald-600 mt-1 block">$0</span>
-                                <span class="text-[10px] text-slate-400">Pagos en billete</span>
+                            <div class="bg-white border border-emerald-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
+                                <span class="text-[10px] sm:text-[11px] text-emerald-700 font-semibold block truncate">Efectivo en Caja</span>
+                                <span id="rep-kpi-cash" class="text-base sm:text-xl font-bold text-emerald-600 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span class="text-[10px] text-slate-400 block truncate">Pagos en billete</span>
                             </div>
-                            <div class="bg-white border border-indigo-200 p-4 rounded-2xl shadow-sm">
-                                <span class="text-[11px] text-indigo-700 font-semibold block">Transferencias</span>
-                                <span id="rep-kpi-transfer"
-                                    class="text-xl font-bold text-indigo-600 mt-1 block">$0</span>
-                                <span class="text-[10px] text-slate-400">Pagos digitales</span>
+                            <div class="bg-white border border-indigo-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
+                                <span class="text-[10px] sm:text-[11px] text-indigo-700 font-semibold block truncate">Transferencias</span>
+                                <span id="rep-kpi-transfer" class="text-base sm:text-xl font-bold text-indigo-600 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span class="text-[10px] text-slate-400 block truncate">Pagos digitales</span>
                             </div>
-                            <div class="bg-white border border-blue-200 p-4 rounded-2xl shadow-sm">
-                                <span class="text-[11px] text-[#2563eb] font-semibold block">Pozo de Propinas</span>
-                                <span id="rep-kpi-tips" class="text-xl font-bold text-[#2563eb] mt-1 block">$0</span>
-                                <span id="rep-kpi-tip-split" class="text-[10px] text-slate-500 font-medium">$0 por
-                                    mozo</span>
+                            <div class="bg-white border border-blue-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
+                                <span class="text-[10px] sm:text-[11px] text-[#2563eb] font-semibold block truncate">Pozo de Propinas</span>
+                                <span id="rep-kpi-tips" class="text-base sm:text-xl font-bold text-[#2563eb] mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span id="rep-kpi-tip-split" class="text-[10px] text-slate-500 font-medium block truncate">$0 por mozo</span>
                             </div>
-                            <div
-                                class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm col-span-2 lg:col-span-1">
-                                <span class="text-[11px] text-slate-500 font-semibold block">Ticket Promedio</span>
-                                <span id="rep-kpi-avg" class="text-xl font-bold text-slate-900 mt-1 block">$0</span>
-                                <span class="text-[10px] text-slate-400">Promedio por mesa</span>
+                            <div class="bg-white border border-slate-200 p-3 sm:p-4 rounded-2xl shadow-sm col-span-2 lg:col-span-1 min-w-0">
+                                <span class="text-[10px] sm:text-[11px] text-slate-500 font-semibold block truncate">Ticket Promedio</span>
+                                <span id="rep-kpi-avg" class="text-base sm:text-xl font-bold text-slate-900 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span class="text-[10px] text-slate-400 block truncate">Promedio por mesa</span>
                             </div>
                         </div>
 
                         <!-- Ranking de Lo Más Vendido + Rendimiento por Mozo -->
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
                             <!-- Ranking Productos Más Vendidos -->
-                            <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col">
+                            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                                 <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
-                                    <div>
-                                        <h4 class="font-bold text-sm text-slate-900">Ranking: Lo Más Vendido del Día
-                                        </h4>
-                                        <p class="text-[11px] text-slate-500">Platos y bebidas con mayor salida y
-                                            recaudación</p>
+                                    <div class="min-w-0">
+                                        <h4 class="font-bold text-sm text-slate-900 truncate">Ranking: Más Vendido del Día</h4>
+                                        <p class="text-[11px] text-slate-500 truncate">Platos y bebidas con mayor salida</p>
                                     </div>
                                     <span
-                                        class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 font-bold">
+                                        class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 font-bold shrink-0">
                                         <i class="fa-solid fa-trophy text-xs"></i>
                                     </span>
                                 </div>
@@ -706,14 +698,14 @@
                             </div>
 
                             <!-- Rendimiento por Mozo -->
-                            <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col">
+                            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                                 <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
-                                    <div>
-                                        <h4 class="font-bold text-sm text-slate-900">Rendimiento por Mozo</h4>
-                                        <p class="text-[11px] text-slate-500">Mesas cerradas y propinas generadas</p>
+                                    <div class="min-w-0">
+                                        <h4 class="font-bold text-sm text-slate-900 truncate">Rendimiento por Mozo</h4>
+                                        <p class="text-[11px] text-slate-500 truncate">Mesas cerradas y propinas generadas</p>
                                     </div>
                                     <span
-                                        class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                                        class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
                                         <i class="fa-solid fa-user-check text-xs"></i>
                                     </span>
                                 </div>
@@ -724,17 +716,14 @@
                         </div>
 
                         <!-- Detalle Completo de Todas las Mesas de la Noche -->
-                        <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col">
+                        <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                             <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
-                                <div>
-                                    <h4 class="font-bold text-sm text-slate-900">Registro Histórico de Todas las Mesas
-                                        de la Noche</h4>
-                                    <p class="text-[11px] text-slate-500">Detalle de cada cobro, mozo, método de pago y
-                                        consumiciones</p>
+                                <div class="min-w-0">
+                                    <h4 class="font-bold text-sm text-slate-900 truncate">Registro de Todas las Mesas</h4>
+                                    <p class="text-[11px] text-slate-500 truncate">Cobros, método de pago y consumiciones</p>
                                 </div>
                                 <span id="rep-tickets-badge"
-                                    class="bg-blue-50 text-[#2563eb] text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200">0
-                                    cobros</span>
+                                    class="bg-blue-50 text-[#2563eb] text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200 shrink-0">0 cobros</span>
                             </div>
                             <div id="rep-payments-table"
                                 class="space-y-2 max-h-96 overflow-y-auto divide-y divide-slate-100 pr-1">
@@ -744,18 +733,16 @@
                     </div>
 
                     <!-- Archivo de Cierres Nocturnos Guardados -->
-                    <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-5 shadow-sm">
                         <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-                            <div class="flex items-center space-x-2.5">
+                            <div class="flex items-center space-x-2.5 min-w-0">
                                 <div
-                                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
                                     <i class="fa-solid fa-clock-rotate-left text-xs"></i>
                                 </div>
-                                <div>
-                                    <h4 class="font-bold text-sm text-slate-900">Archivo de Cierres Nocturnos Guardados
-                                    </h4>
-                                    <p class="text-[11px] text-slate-500">Historial de turnos archivados en la base de
-                                        datos</p>
+                                <div class="min-w-0">
+                                    <h4 class="font-bold text-sm text-slate-900 truncate">Archivo de Cierres Nocturnos</h4>
+                                    <p class="text-[11px] text-slate-500 truncate">Historial de turnos archivados en Neon DB</p>
                                 </div>
                             </div>
                         </div>
@@ -768,25 +755,23 @@
             </div>
 
             <!-- PESTAÑA 4: Mozos / Personal -->
-            <div id="admin-subview-staff" class="flex-1 overflow-y-auto p-4 sm:p-6 hidden">
-                <div class="max-w-3xl mx-auto space-y-6">
+            <div id="admin-subview-staff" class="flex-1 overflow-y-auto p-3 sm:p-6 hidden">
+                <div class="max-w-3xl mx-auto space-y-4 sm:space-y-6">
 
                     <!-- Formulario de Alta de Personal -->
-                    <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
                         <div class="flex items-center space-x-2.5 border-b border-slate-100 pb-3">
                             <div
-                                class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                                class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
                                 <i class="fa-solid fa-user-plus text-sm"></i>
                             </div>
-                            <div>
-                                <h3 class="font-bold text-sm sm:text-base text-slate-900">Agregar Nuevo Mozo o Usuario
-                                </h3>
-                                <p class="text-[11px] text-slate-500">Aparece de inmediato en la pantalla de ingreso de
-                                    todos los celulares</p>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Agregar Mozo o Personal</h3>
+                                <p class="text-[11px] text-slate-500 truncate">Aparece de inmediato en todos los celulares</p>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                             <div class="sm:col-span-2">
                                 <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre y Apellido</label>
                                 <input type="text" id="new-staff-name" placeholder="Ej: Valentina Torres"
@@ -802,9 +787,9 @@
                             </div>
                         </div>
 
-                        <div class="flex justify-end">
+                        <div class="flex justify-end pt-1">
                             <button onclick="addNewStaffMember()"
-                                class="bg-[#2563eb] hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all flex items-center space-x-1.5">
+                                class="w-full sm:w-auto bg-[#2563eb] hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all flex items-center justify-center space-x-1.5 active:scale-95">
                                 <i class="fa-solid fa-plus"></i>
                                 <span>Agregar al Equipo</span>
                             </button>
@@ -812,16 +797,14 @@
                     </div>
 
                     <!-- Lista de Personal Activo -->
-                    <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
                         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                            <div>
-                                <h3 class="font-bold text-sm sm:text-base text-slate-900">Personal Activo del Turno</h3>
-                                <p class="text-[11px] text-slate-500">Seguimiento de mesas cobradas, cambio de roles y
-                                    bajas</p>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Personal Activo del Turno</h3>
+                                <p class="text-[11px] text-slate-500 truncate">Seguimiento de mesas cobradas y roles</p>
                             </div>
                             <span id="staff-count-badge"
-                                class="bg-slate-100 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-full">0
-                                usuarios</span>
+                                class="bg-slate-100 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-full shrink-0">0 usuarios</span>
                         </div>
 
                         <div id="admin-staff-list" class="divide-y divide-slate-100">
@@ -830,21 +813,19 @@
                     </div>
 
                     <!-- Seguridad y Cambio de Contraseña de Acceso Admin -->
-                    <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
                         <div class="flex items-center space-x-2.5 border-b border-slate-100 pb-3">
                             <div
-                                class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                                class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
                                 <i class="fa-solid fa-key text-sm"></i>
                             </div>
-                            <div>
-                                <h3 class="font-bold text-sm sm:text-base text-slate-900">Seguridad y Clave de Acceso
-                                    (Encargado)</h3>
-                                <p class="text-[11px] text-slate-500">Modifica la clave de ingreso al panel de
-                                    administración /p>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Seguridad y Clave de Acceso</h3>
+                                <p class="text-[11px] text-slate-500 truncate">Modifica la clave de ingreso al panel de administración.</p>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                             <div>
                                 <label class="text-xs font-semibold text-slate-600 block mb-1">Contraseña Actual</label>
                                 <input type="password" inputmode="numeric" id="change-pwd-current"
@@ -858,17 +839,16 @@
                                     class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                             </div>
                             <div>
-                                <label class="text-xs font-semibold text-slate-600 block mb-1">Confirmar Nueva
-                                    Contraseña</label>
+                                <label class="text-xs font-semibold text-slate-600 block mb-1">Confirmar Nueva Contraseña</label>
                                 <input type="password" inputmode="numeric" id="change-pwd-confirm"
                                     placeholder="Repite la nueva clave"
                                     class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                             </div>
                         </div>
 
-                        <div class="flex justify-end">
+                        <div class="flex justify-end pt-1">
                             <button onclick="updateAdminPassword()"
-                                class="bg-[#2563eb] hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all flex items-center space-x-1.5">
+                                class="w-full sm:w-auto bg-[#2563eb] hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all flex items-center justify-center space-x-1.5 active:scale-95">
                                 <i class="fa-solid fa-lock"></i>
                                 <span>Actualizar Contraseña</span>
                             </button>

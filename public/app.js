@@ -1530,10 +1530,10 @@ function switchAdminTab(tabName) {
         const btn = document.getElementById(`admin-tab-${t}`);
         const view = document.getElementById(`admin-subview-${t}`);
         if (t === tabName) {
-            btn.className = "px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-[#2563eb] shadow-sm transition-all flex items-center space-x-1.5 whitespace-nowrap";
+            btn.className = "flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-[#2563eb] shadow-sm transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95";
             view.classList.remove('hidden');
         } else {
-            btn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center space-x-1.5 whitespace-nowrap";
+            btn.className = "flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95";
             view.classList.add('hidden');
         }
     });
@@ -1593,8 +1593,9 @@ function updateAdminNavButtons() {
     }
 
     if (headerSalonBtn) {
-        if (isInAdmin) headerSalonBtn.classList.remove('hidden');
-        else headerSalonBtn.classList.add('hidden');
+        // En mobile y desktop, el panel admin tiene su propio botón "Ver Salón" destacado.
+        // Ocultamos el botón duplicado de la barra superior para no saturar la pantalla.
+        headerSalonBtn.classList.add('hidden');
     }
 
     if (salonAdminBtn) {
@@ -1616,9 +1617,9 @@ function setKitchenFilter(filter) {
     filters.forEach(f => {
         const btn = document.getElementById(`kfilter-${f}`);
         if (f === filter) {
-            btn.className = "px-3 py-1 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm";
+            btn.className = "px-3 py-1.5 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm whitespace-nowrap active:scale-95";
         } else {
-            btn.className = "px-3 py-1 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all";
+            btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95";
         }
     });
     renderKitchenOrders();
@@ -1873,7 +1874,7 @@ function renderAdminMenuManager() {
                     <span class="font-bold text-slate-800">${cat.name}</span>
                     <span class="text-[10px] text-slate-400">(${cat.items.length} platos)</span>
                 </div>
-                <button onclick="deleteCategory('${cKey}')" class="text-rose-500 hover:text-rose-700 p-1" title="Eliminar Categoría">
+                <button onclick="deleteCategory('${cKey}')" class="text-rose-500 hover:text-rose-700 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors" title="Eliminar Categoría">
                     <i class="fa-solid fa-trash-can text-xs"></i>
                 </button>
             </div>
@@ -1903,7 +1904,7 @@ function renderAdminMenuManager() {
                             </div>
                             <div class="flex items-center space-x-3 shrink-0">
                                 <span class="font-bold text-slate-900">$${item.price.toLocaleString()}</span>
-                                <button onclick="deleteMenuItem('${cKey}', '${item.id}')" class="text-slate-400 hover:text-rose-600 transition-colors p-1" title="Eliminar">
+                                <button onclick="deleteMenuItem('${cKey}', '${item.id}')" class="text-slate-400 hover:text-rose-600 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors" title="Eliminar">
                                     <i class="fa-solid fa-trash-can text-xs"></i>
                                 </button>
                             </div>
@@ -2170,17 +2171,17 @@ function renderNightReportView() {
         paymentsTable.innerHTML = `<p class="text-xs text-slate-400 py-6 text-center">Todavía no hay mesas cobradas en este turno.</p>`;
     } else {
         paymentsTable.innerHTML = paymentHistory.map(p => `
-            <div class="py-2.5 flex items-center justify-between text-xs">
-                <div class="space-y-0.5">
-                    <div class="flex items-center space-x-2">
+            <div class="py-2.5 flex items-start sm:items-center justify-between gap-2 text-xs">
+                <div class="space-y-0.5 min-w-0">
+                    <div class="flex flex-wrap items-center gap-1.5">
                         <strong class="text-slate-900">${p.table}</strong>
                         <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">${p.method}</span>
                         <span class="text-[10px] text-slate-400">${p.time} • ${p.waiter}</span>
                     </div>
-                    <p class="text-[11px] text-slate-500">${p.itemsSummary}</p>
+                    <p class="text-[11px] text-slate-500 break-words">${p.itemsSummary}</p>
                 </div>
                 <div class="text-right shrink-0">
-                    <strong class="text-sm text-slate-900">$${p.total.toLocaleString()}</strong>
+                    <strong class="text-sm text-slate-900 block">$${p.total.toLocaleString()}</strong>
                     <span class="text-[11px] text-[#2563eb] block">Propina: $${p.tip.toLocaleString()}</span>
                 </div>
             </div>
@@ -2193,12 +2194,12 @@ function renderNightReportView() {
         archiveList.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Aún no se han archivado cierres nocturnos.</p>`;
     } else {
         archiveList.innerHTML = savedNightReports.map(r => `
-            <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1.5">
+            <div class="p-3 sm:p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1.5">
                 <div class="flex justify-between items-center">
-                    <span class="font-bold text-slate-900 text-sm">${r.dateStr}</span>
-                    <span class="bg-blue-50 text-[#2563eb] text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">${r.id}</span>
+                    <span class="font-bold text-slate-900 text-xs sm:text-sm truncate">${r.dateStr}</span>
+                    <span class="bg-blue-50 text-[#2563eb] text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">${r.id}</span>
                 </div>
-                <div class="flex flex-wrap gap-4 text-slate-600">
+                <div class="flex flex-wrap gap-2 sm:gap-4 text-slate-600">
                     <span>Facturado: <strong>$${r.totalSales.toLocaleString()}</strong></span>
                     <span>Efectivo: <strong>$${r.cashSales.toLocaleString()}</strong></span>
                     <span>Digital: <strong>$${r.transferSales.toLocaleString()}</strong></span>
@@ -2342,22 +2343,22 @@ function renderAdminStaffList() {
         const isMozo = s.role.includes('Mozo');
 
         return `
-            <div class="py-3 flex items-center justify-between text-xs">
-                <div class="flex items-center space-x-3">
-                    <div class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center font-bold border border-blue-200">
+            <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div class="flex items-center space-x-3 min-w-0">
+                    <div class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center font-bold border border-blue-200 shrink-0">
                         ${s.name.charAt(0)}
                     </div>
-                    <div>
-                        <h5 class="font-bold text-slate-800">${s.name}</h5>
-                        <span class="text-[11px] text-slate-400">${s.role} • ${tablesClosed} mesas cobradas</span>
+                    <div class="min-w-0">
+                        <h5 class="font-bold text-slate-800 truncate">${s.name}</h5>
+                        <span class="text-[11px] text-slate-400 block truncate">${s.role} • ${tablesClosed} mesas cobradas</span>
                     </div>
                 </div>
 
-                <div class="flex items-center space-x-2">
-                    <button onclick="toggleStaffRole('${s.id}')" class="px-2.5 py-1 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold transition-all">
+                <div class="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+                    <button onclick="toggleStaffRole('${s.id}')" class="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold transition-all text-xs active:scale-95">
                         Cambiar a ${isMozo ? 'Cocina' : 'Mozo'}
                     </button>
-                    <button onclick="removeStaffMember('${s.id}')" class="text-rose-500 hover:text-rose-700 p-1.5" title="Dar de baja">
+                    <button onclick="removeStaffMember('${s.id}')" class="text-rose-500 hover:text-rose-700 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors" title="Dar de baja">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
