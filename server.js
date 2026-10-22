@@ -241,62 +241,130 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
   const { id, table, waiterName, time, status, printed, items, total, note } = req.body;
 
   try {
-    const cmdId = id || `CMD-${Math.floor(100 + Math.random() * 900)}`;
+    // Buscar si ya existe una comanda activa para esta mesa
+    const activeRes = await pool.query(
+      "SELECT * FROM pos_kitchen_orders WHERE table_name = $1 AND status != 'paid' ORDER BY created_at DESC LIMIT 1",
+      [table]
+    );
 
-    await pool.query(`
-      INSERT INTO pos_kitchen_orders (id, table_name, waiter_name, time, status, printed, items, total, note, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, CURRENT_TIMESTAMP)
-      ON CONFLICT (id) DO UPDATE SET
-        table_name = EXCLUDED.table_name,
-        waiter_name = EXCLUDED.waiter_name,
-        time = EXCLUDED.time,
-        status = EXCLUDED.status,
-        printed = EXCLUDED.printed,
-        items = EXCLUDED.items,
-        total = EXCLUDED.total,
-        note = EXCLUDED.note
-    `, [cmdId, table, waiterName, time, status || 'pending', printed || false, JSON.stringify(items), total, note || '']);
+    let finalOrder;
 
-    const newOrder = {
-      id: cmdId,
-      table,
-      waiterName,
-      time,
-      status: status || 'pending',
-      printed: printed || false,
-      items,
-      total,
-      note: note || ''
-    };
+    if (activeRes.rows.length > 0) {
+      const existing = activeRes.rows[0];
+      const existingItems = Array.isArray(existing.items) ? existing.items : [];
+
+      const newItemsFormatted = (items || []).map(it => ({
+        id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name: it.name,
+        price: Number(it.price),
+        qty: Number(it.qty),
+        status: 'pending',
+        sentAt: time,
+        isAddon: true
+      }));
+
+      // Mantener los existentes (con su estado actual) y agregar los nuevos como 'pending'
+      const mergedItems = [...existingItems, ...newItemsFormatted];
+      const mergedTotal = mergedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+      const mergedNote = note
+        ? (existing.note ? `${existing.note} | ${note}` : note)
+        : (existing.note || '');
+
+      await pool.query(`
+        UPDATE pos_kitchen_orders
+        SET waiter_name = $1,
+            time = $2,
+            status = 'pending',
+            printed = FALSE,
+            items = $3::jsonb,
+            total = $4,
+            note = $5
+        WHERE id = $6
+      `, [waiterName || existing.waiter_name, time, JSON.stringify(mergedItems), mergedTotal, mergedNote, existing.id]);
+
+      finalOrder = {
+        id: existing.id,
+        table,
+        waiterName: waiterName || existing.waiter_name,
+        time,
+        status: 'pending',
+        printed: false,
+        items: mergedItems,
+        total: mergedTotal,
+        note: mergedNote
+      };
+    } else {
+      const cmdId = id || `CMD-${Math.floor(100 + Math.random() * 900)}`;
+      const formattedItems = (items || []).map(it => ({
+        id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name: it.name,
+        price: Number(it.price),
+        qty: Number(it.qty),
+        status: 'pending',
+        sentAt: time
+      }));
+      const calcTotal = formattedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+
+      await pool.query(`
+        INSERT INTO pos_kitchen_orders (id, table_name, waiter_name, time, status, printed, items, total, note, created_at)
+        VALUES ($1, $2, $3, $4, 'pending', FALSE, $5::jsonb, $6, $7, CURRENT_TIMESTAMP)
+      `, [cmdId, table, waiterName, time, JSON.stringify(formattedItems), calcTotal, note || '']);
+
+      finalOrder = {
+        id: cmdId,
+        table,
+        waiterName,
+        time,
+        status: 'pending',
+        printed: false,
+        items: formattedItems,
+        total: calcTotal,
+        note: note || ''
+      };
+    }
 
     broadcast({
       type: 'KITCHEN_ORDER_NEW',
-      order: newOrder
+      order: finalOrder
     });
 
-    res.json({ success: true, order: newOrder });
+    res.json({ success: true, order: finalOrder });
   } catch (err) {
     console.error('Error al enviar comanda a cocina:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 4. Cambiar estado de una comanda (pending -> ready -> delivered -> paid)
+// 4. Cambiar estado de una comanda (pending -> ready -> delivered -> paid) o actualizar platos individuales
 app.put('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, items } = req.body;
 
   try {
-    const result = await pool.query(`
-      UPDATE pos_kitchen_orders
-      SET status = $1
-      WHERE id = $2
-      RETURNING id, table_name, waiter_name, time, status, printed, items, total, note
-    `, [status, id]);
-
-    if (result.rows.length === 0) {
+    const orderRes = await pool.query("SELECT * FROM pos_kitchen_orders WHERE id = $1", [id]);
+    if (orderRes.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Comanda no encontrada' });
     }
+
+    const currentOrder = orderRes.rows[0];
+    let updatedItems = items;
+
+    if (!updatedItems) {
+      const existingItems = Array.isArray(currentOrder.items) ? currentOrder.items : [];
+      if (status === 'delivered') {
+        // Al marcar entregada, todos los ítems pendientes pasan a entregados
+        updatedItems = existingItems.map(it => ({ ...it, status: 'delivered' }));
+      } else {
+        updatedItems = existingItems;
+      }
+    }
+
+    const result = await pool.query(`
+      UPDATE pos_kitchen_orders
+      SET status = $1, items = $2::jsonb
+      WHERE id = $3
+      RETURNING id, table_name, waiter_name, time, status, printed, items, total, note
+    `, [status, JSON.stringify(updatedItems), id]);
 
     const updated = result.rows[0];
     const orderData = {

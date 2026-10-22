@@ -227,8 +227,8 @@ function handleRealtimeMessage(msg) {
 
     switch (msg.type) {
         case 'KITCHEN_ORDER_NEW':
-            // Nueva comanda enviada a cocina
-            const existingIdx = kitchenOrders.findIndex(o => o.id === msg.order.id);
+            // Nueva comanda o agregados enviados a cocina
+            const existingIdx = kitchenOrders.findIndex(o => o.id === msg.order.id || (o.table === msg.order.table && o.status !== 'paid'));
             if (existingIdx >= 0) {
                 kitchenOrders[existingIdx] = msg.order;
             } else {
@@ -239,10 +239,15 @@ function handleRealtimeMessage(msg) {
             break;
 
         case 'ORDER_STATUS_CHANGED':
-            // Estado de comanda modificado
-            const oIdx = kitchenOrders.findIndex(o => o.id === msg.id);
-            if (oIdx >= 0) {
+            // Estado de comanda o platos modificado
+            const oIdx = kitchenOrders.findIndex(o => o.id === msg.id || (msg.order && o.table === msg.order.table && o.status !== 'paid'));
+            if (oIdx >= 0 && msg.order) {
                 kitchenOrders[oIdx] = msg.order;
+            }
+
+            if (msg.status === 'delivered') {
+                waiterNotifications = waiterNotifications.filter(n => n.id !== msg.id);
+                updateWaiterNotificationUI();
             }
 
             // Si el estado es "ready", registrar la notificación
@@ -251,7 +256,7 @@ function handleRealtimeMessage(msg) {
                     id: msg.order.id,
                     table: msg.order.table,
                     time: msg.order.time,
-                    items: msg.order.items,
+                    items: (msg.order.items || []).filter(i => (i.status || msg.order.status) !== 'delivered'),
                     waiterName: msg.order.waiterName
                 });
 
@@ -722,11 +727,19 @@ function openWaiterNotificationsModal() {
                 </div>
                 
                 <div class="text-xs text-slate-700 space-y-1 bg-white/70 p-2.5 rounded-xl border border-amber-100">
-                    ${o.items.map(i => `
-                        <div class="flex justify-between">
-                            <span><strong>${i.qty}x</strong> ${i.name}</span>
-                        </div>
-                    `).join('')}
+                    ${((o.items || []).filter(i => (i.status || o.status) !== 'delivered')).length > 0 ?
+                        ((o.items || []).filter(i => (i.status || o.status) !== 'delivered')).map(i => `
+                            <div class="flex justify-between items-center">
+                                <span><strong class="text-slate-900">${i.qty}x</strong> ${i.name}</span>
+                                <span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">Listo</span>
+                            </div>
+                        `).join('') :
+                        (o.items || []).map(i => `
+                            <div class="flex justify-between items-center">
+                                <span><strong class="text-slate-900">${i.qty}x</strong> ${i.name}</span>
+                            </div>
+                        `).join('')
+                    }
                     ${o.note ? `<p class="text-amber-800 font-medium text-[11px] mt-1">>> Nota: ${o.note}</p>` : ''}
                 </div>
 
@@ -751,7 +764,12 @@ function closeWaiterNotificationsModal() {
 async function markOrderDeliveredFromNotif(cmdId) {
     // Actualizar estado en servidor y local
     const order = kitchenOrders.find(o => o.id === cmdId);
-    if (order) order.status = 'delivered';
+    if (order) {
+        order.status = 'delivered';
+        if (order.items) {
+            order.items.forEach(i => i.status = 'delivered');
+        }
+    }
 
     waiterNotifications = waiterNotifications.filter(n => n.id !== cmdId);
     updateWaiterNotificationUI();
@@ -763,7 +781,7 @@ async function markOrderDeliveredFromNotif(cmdId) {
         const res = await fetch(`/api/orders/${cmdId}/status`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'delivered' })
+            body: JSON.stringify({ status: 'delivered', items: order ? order.items : undefined })
         });
         if (res.ok) {
             isOnlineWithServer = true;
@@ -1244,11 +1262,12 @@ async function sendOrderToKitchen() {
         const diff = item.qty - sent;
         if (diff > 0) {
             newItemsToSend.push({
-                id: item.id,
+                id: item.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 name: item.name,
                 price: item.price,
                 qty: diff,
-                isAddon: sent > 0
+                isAddon: sent > 0,
+                status: 'pending'
             });
         }
     });
@@ -1258,17 +1277,16 @@ async function sendOrderToKitchen() {
         return;
     }
 
-    // Determinar si es la comanda inicial o una ronda de agregados
-    const activeTableCmds = kitchenOrders.filter(o => o.table === currentTable && o.status !== 'paid');
-    const roundNumber = activeTableCmds.length + 1;
-    const isAddon = roundNumber > 1;
+    // Buscar si ya existe una comanda activa para esta mesa
+    const existingCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
+    const isAddon = Boolean(existingCmd);
 
     const waiter = currentUser ? currentUser.name : "Mozo";
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const roundTotal = newItemsToSend.reduce((acc, i) => acc + (i.price * i.qty), 0);
-    const cmdId = `CMD-${Math.floor(100 + Math.random() * 900)}`;
+    const cmdId = existingCmd ? existingCmd.id : `CMD-${Math.floor(100 + Math.random() * 900)}`;
 
-    const newCmd = {
+    const newCmdPayload = {
         id: cmdId,
         table: currentTable,
         waiterName: waiter,
@@ -1277,8 +1295,7 @@ async function sendOrderToKitchen() {
         printed: false,
         items: newItemsToSend,
         total: roundTotal,
-        round: roundNumber,
-        note: tableOrder.note ? (tableOrder.note + (isAddon ? ` [Ronda ${roundNumber}]` : '')) : (isAddon ? `[Ronda ${roundNumber} - Agregado]` : "")
+        note: tableOrder.note || ""
     };
 
     // Marcar como enviados todos los ítems actuales de la mesa
@@ -1289,15 +1306,49 @@ async function sendOrderToKitchen() {
     // Guardar mesa actualizada (con los sentQty) en Neon DB
     saveCurrentTableState();
 
-    kitchenOrders.unshift(newCmd);
+    if (existingCmd) {
+        // Unificar en la comanda activa existente
+        const formattedNew = newItemsToSend.map(it => ({ ...it, status: 'pending', sentAt: timeStr, isAddon: true }));
+        existingCmd.items = [...(existingCmd.items || []), ...formattedNew];
+        existingCmd.total = existingCmd.items.reduce((acc, i) => acc + (i.price * i.qty), 0);
+        existingCmd.status = 'pending';
+        existingCmd.time = timeStr;
+        existingCmd.waiterName = waiter;
+        existingCmd.printed = false;
+        if (tableOrder.note) existingCmd.note = tableOrder.note;
+    } else {
+        const fullNewCmd = {
+            id: cmdId,
+            table: currentTable,
+            waiterName: waiter,
+            time: timeStr,
+            status: "pending",
+            printed: false,
+            items: newItemsToSend.map(it => ({ ...it, status: 'pending', sentAt: timeStr })),
+            total: roundTotal,
+            note: tableOrder.note || ""
+        };
+        kitchenOrders.unshift(fullNewCmd);
+    }
+
+    saveLocalState();
+    refreshActiveViews();
 
     try {
         const res = await fetch('/api/orders/send-kitchen', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newCmd)
+            body: JSON.stringify(newCmdPayload)
         });
         if (res.ok) {
+            const data = await res.json();
+            if (data.order) {
+                const idx = kitchenOrders.findIndex(o => o.id === data.order.id || (o.table === data.order.table && o.status !== 'paid'));
+                if (idx >= 0) kitchenOrders[idx] = data.order;
+                else kitchenOrders.unshift(data.order);
+                saveLocalState();
+                refreshActiveViews();
+            }
             isOnlineWithServer = true;
             setConnectionIndicator(true);
         }
@@ -1310,8 +1361,8 @@ async function sendOrderToKitchen() {
 
     // Notificación sutil no intrusiva de éxito
     const toastMsg = isAddon
-        ? `Agregado (Ronda ${roundNumber}) enviado a cocina (${newCmd.table})`
-        : `Comanda enviada a cocina (${newCmd.table})`;
+        ? `Nuevos platos agregados a la comanda de ${currentTable}`
+        : `Comanda de ${currentTable} enviada a cocina`;
     showToast(toastMsg, 'success');
 }
 
@@ -1609,19 +1660,10 @@ function updateAdminNavButtons() {
     }
 }
 
-// ================= PESTAÑA 1: COCINA EN VIVO =================
+// ================= PESTAÑA 1: COCINA EN VIVO (TABLERO UNIFICADO POR MESA) =================
 
 function setKitchenFilter(filter) {
     kitchenFilterStatus = filter;
-    const filters = ['all', 'pending', 'ready', 'delivered'];
-    filters.forEach(f => {
-        const btn = document.getElementById(`kfilter-${f}`);
-        if (f === filter) {
-            btn.className = "px-3 py-1.5 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm whitespace-nowrap active:scale-95";
-        } else {
-            btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95";
-        }
-    });
     renderKitchenOrders();
 }
 
@@ -1629,106 +1671,217 @@ function renderKitchenOrders() {
     const container = document.getElementById('kitchen-orders-grid');
     if (!container) return;
 
-    let filtered = kitchenOrders.filter(o => o.status !== 'paid');
+    // Solo comandas de mesas activas (no cobradas)
+    const activeOrders = kitchenOrders.filter(o => o.status !== 'paid');
 
-    if (kitchenFilterStatus !== 'all') {
-        filtered = filtered.filter(o => o.status === kitchenFilterStatus);
+    // Calcular contadores por pestaña
+    const countAll = activeOrders.length;
+    const countPending = activeOrders.filter(o => {
+        const pending = (o.items || []).filter(i => (i.status || o.status) !== 'delivered');
+        return pending.length > 0 || o.status === 'pending' || o.status === 'ready';
+    }).length;
+    const countReady = activeOrders.filter(o => o.status === 'ready').length;
+    const countDelivered = activeOrders.filter(o => {
+        const pending = (o.items || []).filter(i => (i.status || o.status) !== 'delivered');
+        return pending.length === 0 || o.status === 'delivered';
+    }).length;
+
+    // Actualizar badges y estilo en los botones de filtro
+    const filterDefs = [
+        { id: 'all', label: `Todas (${countAll})` },
+        { id: 'pending', label: `Pendientes (${countPending})` },
+        { id: 'ready', label: `¡Listos! (${countReady})` },
+        { id: 'delivered', label: `Entregadas (${countDelivered})` }
+    ];
+
+    filterDefs.forEach(f => {
+        const btn = document.getElementById(`kfilter-${f.id}`);
+        if (!btn) return;
+        btn.innerText = f.label;
+        if (f.id === kitchenFilterStatus) {
+            btn.className = "px-3 py-1.5 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm whitespace-nowrap active:scale-95";
+        } else {
+            btn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95";
+        }
+    });
+
+    let filtered = activeOrders;
+    if (kitchenFilterStatus === 'pending') {
+        filtered = activeOrders.filter(o => {
+            const pending = (o.items || []).filter(i => (i.status || o.status) !== 'delivered');
+            return pending.length > 0 || o.status === 'pending' || o.status === 'ready';
+        });
+    } else if (kitchenFilterStatus === 'ready') {
+        filtered = activeOrders.filter(o => o.status === 'ready');
+    } else if (kitchenFilterStatus === 'delivered') {
+        filtered = activeOrders.filter(o => {
+            const pending = (o.items || []).filter(i => (i.status || o.status) !== 'delivered');
+            return pending.length === 0 || o.status === 'delivered';
+        });
     }
 
     if (filtered.length === 0) {
+        let emptyMsg = "No hay comandas activas en cocina.";
+        if (kitchenFilterStatus === 'pending') emptyMsg = "¡Todo al día! No hay platos pendientes por preparar en cocina.";
+        else if (kitchenFilterStatus === 'ready') emptyMsg = "No hay pedidos listos esperando ser retirados por los mozos.";
+        else if (kitchenFilterStatus === 'delivered') emptyMsg = "Aún no hay comandas entregadas en esta jornada.";
+
         container.innerHTML = `
-            <div class="col-span-full text-center py-12 text-slate-400 space-y-2">
-                <i class="fa-solid fa-utensils text-2xl"></i>
-                <p class="text-xs">No hay comandas con el filtro seleccionado.</p>
+            <div class="col-span-full text-center py-12 bg-white rounded-2xl border border-slate-200/80 shadow-sm text-slate-400 space-y-2.5 p-6">
+                <div class="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto text-xl">
+                    <i class="fa-solid fa-utensils"></i>
+                </div>
+                <p class="text-xs font-medium text-slate-500">${emptyMsg}</p>
             </div>
         `;
         return;
     }
 
     container.innerHTML = filtered.map(cmd => {
-        let statusBadge = "bg-amber-100 text-amber-800 border-amber-300";
-        let statusText = "Pendiente";
-        let cardBorder = "border-slate-200";
+        const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
+        const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
+        const pendingQty = pendingItems.reduce((acc, i) => acc + (Number(i.qty) || 1), 0);
+        const deliveredQty = deliveredItems.reduce((acc, i) => acc + (Number(i.qty) || 1), 0);
+
+        let statusBadge = "";
+        let cardBorder = "border-slate-200 bg-white";
 
         if (cmd.status === 'ready') {
-            statusBadge = "bg-blue-100 text-[#2563eb] border-blue-300";
-            statusText = "¡Listo para Mozo!";
-            cardBorder = "border-blue-400 ring-2 ring-blue-300/40 bg-blue-50/20";
-        } else if (cmd.status === 'delivered') {
-            statusBadge = "bg-emerald-100 text-emerald-800 border-emerald-300";
-            statusText = "Entregada en Mesa";
-            cardBorder = "border-emerald-300";
+            statusBadge = `
+                <span class="bg-blue-600 text-white px-2.5 py-1 rounded-full text-[11px] font-extrabold shadow-sm animate-pulse flex items-center gap-1.5">
+                    <i class="fa-solid fa-bell"></i>
+                    <span>¡Listo para Mozo!</span>
+                </span>
+            `;
+            cardBorder = "border-blue-400 ring-2 ring-blue-300/40 bg-blue-50/15";
+        } else if (pendingItems.length > 0) {
+            statusBadge = `
+                <span class="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5">
+                    <i class="fa-solid fa-fire text-amber-600"></i>
+                    <span>Por Cocinar (${pendingQty})</span>
+                </span>
+            `;
+            cardBorder = "border-amber-300 ring-1 ring-amber-200/60 bg-white";
+        } else {
+            statusBadge = `
+                <span class="bg-emerald-100 text-emerald-900 border border-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5">
+                    <i class="fa-solid fa-circle-check text-emerald-600"></i>
+                    <span>Todo Entregado (${deliveredQty})</span>
+                </span>
+            `;
+            cardBorder = "border-emerald-300 bg-emerald-50/10";
         }
 
         return `
-            <div class="bg-white border rounded-2xl p-4 shadow-sm flex flex-col justify-between space-y-3 ${cardBorder}">
-                <div class="space-y-2.5">
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <div>
-                            <span class="text-xs font-bold text-slate-400 block">${cmd.id}</span>
-                            <div class="flex items-center gap-1.5 flex-wrap">
-                                <h3 class="text-lg font-bold text-slate-900">${cmd.table}</h3>
-                                ${(cmd.round && cmd.round > 1) ? `
-                                    <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
-                                        Ronda ${cmd.round} (Agregado)
-                                    </span>
-                                ` : ''}
-                            </div>
+            <div class="border rounded-2xl p-4 shadow-sm flex flex-col justify-between space-y-3.5 transition-all ${cardBorder}">
+                <div class="space-y-3">
+                    <!-- Encabezado de la comanda de la mesa -->
+                    <div class="flex items-start justify-between border-b border-slate-100 pb-2.5 gap-2">
+                        <div class="min-w-0">
+                            <span class="text-[11px] font-bold text-slate-400 block">${cmd.id}</span>
+                            <h3 class="text-lg font-black text-slate-900 truncate">${cmd.table}</h3>
+                            <span class="text-[11px] text-slate-500 font-medium">Mozo: <strong class="text-slate-800">${cmd.waiterName}</strong></span>
                         </div>
-                        <div class="text-right">
-                            <span class="text-[11px] text-slate-400 font-semibold block">${cmd.time} hs</span>
-                            <span class="text-[11px] text-slate-600 font-medium">Mozo: <strong>${cmd.waiterName}</strong></span>
+                        <div class="flex flex-col items-end gap-1 shrink-0">
+                            ${statusBadge}
+                            <span class="text-[10px] text-slate-400 font-semibold">${cmd.time} hs</span>
                         </div>
                     </div>
 
-                    <div class="space-y-1.5 py-1">
-                        ${cmd.items.map(i => `
-                            <div class="flex justify-between items-center text-xs">
-                                <span class="font-bold text-slate-800">
-                                    <span class="inline-block bg-blue-50 text-[#2563eb] px-1.5 py-0.5 rounded font-bold mr-1">${i.qty}x</span>
-                                    ${i.name}
+                    <!-- SECTOR 1: PLATOS POR PREPARAR AHORA (PENDIENTES) -->
+                    ${pendingItems.length > 0 ? `
+                        <div class="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-3 space-y-2">
+                            <div class="flex items-center justify-between text-xs font-bold text-amber-950 border-b border-amber-200/70 pb-1.5">
+                                <span class="flex items-center gap-1.5">
+                                    <i class="fa-solid fa-fire text-amber-600"></i>
+                                    <span>POR PREPARAR AHORA (${pendingQty})</span>
                                 </span>
-                                <span class="text-slate-400 text-[11px]">$${(i.price * i.qty).toLocaleString()}</span>
+                                <span class="text-[10px] text-amber-700 font-semibold">${cmd.time} hs</span>
                             </div>
-                        `).join('')}
-                    </div>
+                            <div class="space-y-1.5">
+                                ${pendingItems.map((item, idx) => `
+                                    <div class="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg bg-white/70 border border-amber-100">
+                                        <div class="flex items-center space-x-2 min-w-0">
+                                            <span class="inline-block bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md font-black text-xs shrink-0">${item.qty}x</span>
+                                            <span class="font-bold text-slate-900 truncate">${item.name}</span>
+                                            ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0">Agregado</span>' : ''}
+                                        </div>
+                                        <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}')" title="Marcar este plato como entregado" class="ml-2 px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
+                                            <i class="fa-solid fa-check"></i>
+                                            <span class="hidden sm:inline">Entregar</span>
+                                        </button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
 
+                    <!-- SECTOR 2: YA ENTREGADOS EN MESA (ACUMULADOS) -->
+                    ${deliveredItems.length > 0 ? `
+                        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 space-y-1.5">
+                            <div class="flex items-center justify-between text-[11px] font-bold text-slate-600 border-b border-slate-200 pb-1">
+                                <span class="flex items-center gap-1.5">
+                                    <i class="fa-solid fa-circle-check text-emerald-600"></i>
+                                    <span>YA ENTREGADOS EN MESA (${deliveredQty})</span>
+                                </span>
+                            </div>
+                            <div class="space-y-1 max-h-36 overflow-y-auto pr-1">
+                                ${deliveredItems.map(item => `
+                                    <div class="flex items-center justify-between py-0.5 px-1 text-[11px]">
+                                        <span class="flex items-center space-x-1.5 text-slate-600 truncate">
+                                            <i class="fa-solid fa-check text-emerald-500 text-[10px] shrink-0"></i>
+                                            <span class="truncate"><strong>${item.qty}x</strong> ${item.name}</span>
+                                        </span>
+                                        <span class="text-slate-400 text-[10px] shrink-0 ml-1">$${((item.price || 0) * (item.qty || 1)).toLocaleString()}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- SECTOR 3: OBSERVACIONES -->
                     ${cmd.note ? `
-                        <div class="bg-amber-50 border border-amber-200 rounded-xl p-2 text-xs text-amber-800 font-medium">
+                        <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-2 text-xs text-amber-900 font-medium">
                             <span class="font-bold uppercase text-[10px] block">Observaciones:</span>
                             >> ${cmd.note}
                         </div>
                     ` : ''}
                 </div>
 
-                <div class="pt-3 border-t border-slate-100 space-y-2">
-                    <div class="flex justify-between items-center text-xs">
-                        <span class="text-slate-500 font-medium">Estado:</span>
-                        <span class="px-2 py-0.5 rounded-full border text-[10px] font-bold ${statusBadge}">
-                            ${statusText}
-                        </span>
-                    </div>
+                <!-- Footer de la tarjeta y botones de acción -->
+                <div class="pt-3 border-t border-slate-100 space-y-2.5">
+                    ${pendingItems.length > 0 ? `
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="updateOrderStatus('${cmd.id}', 'ready')" class="py-2.5 px-2 text-xs font-bold rounded-xl border ${cmd.status === 'ready' ? 'bg-[#2563eb] text-white border-[#2563eb] shadow-sm' : 'bg-blue-50 text-[#2563eb] border-blue-200 hover:bg-blue-100'} transition-all active:scale-95 flex items-center justify-center space-x-1.5 cursor-pointer">
+                                <i class="fa-solid fa-bell"></i>
+                                <span>${cmd.status === 'ready' ? '¡Listo Avisado!' : '¡Avisar Listo!'}</span>
+                            </button>
+                            <button onclick="deliverAllPendingForTable('${cmd.id}')" class="py-2.5 px-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95 shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer">
+                                <i class="fa-solid fa-check-double"></i>
+                                <span>Entregar Todo</span>
+                            </button>
+                        </div>
+                    ` : `
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex-1 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-center text-xs font-bold text-emerald-700 flex items-center justify-center space-x-1.5">
+                                <i class="fa-solid fa-circle-check"></i>
+                                <span>Todo entregado en mesa</span>
+                            </div>
+                            <button onclick="reopenTableOrderToPending('${cmd.id}')" class="px-2.5 py-2 text-[11px] font-semibold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all cursor-pointer" title="Reabrir a pendiente">
+                                <i class="fa-solid fa-rotate-left"></i>
+                            </button>
+                        </div>
+                    `}
 
-                    <!-- Botones de Acción de Estado -->
-                    <div class="grid grid-cols-3 gap-1.5 pt-1">
-                        <button onclick="updateOrderStatus('${cmd.id}', 'pending')" class="py-1.5 text-[11px] font-bold rounded-xl border ${cmd.status === 'pending' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'} transition-all">
-                            Pendiente
-                        </button>
-                        <button onclick="updateOrderStatus('${cmd.id}', 'ready')" class="py-1.5 text-[11px] font-bold rounded-xl border ${cmd.status === 'ready' ? 'bg-[#2563eb] text-white border-[#2563eb]' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'} transition-all">
-                            ¡Listo!
-                        </button>
-                        <button onclick="updateOrderStatus('${cmd.id}', 'delivered')" class="py-1.5 text-[11px] font-bold rounded-xl border ${cmd.status === 'delivered' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'} transition-all">
-                            Entregado
-                        </button>
-                    </div>
-
-                    <!-- Botón de Ticket Térmico -->
-                    <div class="pt-1 flex items-center justify-between">
-                        <button onclick="openKitchenTicketPrint('${cmd.id}')" class="text-slate-500 hover:text-slate-800 text-[11px] font-semibold flex items-center space-x-1">
+                    <div class="pt-1 flex items-center justify-between border-t border-slate-50">
+                        <button onclick="openKitchenTicketPrint('${cmd.id}')" class="text-slate-500 hover:text-slate-800 text-[11px] font-semibold flex items-center space-x-1 cursor-pointer">
                             <i class="fa-solid fa-print"></i>
                             <span>${cmd.printed ? 'Ticket (Impreso)' : 'Imprimir Ticket'}</span>
                         </button>
-                        <strong class="text-xs text-slate-900">$${cmd.total.toLocaleString()}</strong>
+                        <div class="text-right">
+                            <span class="text-[10px] text-slate-400 block font-medium">Total Mesa:</span>
+                            <strong class="text-xs sm:text-sm font-black text-slate-900">$${cmd.total.toLocaleString()}</strong>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1748,9 +1901,15 @@ async function updateOrderStatus(id, newStatus) {
             id: cmd.id,
             table: cmd.table,
             time: cmd.time,
-            items: cmd.items,
+            items: (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered'),
             waiterName: cmd.waiterName
         });
+        updateWaiterNotificationUI();
+    } else if (newStatus === 'delivered') {
+        if (cmd.items) {
+            cmd.items.forEach(i => i.status = 'delivered');
+        }
+        waiterNotifications = waiterNotifications.filter(n => n.id !== id);
         updateWaiterNotificationUI();
     }
 
@@ -1762,7 +1921,7 @@ async function updateOrderStatus(id, newStatus) {
         const res = await fetch(`/api/orders/${id}/status`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus })
+            body: JSON.stringify({ status: newStatus, items: cmd.items })
         });
         if (res.ok) {
             isOnlineWithServer = true;
@@ -1770,6 +1929,91 @@ async function updateOrderStatus(id, newStatus) {
         }
     } catch (e) {
         console.warn('Error actualizando comanda en base de datos:', e);
+    }
+}
+
+async function deliverIndividualKitchenItem(cmdId, itemIdOrName) {
+    const cmd = kitchenOrders.find(o => o.id === cmdId);
+    if (!cmd || !cmd.items) return;
+
+    const item = cmd.items.find(i => (i.id === itemIdOrName || i.name === itemIdOrName) && (i.status || cmd.status) !== 'delivered');
+    if (!item) return;
+
+    item.status = 'delivered';
+
+    const hasRemainingPending = cmd.items.some(i => (i.status || cmd.status) !== 'delivered');
+    cmd.status = hasRemainingPending ? 'pending' : 'delivered';
+
+    if (!hasRemainingPending) {
+        waiterNotifications = waiterNotifications.filter(n => n.id !== cmdId);
+        updateWaiterNotificationUI();
+    }
+
+    saveLocalState();
+    renderKitchenOrders();
+    renderTablesGrid();
+
+    try {
+        await fetch(`/api/orders/${cmdId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: cmd.status, items: cmd.items })
+        });
+    } catch (e) {
+        console.warn('Error sincronizando plato entregado:', e);
+    }
+}
+
+async function deliverAllPendingForTable(cmdId) {
+    const cmd = kitchenOrders.find(o => o.id === cmdId);
+    if (!cmd || !cmd.items) return;
+
+    cmd.items.forEach(i => {
+        i.status = 'delivered';
+    });
+    cmd.status = 'delivered';
+
+    waiterNotifications = waiterNotifications.filter(n => n.id !== cmdId);
+    updateWaiterNotificationUI();
+
+    saveLocalState();
+    renderKitchenOrders();
+    renderTablesGrid();
+
+    try {
+        await fetch(`/api/orders/${cmdId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'delivered', items: cmd.items })
+        });
+    } catch (e) {
+        console.warn('Error sincronizando entrega:', e);
+    }
+
+    showToast(`Comanda de ${cmd.table} entregada en mesa`, 'success');
+}
+
+async function reopenTableOrderToPending(cmdId) {
+    const cmd = kitchenOrders.find(o => o.id === cmdId);
+    if (!cmd) return;
+
+    cmd.status = 'pending';
+    if (cmd.items) {
+        cmd.items.forEach(i => i.status = 'pending');
+    }
+
+    saveLocalState();
+    renderKitchenOrders();
+    renderTablesGrid();
+
+    try {
+        await fetch(`/api/orders/${cmdId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'pending', items: cmd.items })
+        });
+    } catch (e) {
+        console.warn('Error reabriendo comanda:', e);
     }
 }
 
@@ -1782,14 +2026,10 @@ function openKitchenTicketPrint(cmdId) {
     cmd.printed = true;
     saveLocalState();
 
-    fetch(`/api/orders/${cmdId}/print`, { method: 'PUT' })
-        .then(res => {
-            if (res.ok) {
-                isOnlineWithServer = true;
-                setConnectionIndicator(true);
-            }
-        })
-        .catch(e => console.warn(e));
+    fetch(`/api/orders/${cmdId}/print`, { method: 'PUT' }).catch(e => console.warn(e));
+
+    const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
+    const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
@@ -1817,18 +2057,35 @@ function openKitchenTicketPrint(cmdId) {
             </div>
         </div>
 
-        <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5">
-            <div class="flex justify-between font-bold text-[10px] uppercase text-slate-500">
-                <span>CANT. / DETALLE</span>
-                <span>SUBTOTAL</span>
-            </div>
-            ${cmd.items.map(i => `
-                <div class="flex justify-between items-start text-xs font-bold">
-                    <span>${i.qty}x ${i.name}</span>
-                    <span>$${(i.price * i.qty).toLocaleString()}</span>
+        ${pendingItems.length > 0 ? `
+            <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5">
+                <div class="flex justify-between font-bold text-[10px] uppercase text-black">
+                    <span>* POR PREPARAR / PENDIENTES *</span>
+                    <span>SUBTOTAL</span>
                 </div>
-            `).join('')}
-        </div>
+                ${pendingItems.map(i => `
+                    <div class="flex justify-between items-start text-xs font-black">
+                        <span>${i.qty}x ${i.name} ${i.isAddon ? '(AGREGADO)' : ''}</span>
+                        <span>$${(i.price * i.qty).toLocaleString()}</span>
+                    </div>
+                `).join('')}
+            </div>
+        ` : ''}
+
+        ${deliveredItems.length > 0 ? `
+            <div class="py-2 border-b border-dashed border-slate-400 space-y-1 text-slate-600">
+                <div class="flex justify-between font-semibold text-[9px] uppercase text-slate-500">
+                    <span>[ YA ENTREGADOS ANTERIORMENTE ]</span>
+                    <span>SUBTOTAL</span>
+                </div>
+                ${deliveredItems.map(i => `
+                    <div class="flex justify-between items-start text-[11px]">
+                        <span>✓ ${i.qty}x ${i.name}</span>
+                        <span>$${(i.price * i.qty).toLocaleString()}</span>
+                    </div>
+                `).join('')}
+            </div>
+        ` : ''}
 
         ${cmd.note ? `
             <div class="py-2 border-b border-dashed border-slate-400">
@@ -1838,7 +2095,7 @@ function openKitchenTicketPrint(cmdId) {
         ` : ''}
 
         <div class="pt-2 flex justify-between items-center text-sm font-bold">
-            <span>TOTAL:</span>
+            <span>TOTAL MESA:</span>
             <span>$${cmd.total.toLocaleString()}</span>
         </div>
     `;

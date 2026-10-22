@@ -170,6 +170,46 @@ async function initDatabase() {
       `, [tbl]);
     }
 
+    // Consolidar comandas activas por mesa para que cada mesa tenga 1 sola comanda en cocina
+    const activeOrdersRes = await client.query("SELECT * FROM pos_kitchen_orders WHERE status != 'paid' ORDER BY created_at ASC");
+    const byTable = {};
+    for (const r of activeOrdersRes.rows) {
+      if (!byTable[r.table_name]) byTable[r.table_name] = [];
+      byTable[r.table_name].push(r);
+    }
+    for (const tbl of Object.keys(byTable)) {
+      const orders = byTable[tbl];
+      if (orders.length > 1) {
+        const target = orders[orders.length - 1];
+        let mergedItems = [];
+        let mergedTotal = 0;
+        let hasPending = false;
+        let notes = [];
+        for (const ord of orders) {
+          const items = Array.isArray(ord.items) ? ord.items : [];
+          for (const it of items) {
+            const itemStatus = it.status || (ord.status === 'delivered' ? 'delivered' : 'pending');
+            if (itemStatus === 'pending') hasPending = true;
+            mergedItems.push({
+              ...it,
+              status: itemStatus
+            });
+            mergedTotal += Number(it.price || 0) * Number(it.qty || 1);
+          }
+          if (ord.note && !notes.includes(ord.note)) notes.push(ord.note);
+        }
+        const finalStatus = hasPending ? 'pending' : 'delivered';
+        await client.query(`
+          UPDATE pos_kitchen_orders
+          SET items = $1::jsonb, total = $2, status = $3, note = $4
+          WHERE id = $5
+        `, [JSON.stringify(mergedItems), mergedTotal, finalStatus, notes.join(' | '), target.id]);
+
+        const idsToDelete = orders.slice(0, orders.length - 1).map(o => o.id);
+        await client.query("DELETE FROM pos_kitchen_orders WHERE id = ANY($1)", [idsToDelete]);
+      }
+    }
+
     await client.query('COMMIT');
     console.log('Base de datos Neon PostgreSQL conectada y sincronizada.');
   } catch (err) {
