@@ -914,9 +914,9 @@ function renderTablesGrid() {
                 isReadyInKitchen = true;
             } else if (hasUnsentItems) {
                 statusText = "Comanda sin enviar";
-                statusBadge = "bg-orange-500 text-white border-orange-600 font-extrabold shadow-sm";
-                borderClass = "border-2 border-orange-500 bg-orange-50/60 shadow-md ring-2 ring-orange-300/50 animate-pulse";
-                dotColor = "bg-orange-500 animate-pulse";
+                statusBadge = "bg-amber-100 text-amber-900 border-amber-300 font-bold";
+                borderClass = "border-amber-400 bg-amber-50/30 hover:border-amber-500";
+                dotColor = "bg-amber-500";
             } else if (activeCmd.status === 'pending') {
                 statusText = "En Preparación";
                 statusBadge = "bg-blue-50 text-[#2563eb] border-blue-200 font-semibold";
@@ -931,9 +931,9 @@ function renderTablesGrid() {
         } else if (hasLocalItems) {
             if (hasUnsentItems) {
                 statusText = "Comanda sin enviar";
-                statusBadge = "bg-orange-500 text-white border-orange-600 font-extrabold shadow-sm";
-                borderClass = "border-2 border-orange-500 bg-orange-50/70 shadow-md ring-2 ring-orange-400/50 animate-pulse";
-                dotColor = "bg-orange-500 animate-pulse";
+                statusBadge = "bg-amber-100 text-amber-900 border-amber-300 font-bold";
+                borderClass = "border-amber-400 bg-amber-50/30 hover:border-amber-500";
+                dotColor = "bg-amber-500";
             } else {
                 statusText = "Ocupada";
                 statusBadge = "bg-slate-100 text-slate-700 border-slate-200 font-semibold";
@@ -965,11 +965,6 @@ function renderTablesGrid() {
                         <span class="text-[10px] px-2 py-0.5 rounded-full border ${statusBadge} flex items-center gap-1">
                             ${statusText}
                         </span>
-                        ${(hasUnsentItems && activeCmd) ? `
-                            <span class="text-[10px] px-1.5 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold">
-                                + Agregados nuevos
-                            </span>
-                        ` : ''}
                     </div>
 
                     ${isReadyInKitchen ? `
@@ -986,11 +981,8 @@ function renderTablesGrid() {
                 </div>
 
                 ${total > 0 ? `
-                    <div class="pt-3 border-t border-slate-100 mt-3 flex items-center space-x-1.5" onclick="event.stopPropagation()">
-                        <button onclick="openTableBillTicketPrint('${tName}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-2 rounded-xl text-xs border border-slate-300 transition-all flex items-center justify-center cursor-pointer shadow-sm" title="Imprimir Ticket Mesa (Pre-cuenta)">
-                            <i class="fa-solid fa-print"></i>
-                        </button>
-                        <button onclick="openPaymentByTable('${tName}')" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5">
+                    <div class="pt-3 border-t border-slate-100 mt-3" onclick="event.stopPropagation()">
+                        <button onclick="openPaymentByTable('${tName}')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer">
                             <i class="fa-solid fa-cash-register"></i>
                             <span>Cobrar ($${total.toLocaleString()})</span>
                         </button>
@@ -1840,71 +1832,77 @@ function renderMenuGrid() {
 
     const currentItems = (ordersByTable[currentTable] && ordersByTable[currentTable].items) || [];
 
-    // TRES BOTONES EN LA SECCIÓN DE PIZZAS (1 gusto, 2 gustos, 3 gustos)
-    let pizzaToolbarHtml = '';
-    if (isPizzasView) {
-        let statusBarHtml = '';
-        if (pizzaSelectionMode === 2) {
-            if (selectedPizzaFlavors.length === 0) {
-                statusBarHtml = `
-                    <div class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-900 flex items-center justify-between">
-                        <span>Modo 2 Gustos: selecciona el primer gusto...</span>
-                    </div>
-                `;
-            } else if (selectedPizzaFlavors.length === 1) {
-                statusBarHtml = `
-                    <div class="bg-blue-100 border border-blue-300 rounded-xl px-3 py-2 text-xs text-blue-950 flex items-center justify-between font-medium">
-                        <span>Gusto 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo gusto para agregar.</span>
-                        <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
-                    </div>
-                `;
+    // Barra de Modos de Pizza (1 Gusto, 2 Gustos, 3 Gustos) situada FUERA de menu-grid
+    const modesBar = document.getElementById('pizza-modes-bar');
+    if (modesBar) {
+        if (isPizzasView) {
+            modesBar.classList.remove('hidden');
+            let statusBarHtml = '';
+            if (pizzaSelectionMode === 2) {
+                if (selectedPizzaFlavors.length === 0) {
+                    statusBarHtml = `
+                        <div class="mt-2 py-1.5 px-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between">
+                            <span>Modo 2 Gustos: selecciona el <strong>primer gusto</strong>...</span>
+                        </div>
+                    `;
+                } else if (selectedPizzaFlavors.length === 1) {
+                    statusBarHtml = `
+                        <div class="mt-2 py-1.5 px-3 bg-blue-100 border border-blue-300 rounded-xl text-xs text-blue-950 flex items-center justify-between font-medium">
+                            <span>Gusto 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo gusto.</span>
+                            <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-xs font-bold hover:underline cursor-pointer">Cancelar</button>
+                        </div>
+                    `;
+                }
+            } else if (pizzaSelectionMode === 3) {
+                if (selectedPizzaFlavors.length === 0) {
+                    statusBarHtml = `
+                        <div class="mt-2 py-1.5 px-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-center justify-between">
+                            <span>Modo 3 Gustos ($20.000 fijo): selecciona el <strong>primer gusto</strong>...</span>
+                        </div>
+                    `;
+                } else if (selectedPizzaFlavors.length === 1) {
+                    statusBarHtml = `
+                        <div class="mt-2 py-1.5 px-3 bg-indigo-100 border border-indigo-300 rounded-xl text-xs text-indigo-950 flex items-center justify-between font-medium">
+                            <span>Gusto 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo gusto...</span>
+                            <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-xs font-bold hover:underline cursor-pointer">Cancelar</button>
+                        </div>
+                    `;
+                } else if (selectedPizzaFlavors.length === 2) {
+                    statusBarHtml = `
+                        <div class="mt-2 py-1.5 px-3 bg-indigo-100 border border-indigo-300 rounded-xl text-xs text-indigo-950 flex items-center justify-between font-medium">
+                            <span>${selectedPizzaFlavors[0].name} / ${selectedPizzaFlavors[1].name}. Marca el 3er gusto para agregar ($20.000).</span>
+                            <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-xs font-bold hover:underline cursor-pointer">Cancelar</button>
+                        </div>
+                    `;
+                }
             }
-        } else if (pizzaSelectionMode === 3) {
-            if (selectedPizzaFlavors.length === 0) {
-                statusBarHtml = `
-                    <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2 text-xs text-indigo-900 flex items-center justify-between">
-                        <span>Modo 3 Gustos ($20.000 fijo): selecciona el primer gusto...</span>
-                    </div>
-                `;
-            } else if (selectedPizzaFlavors.length === 1) {
-                statusBarHtml = `
-                    <div class="bg-indigo-100 border border-indigo-300 rounded-xl px-3 py-2 text-xs text-indigo-950 flex items-center justify-between font-medium">
-                        <span>Gusto 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo gusto...</span>
-                        <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
-                    </div>
-                `;
-            } else if (selectedPizzaFlavors.length === 2) {
-                statusBarHtml = `
-                    <div class="bg-indigo-100 border border-indigo-300 rounded-xl px-3 py-2 text-xs text-indigo-950 flex items-center justify-between font-medium">
-                        <span>${selectedPizzaFlavors[0].name} / ${selectedPizzaFlavors[1].name}. Marca el tercer gusto para agregar ($20.000).</span>
-                        <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
-                    </div>
-                `;
-            }
-        }
 
-        pizzaToolbarHtml = `
-            <div class="col-span-full space-y-2 mb-2">
-                <div class="bg-white border border-slate-200 rounded-2xl p-1.5 shadow-sm grid grid-cols-3 gap-1.5">
-                    <button type="button" onclick="setPizzaSelectionMode(1)"
-                        class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 1 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
-                        <span>1 Gusto</span>
-                        <span class="text-[10px] font-normal ${pizzaSelectionMode === 1 ? 'text-blue-100' : 'text-slate-400'}">Entera</span>
-                    </button>
-                    <button type="button" onclick="setPizzaSelectionMode(2)"
-                        class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 2 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
-                        <span>2 Gustos</span>
-                        <span class="text-[10px] font-normal ${pizzaSelectionMode === 2 ? 'text-blue-100' : 'text-slate-400'}">Mitad y mitad</span>
-                    </button>
-                    <button type="button" onclick="setPizzaSelectionMode(3)"
-                        class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 3 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
-                        <span>3 Gustos</span>
-                        <span class="text-[10px] font-normal ${pizzaSelectionMode === 3 ? 'text-blue-100' : 'text-slate-400'}">$20.000 fijo</span>
-                    </button>
+            modesBar.innerHTML = `
+                <div class="bg-white border border-slate-200 rounded-2xl p-1.5 shadow-sm">
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <button type="button" onclick="setPizzaSelectionMode(1)"
+                            class="py-2 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 1 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
+                            <span>1 Gusto</span>
+                            <span class="text-[10px] font-normal ${pizzaSelectionMode === 1 ? 'text-blue-100' : 'text-slate-400'}">Entera</span>
+                        </button>
+                        <button type="button" onclick="setPizzaSelectionMode(2)"
+                            class="py-2 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 2 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
+                            <span>2 Gustos</span>
+                            <span class="text-[10px] font-normal ${pizzaSelectionMode === 2 ? 'text-blue-100' : 'text-slate-400'}">Mitad y mitad</span>
+                        </button>
+                        <button type="button" onclick="setPizzaSelectionMode(3)"
+                            class="py-2 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 3 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
+                            <span>3 Gustos</span>
+                            <span class="text-[10px] font-normal ${pizzaSelectionMode === 3 ? 'text-blue-100' : 'text-slate-400'}">$20.000 fijo</span>
+                        </button>
+                    </div>
+                    ${statusBarHtml}
                 </div>
-                ${statusBarHtml}
-            </div>
-        `;
+            `;
+        } else {
+            modesBar.classList.add('hidden');
+            modesBar.innerHTML = '';
+        }
     }
 
     const cardsHtml = itemsToDisplay.map(item => {
@@ -1914,22 +1912,9 @@ function renderMenuGrid() {
         const qty = orderItem ? orderItem.qty : 0;
 
         const isSelectedFlavor = selectedPizzaFlavors.some(f => f.id === item.id);
-        let selectedIndexBadge = '';
+        let cardBorderClass = "border-slate-200 hover:border-blue-400";
         if (isSelectedFlavor) {
-            const idx = selectedPizzaFlavors.findIndex(f => f.id === item.id);
-            if (pizzaSelectionMode === 2) {
-                selectedIndexBadge = `<span class="bg-[#2563eb] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Gusto 1</span>`;
-            } else if (pizzaSelectionMode === 3) {
-                selectedIndexBadge = `<span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Gusto ${idx + 1}</span>`;
-            }
-        }
-
-        let cardBorderClass = "border-slate-200 hover:border-blue-300";
-        if (isPizzaLibre) {
-            cardBorderClass = "border-2 border-amber-300 bg-amber-50/20 hover:border-amber-400 shadow-sm";
-        }
-        if (isSelectedFlavor) {
-            cardBorderClass = "border-2 border-[#2563eb] bg-blue-50/40 shadow-md ring-2 ring-blue-300/40";
+            cardBorderClass = "border-2 border-[#2563eb] bg-blue-50/40 shadow-sm";
         }
 
         let actionButton = '';
@@ -1937,45 +1922,47 @@ function renderMenuGrid() {
             const libre = getActivePizzaLibre(currentTable);
             if (libre.active) {
                 actionButton = `
-                    <button type="button" onclick="openNextRoundModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                    <button type="button" onclick="openNextRoundModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
                         <i class="fa-solid fa-arrows-rotate text-[10px]"></i>
-                        <span>Pedir Ronda ${libre.nextRound} ($0)</span>
+                        <span>Ronda ${libre.nextRound} ($0)</span>
                     </button>
                 `;
             } else {
                 actionButton = `
-                    <button type="button" onclick="openPizzaLibreModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                    <button type="button" onclick="openPizzaLibreModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
                         <i class="fa-solid fa-users text-[10px]"></i>
-                        <span>Elegir Personas</span>
+                        <span>Elegir</span>
                     </button>
                 `;
             }
         } else if (isPizza) {
             if (pizzaSelectionMode === 1) {
                 actionButton = `
-                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
                         <i class="fa-solid fa-plus text-[10px]"></i>
                         <span>Agregar</span>
                     </button>
                 `;
             } else if (pizzaSelectionMode === 2) {
                 actionButton = `
-                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-blue-700' : 'bg-[#2563eb] hover:bg-blue-600'} active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
-                        <i class="fa-solid fa-check text-[10px]"></i>
-                        <span>${isSelectedFlavor ? 'Gusto 1' : 'Elegir Gusto'}</span>
+                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-blue-700 text-white' : 'bg-[#2563eb] hover:bg-blue-600 text-white'} active:scale-95 font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
+                        <i class="fa-solid ${isSelectedFlavor ? 'fa-check' : 'fa-plus'} text-[10px]"></i>
+                        <span>${isSelectedFlavor ? 'Gusto 1' : 'Elegir'}</span>
                     </button>
                 `;
             } else if (pizzaSelectionMode === 3) {
+                const idx = selectedPizzaFlavors.findIndex(f => f.id === item.id);
+                const label = isSelectedFlavor ? `Gusto ${idx + 1}` : 'Elegir';
                 actionButton = `
-                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-indigo-700' : 'bg-[#2563eb] hover:bg-blue-600'} active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
-                        <i class="fa-solid fa-check text-[10px]"></i>
-                        <span>${isSelectedFlavor ? 'Seleccionado' : 'Elegir Gusto'}</span>
+                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-indigo-700 text-white' : 'bg-[#2563eb] hover:bg-blue-600 text-white'} active:scale-95 font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
+                        <i class="fa-solid ${isSelectedFlavor ? 'fa-check' : 'fa-plus'} text-[10px]"></i>
+                        <span>${label}</span>
                     </button>
                 `;
             }
         } else {
             actionButton = `
-                <button type="button" onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                <button type="button" onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
                     <i class="fa-solid fa-plus text-[10px]"></i>
                     <span>Agregar</span>
                 </button>
@@ -1983,20 +1970,19 @@ function renderMenuGrid() {
         }
 
         return `
-            <div onclick="${isPizza ? `onPizzaItemClicked('${item.id}')` : ''}" class="bg-white border ${cardBorderClass} rounded-2xl p-3.5 shadow-sm transition-all flex flex-col justify-between space-y-2 cursor-pointer">
+            <div onclick="${isPizza ? `onPizzaItemClicked('${item.id}')` : `addToOrder('${item.id}')`}" class="bg-white border ${cardBorderClass} rounded-2xl p-3.5 shadow-sm transition-all flex flex-col justify-between min-h-[128px] cursor-pointer group">
                 <div>
                     <div class="flex items-start justify-between gap-1">
-                        <div class="flex items-center gap-1.5 flex-wrap">
-                            <h4 class="font-bold text-sm text-slate-800 leading-snug">${item.name}</h4>
-                            ${isPizzaLibre ? '<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider">Libre</span>' : ''}
-                            ${selectedIndexBadge}
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <h4 class="font-bold text-sm text-slate-800 leading-snug truncate">${item.name}</h4>
+                            ${isPizzaLibre ? '<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider shrink-0">Libre</span>' : ''}
                         </div>
-                        <span class="font-bold text-sm text-[#2563eb] shrink-0">$${item.price.toLocaleString()}</span>
+                        <span class="font-bold text-sm text-[#2563eb] shrink-0 ml-1">$${item.price.toLocaleString()}</span>
                     </div>
-                    ${item.desc ? `<p class="text-[11px] text-slate-500 line-clamp-2 mt-0.5 leading-tight">${item.desc}</p>` : ''}
+                    <p class="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-tight min-h-[26px]">${item.desc || ''}</p>
                 </div>
 
-                <div class="flex items-center justify-between pt-1" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between pt-2 border-t border-slate-50" onclick="event.stopPropagation()">
                     ${qty > 0 ? `
                         <span class="bg-blue-50 text-[#2563eb] border border-blue-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
                             ${qty} en comanda
@@ -2011,7 +1997,7 @@ function renderMenuGrid() {
         `;
     }).join('');
 
-    container.innerHTML = pizzaToolbarHtml + cardsHtml;
+    container.innerHTML = cardsHtml;
 }
 
 function findMenuItemById(itemId) {
@@ -2133,7 +2119,6 @@ function renderOrderList() {
     const totalPriceElem = document.getElementById('order-total-price');
     const sendBtn = document.getElementById('send-order-btn');
     const payBtn = document.getElementById('pay-table-btn');
-    const printBillBtn = document.getElementById('print-bill-btn');
     const alertBanner = document.getElementById('table-unsent-alert-banner');
 
     const totalQty = items.reduce((acc, i) => acc + i.qty, 0);
@@ -2165,14 +2150,6 @@ function renderOrderList() {
         } else {
             alertBanner.className = "hidden";
             alertBanner.innerHTML = "";
-        }
-    }
-
-    if (printBillBtn) {
-        if (totalPrice > 0) {
-            printBillBtn.classList.remove('hidden');
-        } else {
-            printBillBtn.classList.add('hidden');
         }
     }
 
@@ -2905,12 +2882,18 @@ function renderKitchenOrders() {
                         </div>
                     `}
 
-                    <div class="pt-1 flex items-center justify-between border-t border-slate-50">
-                        <button onclick="openKitchenTicketPrint('${cmd.id}')" class="text-slate-500 hover:text-slate-800 text-[11px] font-semibold flex items-center space-x-1 cursor-pointer">
-                            <i class="fa-solid fa-print"></i>
-                            <span>${cmd.printed ? 'Ticket (Impreso)' : 'Imprimir Ticket'}</span>
-                        </button>
-                        <div class="text-right">
+                    <div class="pt-1 flex items-center justify-between border-t border-slate-50 gap-2">
+                        <div class="flex items-center space-x-2">
+                            <button onclick="openKitchenTicketPrint('${cmd.id}')" class="text-slate-500 hover:text-slate-800 text-[11px] font-semibold flex items-center space-x-1 cursor-pointer" title="Imprimir comanda para cocina">
+                                <i class="fa-solid fa-print"></i>
+                                <span>${cmd.printed ? 'Comanda (Impresa)' : 'Imprimir Comanda'}</span>
+                            </button>
+                            <button onclick="openTableBillTicketPrint('${cmd.table}')" class="text-[#2563eb] hover:text-blue-800 text-[11px] font-bold flex items-center space-x-1 cursor-pointer bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg border border-blue-200 transition-all" title="Imprimir ticket pre-cuenta para que el mozo cobre en la mesa">
+                                <i class="fa-solid fa-receipt"></i>
+                                <span>Ticket Mesa (Cobrar)</span>
+                            </button>
+                        </div>
+                        <div class="text-right shrink-0">
                             <span class="text-[10px] text-slate-400 block font-medium">Total Mesa:</span>
                             <strong class="text-xs sm:text-sm font-black text-slate-900">$${cmd.total.toLocaleString()}</strong>
                         </div>
