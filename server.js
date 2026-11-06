@@ -5,7 +5,7 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
-const { pool, initDatabase } = require('./db');
+const { pool, initDatabase, officialPizzas } = require('./db');
 
 const app = express();
 const server = http.createServer(app);
@@ -82,6 +82,36 @@ app.get('/api/state', async (req, res) => {
       };
     }
 
+    // Asegurar que la categoría 'pizzas' siempre tenga cargadas las pizzas oficiales en la carta y base de datos
+    if (!menuData['pizzas']) {
+      menuData['pizzas'] = {
+        id: 'pizzas',
+        name: 'Pizzas',
+        icon: 'fa-pizza-slice',
+        items: []
+      };
+    }
+    if (!Array.isArray(menuData['pizzas'].items) || menuData['pizzas'].items.length === 0) {
+      for (const p of (officialPizzas || [])) {
+        try {
+          await pool.query(`
+            INSERT INTO pos_menu_items (id, category_id, name, price, description)
+            VALUES ($1, 'pizzas', $2, $3, $4)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              price = EXCLUDED.price,
+              description = EXCLUDED.description
+          `, [p.id, p.name, p.price, p.desc]);
+        } catch (_) {}
+      }
+      menuData['pizzas'].items = (officialPizzas || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        price: Number(p.price),
+        desc: p.desc || ''
+      }));
+    }
+
     // Pedidos en Mesas
     const tablesRes = await pool.query("SELECT table_name, items, note FROM pos_table_orders ORDER BY table_name ASC");
     const ordersByTable = {};
@@ -150,8 +180,32 @@ app.get('/api/state', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error al obtener estado general:', err);
-    res.status(500).json({ success: false, error: err.message });
+    console.warn('Advertencia al obtener estado general de Neon DB (usando fallback seguro):', err.message);
+    res.json({
+      success: true,
+      data: {
+        staffList: [
+          { id: 'admin_perello', name: 'Perello (Encargado)', role: 'Cocina / Admin' }
+        ],
+        generalTipsPool: 0,
+        menuData: {
+          pizzas: {
+            id: 'pizzas',
+            name: 'Pizzas',
+            icon: 'fa-pizza-slice',
+            items: (officialPizzas || []).map(p => ({ id: p.id, name: p.name, price: Number(p.price), desc: p.desc || '' }))
+          },
+          milanesas: { id: 'milanesas', name: 'Sándwiches de Milanesa', icon: 'fa-burger', items: [] },
+          minutas: { id: 'minutas', name: 'Hamburguesas y Papas', icon: 'fa-utensils', items: [] },
+          bebidas: { id: 'bebidas', name: 'Bebidas', icon: 'fa-wine-glass', items: [] }
+        },
+        availableTables: ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"],
+        ordersByTable: {},
+        kitchenOrders: [],
+        paymentHistory: [],
+        savedNightReports: []
+      }
+    });
   }
 });
 
@@ -256,11 +310,14 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
       const newItemsFormatted = (items || []).map(it => ({
         id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: it.name,
+        note: it.note || '',
         price: Number(it.price),
         qty: Number(it.qty),
         status: 'pending',
         sentAt: time,
-        isAddon: true
+        isAddon: true,
+        isPizzaLibre: it.isPizzaLibre || false,
+        libreRound: it.libreRound || null
       }));
 
       // Mantener los existentes (con su estado actual) y agregar los nuevos como 'pending'
@@ -298,10 +355,13 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
       const formattedItems = (items || []).map(it => ({
         id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: it.name,
+        note: it.note || '',
         price: Number(it.price),
         qty: Number(it.qty),
         status: 'pending',
-        sentAt: time
+        sentAt: time,
+        isPizzaLibre: it.isPizzaLibre || false,
+        libreRound: it.libreRound || null
       }));
       const calcTotal = formattedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
 
@@ -546,6 +606,16 @@ app.post('/api/menu/item', async (req, res) => {
         price = EXCLUDED.price,
         description = EXCLUDED.description
     `, [itemId, categoryId, name, price, desc || '']);
+
+    if (categoryId === 'pizzas') {
+      try {
+        await pool.query(`
+          UPDATE pizzas_precios
+          SET precio_entera = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE LOWER(name) = LOWER($2)
+        `, [price, name]);
+      } catch (_) {}
+    }
 
     broadcast({ type: 'MENU_REFRESH_REQUESTED' });
     res.json({ success: true, itemId });

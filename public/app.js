@@ -1068,6 +1068,20 @@ function clearSearchInput() {
 let pizzaSelectionMode = 1; // 1: 1 gusto (entera), 2: 2 gustos, 3: 3 gustos ($20.000)
 let selectedPizzaFlavors = []; // gustos seleccionados en modo 2 o 3
 let pizzaLibreCount = 1;
+const COMMON_EXCLUSION_FLAVORS = [
+    'Cebolla',
+    'Anchoas',
+    'Roquefort',
+    'Rúcula',
+    'Provenzal (Ajo)',
+    'Calabresa',
+    'Margarita',
+    'Especial (Jamón)',
+    'Napolitana (Tomate)',
+    '3 Quesos'
+];
+let selectedExclusionChips = [];
+let selectedRoundFlavors = [];
 
 function getPizzaFlavorsCatalog() {
     const pizzaCat = menuData['pizzas'];
@@ -1088,15 +1102,162 @@ function cancelPizzaSelection() {
     renderMenuGrid();
 }
 
-// Modal de Pizza Libre (por persona)
+// ================= PIZZA LIBRE: DETECCIÓN DE ESTADO Y RONDAS =================
+
+function getActivePizzaLibre(tableName) {
+    const tableOrder = ordersByTable[tableName];
+    const tableItems = (tableOrder && Array.isArray(tableOrder.items)) ? tableOrder.items : [];
+
+    // Recopilar ítems de Pizza Libre en el borrador de la mesa
+    const libreItems = tableItems.filter(i =>
+        i.isPizzaLibre ||
+        (i.id && String(i.id).startsWith('pz_libre')) ||
+        (i.name && String(i.name).toLowerCase().includes('pizza libre'))
+    );
+
+    // Recopilar también en las comandas activas de cocina para esta mesa
+    const activeKitchenCmds = kitchenOrders.filter(o => o.table === tableName && o.status !== 'paid');
+    activeKitchenCmds.forEach(cmd => {
+        if (Array.isArray(cmd.items)) {
+            cmd.items.forEach(ki => {
+                if (ki.isPizzaLibre || (ki.name && String(ki.name).toLowerCase().includes('pizza libre'))) {
+                    libreItems.push(ki);
+                }
+            });
+        }
+    });
+
+    if (libreItems.length === 0) {
+        return { active: false, persons: 0, currentRound: 0, nextRound: 1, exclusions: '' };
+    }
+
+    let persons = 1;
+    let exclusions = '';
+    let maxRound = 1;
+
+    for (const it of libreItems) {
+        if (it.librePersons && it.librePersons > 0) {
+            persons = it.librePersons;
+        } else if (it.qty && it.qty > 1 && (!it.libreRound || it.libreRound === 1)) {
+            persons = it.qty;
+        }
+
+        if (it.libreExclusions && !exclusions) {
+            exclusions = it.libreExclusions;
+        } else if (it.note && !exclusions && it.note.includes('NO QUIEREN:')) {
+            const match = it.note.match(/NO QUIEREN:\s*([^|\]]+)/i);
+            if (match) exclusions = match[1].trim();
+        }
+
+        if (it.libreRound && it.libreRound > maxRound) {
+            maxRound = it.libreRound;
+        } else if (it.name) {
+            const m = it.name.match(/(\d+)(?:ra|da|ta|ma)\s*Ronda/i);
+            if (m) {
+                const rNum = parseInt(m[1], 10);
+                if (rNum > maxRound) maxRound = rNum;
+            }
+        }
+    }
+
+    return {
+        active: true,
+        persons: persons,
+        currentRound: maxRound,
+        nextRound: maxRound + 1,
+        exclusions: exclusions
+    };
+}
+
+function renderPizzaLibreBanner() {
+    const bannerElem = document.getElementById('pizza-libre-active-banner');
+    if (!bannerElem) return;
+
+    const libre = getActivePizzaLibre(currentTable);
+    if (!libre.active) {
+        bannerElem.classList.add('hidden');
+        bannerElem.innerHTML = '';
+        return;
+    }
+
+    bannerElem.classList.remove('hidden');
+    bannerElem.innerHTML = `
+        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm">
+            <div class="flex items-center space-x-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-[#2563eb] text-white flex flex-col items-center justify-center font-bold shrink-0 shadow-sm">
+                    <span class="text-[8px] uppercase tracking-wider text-blue-200 leading-none">Ronda</span>
+                    <span class="text-base font-black leading-none mt-0.5">${libre.currentRound}</span>
+                </div>
+                <div class="min-w-0">
+                    <div class="flex items-center space-x-2">
+                        <span class="font-bold text-xs sm:text-sm text-blue-950">Pizza Libre Activa (${libre.persons} persona${libre.persons === 1 ? '' : 's'})</span>
+                        <span class="text-[10px] bg-blue-100 text-[#2563eb] font-bold px-2 py-0.5 rounded-full border border-blue-200">Ronda ${libre.currentRound}</span>
+                    </div>
+                    ${libre.exclusions ? `
+                        <p class="text-[11px] text-slate-700 truncate mt-0.5">
+                            <span class="font-bold text-rose-600">No quieren:</span> ${libre.exclusions}
+                        </p>
+                    ` : `
+                        <p class="text-[10px] text-slate-400 mt-0.5">Sin exclusiones indicadas</p>
+                    `}
+                </div>
+            </div>
+            <button type="button" onclick="openNextRoundModal()"
+                class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 shadow-md shadow-blue-500/20 transition-all shrink-0 cursor-pointer">
+                <i class="fa-solid fa-arrows-rotate text-xs"></i>
+                <span>Pedir ${libre.nextRound}da Ronda ($0)</span>
+            </button>
+        </div>
+    `;
+}
+
+// Modal de Pizza Libre (1ra Ronda: cantidad de personas y gustos que NO quieren)
 function openPizzaLibreModal() {
     pizzaLibreCount = 1;
+    selectedExclusionChips = [];
+
+    const textInput = document.getElementById('pizza-libre-exclusions-text');
+    if (textInput) textInput.value = '';
+
+    const chipsContainer = document.getElementById('pizza-libre-exclusion-chips');
+    if (chipsContainer) {
+        chipsContainer.innerHTML = COMMON_EXCLUSION_FLAVORS.map(flavor => `
+            <button type="button" onclick="toggleExclusionChip('${flavor}')" id="excl-chip-${flavor.replace(/[^a-zA-Z0-9]/g, '')}"
+                class="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all cursor-pointer">
+                <span>Sin ${flavor}</span>
+            </button>
+        `).join('');
+    }
+
     updatePizzaLibreModalDisplay();
     document.getElementById('pizza-libre-modal').classList.remove('hidden');
 }
 
 function closePizzaLibreModal() {
     document.getElementById('pizza-libre-modal').classList.add('hidden');
+}
+
+function toggleExclusionChip(flavor) {
+    const idx = selectedExclusionChips.indexOf(flavor);
+    const chipId = `excl-chip-${flavor.replace(/[^a-zA-Z0-9]/g, '')}`;
+    const btn = document.getElementById(chipId);
+
+    if (idx >= 0) {
+        selectedExclusionChips.splice(idx, 1);
+        if (btn) {
+            btn.className = "px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all cursor-pointer";
+        }
+    } else {
+        selectedExclusionChips.push(flavor);
+        if (btn) {
+            btn.className = "px-2.5 py-1 rounded-xl text-[11px] font-bold bg-rose-500 text-white border border-rose-600 shadow-sm transition-all cursor-pointer";
+        }
+    }
+
+    const textInput = document.getElementById('pizza-libre-exclusions-text');
+    if (textInput) {
+        textInput.value = selectedExclusionChips.map(f => `Sin ${f}`).join(', ');
+    }
 }
 
 function changePizzaLibreCount(delta) {
@@ -1117,19 +1278,31 @@ function updatePizzaLibreModalDisplay() {
 function confirmAddPizzaLibre() {
     const persons = pizzaLibreCount || 1;
     const unitPrice = 16000;
+    const textInput = document.getElementById('pizza-libre-exclusions-text');
+    const exclusionsText = textInput ? textInput.value.trim() : '';
 
     if (!ordersByTable[currentTable]) {
         ordersByTable[currentTable] = { items: [], note: "" };
     }
 
     const tableItems = ordersByTable[currentTable].items;
+    let noteText = '';
+    if (exclusionsText) {
+        noteText = `NO QUIEREN: ${exclusionsText}`;
+    }
+
     tableItems.push({
         id: `pz_libre_${Date.now().toString().slice(-6)}`,
-        name: `Pizza libre (${persons} persona${persons === 1 ? '' : 's'})`,
+        name: `Pizza libre (1ra Ronda - ${persons} persona${persons === 1 ? '' : 's'})`,
         price: unitPrice,
         qty: persons,
         sentQty: 0,
-        isPizza: true
+        isPizza: true,
+        isPizzaLibre: true,
+        libreRound: 1,
+        librePersons: persons,
+        libreExclusions: exclusionsText,
+        note: noteText
     });
 
     closePizzaLibreModal();
@@ -1137,7 +1310,116 @@ function confirmAddPizzaLibre() {
     renderOrderList();
     renderMenuGrid();
 
-    showToast(`Pizza libre para ${persons} persona${persons === 1 ? '' : 's'} agregada a ${currentTable}`, 'success');
+    showToast(`Pizza libre (1ra Ronda - ${persons} personas) agregada a ${currentTable}`, 'success');
+}
+
+// Modal de Siguiente Ronda (2da Ronda, 3ra Ronda...) a $0
+function openNextRoundModal() {
+    const libre = getActivePizzaLibre(currentTable);
+    if (!libre.active) {
+        openPizzaLibreModal();
+        return;
+    }
+
+    selectedRoundFlavors = [];
+    const nextRound = libre.nextRound;
+
+    const modalTitle = document.getElementById('next-round-modal-title');
+    const modalSubtitle = document.getElementById('next-round-modal-subtitle');
+    const exclInput = document.getElementById('next-round-exclusions-input');
+    const notesInput = document.getElementById('next-round-notes');
+
+    if (modalTitle) modalTitle.innerText = `Pedir ${nextRound}da Ronda`;
+    if (modalSubtitle) modalSubtitle.innerText = `${currentTable} - ${libre.persons} personas (Ronda ${nextRound})`;
+    if (exclInput) exclInput.value = libre.exclusions || '';
+    if (notesInput) notesInput.value = '';
+
+    const chipsContainer = document.getElementById('next-round-flavor-chips');
+    if (chipsContainer) {
+        const flavors = getPizzaFlavorsCatalog().filter(p => p.id !== 'pz_libre' && !p.name.toLowerCase().includes('pizza libre'));
+        chipsContainer.innerHTML = flavors.map(p => `
+            <button type="button" onclick="toggleRoundFlavorChip('${p.name}')" id="round-chip-${p.id}"
+                class="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all cursor-pointer">
+                <span>${p.name}</span>
+            </button>
+        `).join('');
+    }
+
+    document.getElementById('pizza-libre-next-round-modal').classList.remove('hidden');
+}
+
+function closeNextRoundModal() {
+    document.getElementById('pizza-libre-next-round-modal').classList.add('hidden');
+}
+
+function toggleRoundFlavorChip(flavorName) {
+    const idx = selectedRoundFlavors.indexOf(flavorName);
+    const flavors = getPizzaFlavorsCatalog();
+    const item = flavors.find(p => p.name === flavorName);
+    const chipId = item ? `round-chip-${item.id}` : null;
+    const btn = chipId ? document.getElementById(chipId) : null;
+
+    if (idx >= 0) {
+        selectedRoundFlavors.splice(idx, 1);
+        if (btn) {
+            btn.className = "px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all cursor-pointer";
+        }
+    } else {
+        selectedRoundFlavors.push(flavorName);
+        if (btn) {
+            btn.className = "px-2.5 py-1 rounded-xl text-[11px] font-bold bg-[#2563eb] text-white border border-blue-600 shadow-sm transition-all cursor-pointer";
+        }
+    }
+
+    const notesInput = document.getElementById('next-round-notes');
+    if (notesInput) {
+        notesInput.value = selectedRoundFlavors.join(', ');
+    }
+}
+
+function confirmAddNextRound() {
+    const libre = getActivePizzaLibre(currentTable);
+    const nextRound = libre.nextRound;
+
+    const exclInput = document.getElementById('next-round-exclusions-input');
+    const notesInput = document.getElementById('next-round-notes');
+    const updatedExclusions = exclInput ? exclInput.value.trim() : (libre.exclusions || '');
+    const roundNotes = notesInput ? notesInput.value.trim() : '';
+
+    if (!ordersByTable[currentTable]) {
+        ordersByTable[currentTable] = { items: [], note: "" };
+    }
+
+    const tableItems = ordersByTable[currentTable].items;
+
+    let fullNote = `Ronda ${nextRound}`;
+    if (roundNotes) {
+        fullNote += ` | Gustos: ${roundNotes}`;
+    }
+    if (updatedExclusions) {
+        fullNote += ` | NO QUIEREN: ${updatedExclusions}`;
+    }
+
+    tableItems.push({
+        id: `pz_libre_r${nextRound}_${Date.now().toString().slice(-6)}`,
+        name: `Pizza libre (${nextRound}da Ronda)`,
+        price: 0,
+        qty: 1,
+        sentQty: 0,
+        isPizza: true,
+        isPizzaLibre: true,
+        libreRound: nextRound,
+        librePersons: libre.persons,
+        libreExclusions: updatedExclusions,
+        note: fullNote
+    });
+
+    closeNextRoundModal();
+    saveCurrentTableState();
+    renderOrderList();
+    renderMenuGrid();
+
+    showToast(`${nextRound}da Ronda de Pizza Libre agregada ($0) lista para marchar a cocina`, 'success');
 }
 
 // Interacción al hacer clic en un gusto de pizza según el modo activo
@@ -1145,9 +1427,14 @@ function onPizzaItemClicked(itemId) {
     const item = findMenuItemById(itemId);
     if (!item) return;
 
-    // Si es Pizza Libre, siempre abre el modal para elegir personas
+    // Si es Pizza Libre, abre modal según si ya está activa la mesa o es la primera ronda
     if (item.id === 'pz_libre' || item.name.toLowerCase().includes('pizza libre')) {
-        openPizzaLibreModal();
+        const libre = getActivePizzaLibre(currentTable);
+        if (libre.active) {
+            openNextRoundModal();
+        } else {
+            openPizzaLibreModal();
+        }
         return;
     }
 
@@ -1473,6 +1760,8 @@ function renderMenuGrid() {
     const container = document.getElementById('menu-grid');
     if (!container) return;
 
+    renderPizzaLibreBanner();
+
     let itemsToDisplay = [];
     const isPizzasView = activeCategory === 'pizzas' && searchQuery.length === 0;
 
@@ -1599,12 +1888,22 @@ function renderMenuGrid() {
 
         let actionButton = '';
         if (isPizzaLibre) {
-            actionButton = `
-                <button type="button" onclick="openPizzaLibreModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
-                    <i class="fa-solid fa-users text-[10px]"></i>
-                    <span>Elegir Personas</span>
-                </button>
-            `;
+            const libre = getActivePizzaLibre(currentTable);
+            if (libre.active) {
+                actionButton = `
+                    <button type="button" onclick="openNextRoundModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                        <i class="fa-solid fa-arrows-rotate text-[10px]"></i>
+                        <span>Pedir Ronda ${libre.nextRound} ($0)</span>
+                    </button>
+                `;
+            } else {
+                actionButton = `
+                    <button type="button" onclick="openPizzaLibreModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                        <i class="fa-solid fa-users text-[10px]"></i>
+                        <span>Elegir Personas</span>
+                    </button>
+                `;
+            }
         } else if (isPizza) {
             if (pizzaSelectionMode === 1) {
                 actionButton = `
@@ -1881,8 +2180,11 @@ async function sendOrderToKitchen() {
             newItemsToSend.push({
                 id: item.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 name: item.name + (item.note ? ` [${item.note}]` : ''),
+                note: item.note || '',
                 price: item.price,
                 qty: diff,
+                isPizzaLibre: item.isPizzaLibre || false,
+                libreRound: item.libreRound || null,
                 isAddon: sent > 0,
                 status: 'pending'
             });
@@ -2449,7 +2751,10 @@ function renderKitchenOrders() {
                                     <div class="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg bg-white/70 border border-amber-100">
                                         <div class="flex items-center space-x-2 min-w-0">
                                             <span class="inline-block bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md font-black text-xs shrink-0">${item.qty}x</span>
-                                            <span class="font-bold text-slate-900 truncate">${item.name}</span>
+                                            <div class="min-w-0">
+                                                <span class="font-bold text-slate-900 truncate block">${item.name}</span>
+                                                ${item.note ? `<span class="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold block mt-0.5">${item.note}</span>` : ''}
+                                            </div>
                                             ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0">Agregado</span>' : ''}
                                         </div>
                                         <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}')" title="Marcar este plato como entregado" class="ml-2 px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
@@ -2727,7 +3032,7 @@ function openKitchenTicketPrint(cmdId) {
                 </div>
                 ${deliveredItems.map(i => `
                     <div class="flex justify-between items-start text-[11px]">
-                        <span>✓ ${i.qty}x ${i.name}</span>
+                        <span>[OK] ${i.qty}x ${i.name}</span>
                         <span>$${(i.price * i.qty).toLocaleString()}</span>
                     </div>
                 `).join('')}
@@ -2806,9 +3111,12 @@ function renderAdminMenuManager() {
                                 <h6 class="font-bold text-slate-800 truncate">${item.name}</h6>
                                 ${item.desc ? `<p class="text-[11px] text-slate-400 truncate">${item.desc}</p>` : ''}
                             </div>
-                            <div class="flex items-center space-x-3 shrink-0">
+                            <div class="flex items-center space-x-2 shrink-0">
                                 <span class="font-bold text-slate-900">$${item.price.toLocaleString()}</span>
-                                <button onclick="deleteMenuItem('${cKey}', '${item.id}')" class="text-slate-400 hover:text-rose-600 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors" title="Eliminar">
+                                <button onclick="openEditMenuItemModal('${cKey}', '${item.id}')" class="text-slate-400 hover:text-blue-600 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-blue-50 transition-colors cursor-pointer" title="Editar precio o datos">
+                                    <i class="fa-solid fa-pen text-xs"></i>
+                                </button>
+                                <button onclick="deleteMenuItem('${cKey}', '${item.id}')" class="text-slate-400 hover:text-rose-600 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors cursor-pointer" title="Eliminar">
                                     <i class="fa-solid fa-trash-can text-xs"></i>
                                 </button>
                             </div>
@@ -2962,6 +3270,67 @@ async function deleteMenuItem(catKey, itemId) {
     }
 
     showToast('Plato eliminado de la base de datos', 'info');
+}
+
+function openEditMenuItemModal(catKey, itemId) {
+    if (!menuData[catKey] || !Array.isArray(menuData[catKey].items)) return;
+    const item = menuData[catKey].items.find(i => i.id === itemId);
+    if (!item) return;
+
+    document.getElementById('edit-item-cat').value = catKey;
+    document.getElementById('edit-item-id').value = item.id;
+    document.getElementById('edit-item-name').value = item.name;
+    document.getElementById('edit-item-price').value = item.price;
+    document.getElementById('edit-item-desc').value = item.desc || '';
+
+    document.getElementById('admin-edit-item-modal').classList.remove('hidden');
+}
+
+function closeEditMenuItemModal() {
+    document.getElementById('admin-edit-item-modal').classList.add('hidden');
+}
+
+async function saveEditedMenuItem() {
+    const catKey = document.getElementById('edit-item-cat').value;
+    const itemId = document.getElementById('edit-item-id').value;
+    const name = document.getElementById('edit-item-name').value.trim();
+    const price = parseFloat(document.getElementById('edit-item-price').value) || 0;
+    const desc = document.getElementById('edit-item-desc').value.trim();
+
+    if (!name || price <= 0) {
+        showToast('Ingresa un nombre y precio válido', 'warning');
+        return;
+    }
+
+    if (menuData[catKey]) {
+        const item = menuData[catKey].items.find(i => i.id === itemId);
+        if (item) {
+            item.name = name;
+            item.price = price;
+            item.desc = desc;
+        }
+    }
+
+    saveLocalState();
+    closeEditMenuItemModal();
+    renderAdminMenuManager();
+    renderMenuGrid();
+
+    try {
+        const res = await fetch('/api/menu/item', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: itemId, categoryId: catKey, name, price, desc })
+        });
+        if (res.ok) {
+            isOnlineWithServer = true;
+            setConnectionIndicator(true);
+        }
+    } catch (e) {
+        console.warn('Error guardando cambios en Neon DB:', e);
+    }
+
+    showToast(`Plato "${name}" actualizado en la base de datos`, 'success');
 }
 
 // ================= PESTAÑA 3: REPORTE DE LA NOCHE Y PDF =================

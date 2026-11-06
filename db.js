@@ -16,6 +16,22 @@ pool.on('error', (err) => {
   console.error('Error imprevisto en el cliente de PostgreSQL:', err);
 });
 
+// Catálogo oficial de pizzas del local
+const officialPizzas = [
+  { id: 'pz_libre', name: 'Pizza libre', price: 16000, desc: 'Por persona' },
+  { id: 'pz_muz', name: 'Muzzarella', price: 15000, desc: 'Salsa casera, muzzarella, y orégano' },
+  { id: 'pz_ceb', name: 'Cebolla', price: 16000, desc: 'Cebolla' },
+  { id: 'pz_prov', name: 'Provenzal', price: 16000, desc: 'Ajo y perejil' },
+  { id: 'pz_marg', name: 'Margarita', price: 16000, desc: 'Huevo rallado y oregano' },
+  { id: 'pz_esp', name: 'Especial', price: 17000, desc: 'Jamón cocido y huevo' },
+  { id: 'pz_nap', name: 'Napolitana', price: 17000, desc: 'Rodajas de tomate, provenzal y queso sardo' },
+  { id: 'pz_cal', name: 'Calabresa', price: 17000, desc: 'Rodajas de salame' },
+  { id: 'pz_ruc', name: 'Rucula', price: 17000, desc: 'Rucula y queso sardo' },
+  { id: 'pz_anc', name: 'Anchoa', price: 18000, desc: 'Anchoas y orégano' },
+  { id: 'pz_roq', name: 'Roquefort', price: 18000, desc: 'Roquefort' },
+  { id: 'pz_3q', name: '3 Quesos', price: 18000, desc: 'Roquefort y sardo' }
+];
+
 // Inicialización de tablas y estado limpio para el local
 async function initDatabase() {
   if (!connectionString) return;
@@ -160,22 +176,6 @@ async function initDatabase() {
       `);
     }
 
-    // Catálogo oficial de pizzas
-    const officialPizzas = [
-      { id: 'pz_libre', name: 'Pizza libre', price: 16000, desc: 'Por persona' },
-      { id: 'pz_muz', name: 'Muzzarella', price: 15000, desc: 'Salsa casera, muzzarella, y orégano' },
-      { id: 'pz_ceb', name: 'Cebolla', price: 16000, desc: 'Cebolla' },
-      { id: 'pz_prov', name: 'Provenzal', price: 16000, desc: 'Ajo y perejil' },
-      { id: 'pz_marg', name: 'Margarita', price: 16000, desc: 'Huevo rallado y oregano' },
-      { id: 'pz_esp', name: 'Especial', price: 17000, desc: 'Jamón cocido y huevo' },
-      { id: 'pz_nap', name: 'Napolitana', price: 17000, desc: 'Rodajas de tomate, provenzal y queso sardo' },
-      { id: 'pz_cal', name: 'Calabresa', price: 17000, desc: 'Rodajas de salame' },
-      { id: 'pz_ruc', name: 'Rucula', price: 17000, desc: 'Rucula y queso sardo' },
-      { id: 'pz_anc', name: 'Anchoa', price: 18000, desc: 'Anchoas y orégano' },
-      { id: 'pz_roq', name: 'Roquefort', price: 18000, desc: 'Roquefort' },
-      { id: 'pz_3q', name: '3 Quesos', price: 18000, desc: 'Roquefort y sardo' }
-    ];
-
     for (const p of officialPizzas) {
       await client.query(`
         INSERT INTO pos_menu_items (id, category_id, name, price, description)
@@ -186,6 +186,21 @@ async function initDatabase() {
           description = EXCLUDED.description;
       `, [p.id, p.name, p.price, p.desc]);
     }
+
+    // Sincronizar precios en tabla legacy pizzas_precios si existe
+    try {
+      await client.query(`
+        UPDATE pizzas_precios
+        SET precio_entera = CASE
+          WHEN name = 'Muzzarella' THEN 15000
+          WHEN name IN ('Provenzal', 'Cebollada', 'Margarita') THEN 16000
+          WHEN name IN ('Rucula', 'Calabresa', 'Especial', 'Napolitana') THEN 17000
+          WHEN name IN ('3 Quesos', 'Roquefort', 'Anchoas') THEN 18000
+          ELSE precio_entera
+        END,
+        updated_at = CURRENT_TIMESTAMP;
+      `);
+    } catch (_) {}
 
     // Mesas iniciales del salón (sin borrar mesas adicionales agregadas por el usuario)
     const defaultTables = ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"];
@@ -250,5 +265,6 @@ async function initDatabase() {
 
 module.exports = {
   pool,
-  initDatabase
+  initDatabase,
+  officialPizzas
 };

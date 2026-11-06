@@ -333,6 +333,8 @@
 
                 <!-- Grilla de Platos y Bebidas -->
                 <div class="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50">
+                    <!-- Banner de Pizza Libre Activa y Rondas -->
+                    <div id="pizza-libre-active-banner" class="mb-3 hidden"></div>
                     <div id="menu-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
                         <!-- Generados dinámicamente -->
                     </div>
@@ -1246,14 +1248,19 @@
         </div>
     </div>
 
-    <!-- ================= MODAL: PIZZA LIBRE (POR PERSONA) ================= -->
+    <!-- ================= MODAL: PIZZA LIBRE (1RA RONDA) ================= -->
     <div id="pizza-libre-modal"
         class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
-                <div>
-                    <h3 class="font-bold text-base text-slate-900">Pizza Libre</h3>
-                    <p class="text-xs text-slate-500">$16.000 por persona</p>
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center">
+                        <i class="fa-solid fa-pizza-slice text-xs"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-900">Pizza Libre</h3>
+                        <p class="text-xs text-slate-500">$16.000 por persona (1ra Ronda)</p>
+                    </div>
                 </div>
                 <button onclick="closePizzaLibreModal()"
                     class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
@@ -1278,13 +1285,26 @@
                     </button>
                 </div>
 
-                <div class="bg-blue-50 p-3.5 rounded-2xl border border-blue-100 flex justify-between items-center">
+                <div class="bg-blue-50 p-3 rounded-2xl border border-blue-100 flex justify-between items-center">
                     <span class="text-xs font-semibold text-slate-600">Total a cobrar:</span>
-                    <span id="pizza-libre-total-display" class="text-lg font-bold text-[#2563eb]">$16.000</span>
+                    <span id="pizza-libre-total-display" class="text-base font-bold text-[#2563eb]">$16.000</span>
+                </div>
+
+                <!-- Observación: Qué gustos NO quieren -->
+                <div class="space-y-1.5 pt-1">
+                    <label class="text-xs font-semibold text-slate-700 block flex items-center justify-between">
+                        <span>Gustos que NO quieren</span>
+                        <span class="text-[10px] text-slate-400 font-normal">Toca para marcar</span>
+                    </label>
+                    <div class="flex flex-wrap gap-1.5" id="pizza-libre-exclusion-chips">
+                        <!-- Generados dinámicamente -->
+                    </div>
+                    <textarea id="pizza-libre-exclusions-text" rows="2" placeholder="Ej: Sin cebolla, sin anchoa, etc..."
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563eb]"></textarea>
                 </div>
             </div>
 
-            <div class="flex space-x-2 pt-1">
+            <div class="flex space-x-2 pt-2 border-t border-slate-100">
                 <button type="button" onclick="closePizzaLibreModal()"
                     class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
                     Cancelar
@@ -1292,7 +1312,121 @@
                 <button type="button" onclick="confirmAddPizzaLibre()"
                     class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
                     <i class="fa-solid fa-check"></i>
-                    <span>Enviar a Comanda</span>
+                    <span>Confirmar 1ra Ronda</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: SIGUIENTE RONDA PIZZA LIBRE ($0) ================= -->
+    <div id="pizza-libre-next-round-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                        <i class="fa-solid fa-arrows-rotate text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-900" id="next-round-modal-title">Pedir Siguiente Ronda</h3>
+                        <p class="text-xs text-slate-500" id="next-round-modal-subtitle">Pizza Libre</p>
+                    </div>
+                </div>
+                <button onclick="closeNextRoundModal()"
+                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-2.5 flex items-center justify-between">
+                <span class="text-xs font-semibold text-emerald-800">Costo adicional:</span>
+                <span class="text-sm font-bold text-emerald-600">$0 (Servicio Libre ya cobrado)</span>
+            </div>
+
+            <div class="space-y-3">
+                <div class="space-y-1">
+                    <label class="text-xs font-semibold text-slate-700 block">Gustos que NO quieren en la mesa</label>
+                    <input type="text" id="next-round-exclusions-input" placeholder="Ej: Sin cebolla, sin anchoa..."
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                </div>
+
+                <div class="space-y-1.5">
+                    <label class="text-xs font-semibold text-slate-700 block flex items-center justify-between">
+                        <span>Gustos para esta ronda (Opcional)</span>
+                        <span class="text-[10px] text-slate-400 font-normal">Toca para agregar</span>
+                    </label>
+                    <div class="flex flex-wrap gap-1.5" id="next-round-flavor-chips">
+                        <!-- Generados dinámicamente -->
+                    </div>
+                    <textarea id="next-round-notes" rows="2" placeholder="Ej: 2 Muzzarella y 1 Napolitana..."
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563eb]"></textarea>
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2 border-t border-slate-100">
+                <button type="button" onclick="closeNextRoundModal()"
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmAddNextRound()"
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    <span>Marchar Ronda ($0)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: EDITAR PLATO EN CARTA ================= -->
+    <div id="admin-edit-item-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center">
+                        <i class="fa-solid fa-pen-to-square text-xs"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-900">Editar Plato en Carta</h3>
+                        <p class="text-[10px] text-slate-500">Actualiza precio y datos en Neon DB</p>
+                    </div>
+                </div>
+                <button onclick="closeEditMenuItemModal()"
+                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <input type="hidden" id="edit-item-cat">
+            <input type="hidden" id="edit-item-id">
+
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre</label>
+                    <input type="text" id="edit-item-name"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Precio ($)</label>
+                    <input type="number" inputmode="numeric" id="edit-item-price"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción / Ingredientes</label>
+                    <textarea id="edit-item-desc" rows="2"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]"></textarea>
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2 border-t border-slate-100">
+                <button type="button" onclick="closeEditMenuItemModal()"
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
+                    Cancelar
+                </button>
+                <button type="button" onclick="saveEditedMenuItem()"
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>Guardar Cambios</span>
                 </button>
             </div>
         </div>
