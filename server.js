@@ -112,6 +112,17 @@ app.get('/api/state', async (req, res) => {
       }));
     }
 
+    // Garantizar que 'Pizza libre' siempre quede al inicio de la categoría pizzas
+    if (menuData['pizzas'] && Array.isArray(menuData['pizzas'].items)) {
+      menuData['pizzas'].items.sort((a, b) => {
+        const aIsLibre = a.id === 'pz_libre' || a.name.toLowerCase().includes('pizza libre');
+        const bIsLibre = b.id === 'pz_libre' || b.name.toLowerCase().includes('pizza libre');
+        if (aIsLibre && !bIsLibre) return -1;
+        if (!aIsLibre && bIsLibre) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    }
+
     // Pedidos en Mesas
     const tablesRes = await pool.query("SELECT table_name, items, note FROM pos_table_orders ORDER BY table_name ASC");
     const ordersByTable = {};

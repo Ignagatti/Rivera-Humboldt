@@ -103,13 +103,18 @@ function unlockMobileAudio() {
 window.addEventListener('touchstart', unlockMobileAudio, { passive: true });
 window.addEventListener('click', unlockMobileAudio, { passive: true });
 
-function playWaiterNotificationSound() {
-    // 1. Vibración táctil en el teléfono móvil del mozo
+// Registro de pedidos ya notificados para no repetir sonido en polling continuo
+let knownReadyOrderIds = new Set();
+
+async function playWaiterNotificationSound() {
+    // 1. Vibración táctil potente en el teléfono móvil del mozo
     try {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            navigator.vibrate([350, 120, 350, 120, 500]);
+            navigator.vibrate([400, 150, 400, 150, 600]);
         }
-    } catch (e) {}
+    } catch (e) {
+        console.warn('Vibración no soportada o bloqueada:', e);
+    }
 
     // 2. Timbre acústico brillante de aviso de pedido listo
     try {
@@ -119,7 +124,7 @@ function playWaiterNotificationSound() {
             globalAudioContext = new AudioCtxClass();
         }
         if (globalAudioContext.state === 'suspended') {
-            globalAudioContext.resume().catch(() => {});
+            await globalAudioContext.resume().catch(() => {});
         }
 
         const ctx = globalAudioContext;
@@ -131,7 +136,7 @@ function playWaiterNotificationSound() {
         osc1.type = 'sine';
         osc1.frequency.setValueAtTime(880, now);
         osc1.frequency.exponentialRampToValueAtTime(860, now + 0.5);
-        gain1.gain.setValueAtTime(0.5, now);
+        gain1.gain.setValueAtTime(0.7, now);
         gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
         osc1.connect(gain1);
         gain1.connect(ctx.destination);
@@ -145,7 +150,7 @@ function playWaiterNotificationSound() {
         osc2.frequency.setValueAtTime(1320, now + 0.15);
         osc2.frequency.exponentialRampToValueAtTime(1300, now + 0.85);
         gain2.gain.setValueAtTime(0.001, now);
-        gain2.gain.setValueAtTime(0.6, now + 0.15);
+        gain2.gain.setValueAtTime(0.8, now + 0.15);
         gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
         osc2.connect(gain2);
         gain2.connect(ctx.destination);
@@ -158,7 +163,7 @@ function playWaiterNotificationSound() {
         osc3.type = 'sine';
         osc3.frequency.setValueAtTime(1760, now + 0.18);
         gain3.gain.setValueAtTime(0.001, now);
-        gain3.gain.setValueAtTime(0.35, now + 0.18);
+        gain3.gain.setValueAtTime(0.5, now + 0.18);
         gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
         osc3.connect(gain3);
         gain3.connect(ctx.destination);
@@ -201,15 +206,27 @@ async function fetchServerState(silent = false) {
             // Sincronizar comandas de cocina y notificaciones estrictamente desde la base de datos
             if (Array.isArray(d.kitchenOrders)) {
                 kitchenOrders = d.kitchenOrders;
-                waiterNotifications = kitchenOrders
-                    .filter(o => o.status === 'ready')
-                    .map(o => ({
-                        id: o.id,
-                        table: o.table,
-                        time: o.time,
-                        items: o.items,
-                        waiterName: o.waiterName
-                    }));
+                const currentReadyOrders = kitchenOrders.filter(o => o.status === 'ready');
+                const newlyReadyOrders = currentReadyOrders.filter(o => !knownReadyOrderIds.has(o.id));
+
+                waiterNotifications = currentReadyOrders.map(o => ({
+                    id: o.id,
+                    table: o.table,
+                    time: o.time,
+                    items: o.items,
+                    waiterName: o.waiterName
+                }));
+
+                // Si se detecta un nuevo pedido listo para retirar (en amarillo)
+                if (newlyReadyOrders.length > 0) {
+                    newlyReadyOrders.forEach(o => knownReadyOrderIds.add(o.id));
+
+                    const isKitchenScreen = !document.getElementById('admin-workspace').classList.contains('hidden') && activeAdminTab === 'kitchen';
+                    if (!isKitchenScreen) {
+                        playWaiterNotificationSound();
+                        showToast(`¡${newlyReadyOrders[0].table} lista para retirar en Cocina!`, 'warning');
+                    }
+                }
             }
 
             isOnlineWithServer = true;
@@ -325,25 +342,15 @@ function handleRealtimeMessage(msg) {
                     waiterName: msg.order.waiterName
                 });
 
-                // VERIFICACIÓN ESTRICTA: El aviso acústico y la vibración suenan y vibran ÚNICAMENTE en el celular del mozo
-                // NUNCA en la parte de administración / cocina
-                const isAdmin = currentUser && (
-                    currentUser.role.includes('Admin') ||
-                    currentUser.role.includes('Cocina') ||
-                    currentUser.role.includes('Encargado')
-                );
+                knownReadyOrderIds.add(msg.order.id);
 
-                if (!isAdmin) {
+                // El aviso acústico y la vibración suenan y vibran en el celular del mozo / salón
+                // NUNCA en la pantalla fija de Cocina
+                const isKitchenScreen = !document.getElementById('admin-workspace').classList.contains('hidden') && activeAdminTab === 'kitchen';
+
+                if (!isKitchenScreen) {
                     playWaiterNotificationSound();
-
-                    const isAssignedWaiter = currentUser && currentUser.name && msg.order.waiterName &&
-                        (currentUser.name.trim().toLowerCase() === msg.order.waiterName.trim().toLowerCase());
-
-                    if (isAssignedWaiter) {
-                        showToast(`¡${msg.order.table} lista en Cocina! Retirar por mostrador`, 'warning');
-                    } else {
-                        showToast(`¡${msg.order.table} lista en Cocina! (${msg.order.waiterName || 'Salón'})`, 'info');
-                    }
+                    showToast(`¡${msg.order.table} lista para retirar en Cocina!`, 'warning');
                 }
                 updateWaiterNotificationUI();
             }
@@ -892,6 +899,12 @@ function renderTablesGrid() {
             ? tableOrder.items.reduce((acc, i) => acc + (i.price * i.qty), 0)
             : (activeCmd ? activeCmd.total : 0);
 
+        // Detectar si la mesa tiene platos pendientes de enviar a cocina
+        const unsentCount = hasLocalItems
+            ? tableOrder.items.reduce((acc, i) => acc + Math.max(0, i.qty - (i.sentQty || 0)), 0)
+            : 0;
+        const hasUnsentItems = unsentCount > 0;
+
         if (activeCmd) {
             if (activeCmd.status === 'ready') {
                 statusText = "¡LISTO PARA ENTREGAR!";
@@ -899,6 +912,11 @@ function renderTablesGrid() {
                 borderClass = "border-2 border-amber-500 bg-amber-50/80 shadow-lg shadow-amber-500/20 ring-4 ring-amber-400/40 animate-pulse";
                 dotColor = "bg-amber-500 animate-ping";
                 isReadyInKitchen = true;
+            } else if (hasUnsentItems) {
+                statusText = "Comanda sin enviar";
+                statusBadge = "bg-orange-500 text-white border-orange-600 font-extrabold shadow-sm";
+                borderClass = "border-2 border-orange-500 bg-orange-50/60 shadow-md ring-2 ring-orange-300/50 animate-pulse";
+                dotColor = "bg-orange-500 animate-pulse";
             } else if (activeCmd.status === 'pending') {
                 statusText = "En Preparación";
                 statusBadge = "bg-blue-50 text-[#2563eb] border-blue-200 font-semibold";
@@ -911,18 +929,22 @@ function renderTablesGrid() {
                 dotColor = "bg-emerald-600";
             }
         } else if (hasLocalItems) {
-            statusText = "Cargando...";
-            statusBadge = "bg-slate-100 text-slate-700 border-slate-200";
-            borderClass = "border-blue-200 bg-white";
-            dotColor = "bg-blue-400";
+            if (hasUnsentItems) {
+                statusText = "Comanda sin enviar";
+                statusBadge = "bg-orange-500 text-white border-orange-600 font-extrabold shadow-sm";
+                borderClass = "border-2 border-orange-500 bg-orange-50/70 shadow-md ring-2 ring-orange-400/50 animate-pulse";
+                dotColor = "bg-orange-500 animate-pulse";
+            } else {
+                statusText = "Ocupada";
+                statusBadge = "bg-slate-100 text-slate-700 border-slate-200 font-semibold";
+                borderClass = "border-blue-200 bg-white";
+                dotColor = "bg-blue-400";
+            }
         }
 
         const itemsCount = hasLocalItems
             ? tableOrder.items.reduce((acc, i) => acc + i.qty, 0)
             : (activeCmd ? activeCmd.items.reduce((acc, i) => acc + i.qty, 0) : 0);
-
-        // Detectar si la mesa tiene platos nuevos agregados pendientes de envío
-        const hasUnsentItems = hasLocalItems && tableOrder.items.some(i => i.qty > (i.sentQty || 0));
 
         return `
             <div onclick="selectTable('${tName}')" class="border rounded-3xl p-4 sm:p-5 shadow-sm transition-all cursor-pointer flex flex-col justify-between group ${borderClass} relative">
@@ -964,8 +986,11 @@ function renderTablesGrid() {
                 </div>
 
                 ${total > 0 ? `
-                    <div class="pt-3 border-t border-slate-100 mt-3" onclick="event.stopPropagation()">
-                        <button onclick="openPaymentByTable('${tName}')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5">
+                    <div class="pt-3 border-t border-slate-100 mt-3 flex items-center space-x-1.5" onclick="event.stopPropagation()">
+                        <button onclick="openTableBillTicketPrint('${tName}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-2 rounded-xl text-xs border border-slate-300 transition-all flex items-center justify-center cursor-pointer shadow-sm" title="Imprimir Ticket Mesa (Pre-cuenta)">
+                            <i class="fa-solid fa-print"></i>
+                        </button>
+                        <button onclick="openPaymentByTable('${tName}')" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5">
                             <i class="fa-solid fa-cash-register"></i>
                             <span>Cobrar ($${total.toLocaleString()})</span>
                         </button>
@@ -1005,6 +1030,13 @@ function selectTable(tableName) {
 }
 
 function backToTablesView() {
+    const tableOrder = ordersByTable[currentTable];
+    if (tableOrder && tableOrder.items) {
+        const unsent = tableOrder.items.reduce((acc, i) => acc + Math.max(0, i.qty - (i.sentQty || 0)), 0);
+        if (unsent > 0) {
+            showToast(`Atención: ${currentTable} tiene ${unsent} plato(s) sin enviar a cocina`, 'warning');
+        }
+    }
     document.getElementById('waiter-order-view').classList.add('hidden');
     document.getElementById('waiter-tables-view').classList.remove('hidden');
     setMobileDrawerState(false);
@@ -1460,17 +1492,17 @@ function onPizzaItemClicked(itemId) {
         return;
     }
 
-    // MODO 2: Dos gustos (marcas 2 pizzas y se agrega)
+    // MODO 2: Dos gustos (marcas 2 pizzas y se agrega en formato Gusto1 / Gusto2)
     if (pizzaSelectionMode === 2) {
         if (selectedPizzaFlavors.length === 0) {
             selectedPizzaFlavors.push(item);
             renderMenuGrid();
-            showToast(`Mitad 1: ${item.name}. Ahora marca la segunda mitad`, 'info');
+            showToast(`Gusto 1: ${item.name}. Ahora marca el segundo gusto`, 'info');
         } else if (selectedPizzaFlavors.length === 1) {
             const f1 = selectedPizzaFlavors[0];
             const f2 = item;
             const avgPrice = Math.round((f1.price + f2.price) / 2);
-            const pizzaTitle = `Pizza 2 Gustos: 1/2 ${f1.name} + 1/2 ${f2.name}`;
+            const pizzaTitle = `Pizza: ${f1.name} / ${f2.name}`;
 
             tableItems.push({
                 id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
@@ -1490,21 +1522,21 @@ function onPizzaItemClicked(itemId) {
         return;
     }
 
-    // MODO 3: Tres gustos (precio fijo de $20.000 sin importar el valor de los gustos)
+    // MODO 3: Tres gustos (precio fijo de $20.000 en formato Gusto1 / Gusto2 / Gusto3)
     if (pizzaSelectionMode === 3) {
         if (selectedPizzaFlavors.length === 0) {
             selectedPizzaFlavors.push(item);
             renderMenuGrid();
-            showToast(`1/3: ${item.name}. Ahora marca el segundo tercio`, 'info');
+            showToast(`Gusto 1: ${item.name}. Marca el segundo gusto`, 'info');
         } else if (selectedPizzaFlavors.length === 1) {
             selectedPizzaFlavors.push(item);
             renderMenuGrid();
-            showToast(`1/3: ${selectedPizzaFlavors[0].name} + 1/3: ${item.name}. Marca el tercer tercio`, 'info');
+            showToast(`Gusto 1: ${selectedPizzaFlavors[0].name} / Gusto 2: ${item.name}. Marca el tercer gusto`, 'info');
         } else if (selectedPizzaFlavors.length === 2) {
             const f1 = selectedPizzaFlavors[0];
             const f2 = selectedPizzaFlavors[1];
             const f3 = item;
-            const pizzaTitle = `Pizza 3 Gustos: 1/3 ${f1.name} + 1/3 ${f2.name} + 1/3 ${f3.name}`;
+            const pizzaTitle = `Pizza: ${f1.name} / ${f2.name} / ${f3.name}`;
             const fixedPrice = 20000; // Precio fijo sin importar los sabores
 
             tableItems.push({
@@ -1783,6 +1815,17 @@ function renderMenuGrid() {
         } else if (activeCategory === 'pizzas') {
             itemsToDisplay = OFFICIAL_PIZZAS.map(item => ({ ...item, categoryKey: 'pizzas', categoryName: 'Pizzas' }));
         }
+
+        // En la categoría de pizzas, 'Pizza libre' siempre se ubica primera en la grilla
+        if (activeCategory === 'pizzas') {
+            itemsToDisplay.sort((a, b) => {
+                const aLibre = a.id === 'pz_libre' || a.name.toLowerCase().includes('pizza libre');
+                const bLibre = b.id === 'pz_libre' || b.name.toLowerCase().includes('pizza libre');
+                if (aLibre && !bLibre) return -1;
+                if (!aLibre && bLibre) return 1;
+                return 0;
+            });
+        }
     }
 
     if (itemsToDisplay.length === 0) {
@@ -1805,13 +1848,13 @@ function renderMenuGrid() {
             if (selectedPizzaFlavors.length === 0) {
                 statusBarHtml = `
                     <div class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-900 flex items-center justify-between">
-                        <span>Modo 2 Gustos: selecciona la primera mitad...</span>
+                        <span>Modo 2 Gustos: selecciona el primer gusto...</span>
                     </div>
                 `;
             } else if (selectedPizzaFlavors.length === 1) {
                 statusBarHtml = `
                     <div class="bg-blue-100 border border-blue-300 rounded-xl px-3 py-2 text-xs text-blue-950 flex items-center justify-between font-medium">
-                        <span>Mitad 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca la segunda mitad para agregar.</span>
+                        <span>Gusto 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo gusto para agregar.</span>
                         <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
                     </div>
                 `;
@@ -1820,20 +1863,20 @@ function renderMenuGrid() {
             if (selectedPizzaFlavors.length === 0) {
                 statusBarHtml = `
                     <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2 text-xs text-indigo-900 flex items-center justify-between">
-                        <span>Modo 3 Gustos ($20.000 fijo): selecciona el primer tercio...</span>
+                        <span>Modo 3 Gustos ($20.000 fijo): selecciona el primer gusto...</span>
                     </div>
                 `;
             } else if (selectedPizzaFlavors.length === 1) {
                 statusBarHtml = `
                     <div class="bg-indigo-100 border border-indigo-300 rounded-xl px-3 py-2 text-xs text-indigo-950 flex items-center justify-between font-medium">
-                        <span>1/3: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo tercio...</span>
+                        <span>Gusto 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo gusto...</span>
                         <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
                     </div>
                 `;
             } else if (selectedPizzaFlavors.length === 2) {
                 statusBarHtml = `
                     <div class="bg-indigo-100 border border-indigo-300 rounded-xl px-3 py-2 text-xs text-indigo-950 flex items-center justify-between font-medium">
-                        <span>1/3: <strong>${selectedPizzaFlavors[0].name}</strong> + 1/3: <strong>${selectedPizzaFlavors[1].name}</strong>. Marca el tercer tercio para agregar ($20.000).</span>
+                        <span>${selectedPizzaFlavors[0].name} / ${selectedPizzaFlavors[1].name}. Marca el tercer gusto para agregar ($20.000).</span>
                         <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
                     </div>
                 `;
@@ -1875,13 +1918,16 @@ function renderMenuGrid() {
         if (isSelectedFlavor) {
             const idx = selectedPizzaFlavors.findIndex(f => f.id === item.id);
             if (pizzaSelectionMode === 2) {
-                selectedIndexBadge = `<span class="bg-[#2563eb] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Mitad 1</span>`;
+                selectedIndexBadge = `<span class="bg-[#2563eb] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Gusto 1</span>`;
             } else if (pizzaSelectionMode === 3) {
-                selectedIndexBadge = `<span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Tercio ${idx + 1}</span>`;
+                selectedIndexBadge = `<span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Gusto ${idx + 1}</span>`;
             }
         }
 
         let cardBorderClass = "border-slate-200 hover:border-blue-300";
+        if (isPizzaLibre) {
+            cardBorderClass = "border-2 border-amber-300 bg-amber-50/20 hover:border-amber-400 shadow-sm";
+        }
         if (isSelectedFlavor) {
             cardBorderClass = "border-2 border-[#2563eb] bg-blue-50/40 shadow-md ring-2 ring-blue-300/40";
         }
@@ -1916,14 +1962,14 @@ function renderMenuGrid() {
                 actionButton = `
                     <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-blue-700' : 'bg-[#2563eb] hover:bg-blue-600'} active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
                         <i class="fa-solid fa-check text-[10px]"></i>
-                        <span>${isSelectedFlavor ? 'Mitad 1' : 'Elegir Mitad'}</span>
+                        <span>${isSelectedFlavor ? 'Gusto 1' : 'Elegir Gusto'}</span>
                     </button>
                 `;
             } else if (pizzaSelectionMode === 3) {
                 actionButton = `
                     <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-indigo-700' : 'bg-[#2563eb] hover:bg-blue-600'} active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
                         <i class="fa-solid fa-check text-[10px]"></i>
-                        <span>${isSelectedFlavor ? 'Seleccionada' : 'Elegir Tercio'}</span>
+                        <span>${isSelectedFlavor ? 'Seleccionado' : 'Elegir Gusto'}</span>
                     </button>
                 `;
             }
@@ -1942,6 +1988,7 @@ function renderMenuGrid() {
                     <div class="flex items-start justify-between gap-1">
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <h4 class="font-bold text-sm text-slate-800 leading-snug">${item.name}</h4>
+                            ${isPizzaLibre ? '<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider">Libre</span>' : ''}
                             ${selectedIndexBadge}
                         </div>
                         <span class="font-bold text-sm text-[#2563eb] shrink-0">$${item.price.toLocaleString()}</span>
@@ -2086,6 +2133,8 @@ function renderOrderList() {
     const totalPriceElem = document.getElementById('order-total-price');
     const sendBtn = document.getElementById('send-order-btn');
     const payBtn = document.getElementById('pay-table-btn');
+    const printBillBtn = document.getElementById('print-bill-btn');
+    const alertBanner = document.getElementById('table-unsent-alert-banner');
 
     const totalQty = items.reduce((acc, i) => acc + i.qty, 0);
     const totalPrice = items.reduce((acc, i) => acc + (i.price * i.qty), 0);
@@ -2096,6 +2145,37 @@ function renderOrderList() {
     if (drawerTotalPreview) drawerTotalPreview.innerText = `$${totalPrice.toLocaleString()}`;
     if (totalPriceElem) totalPriceElem.innerText = `$${totalPrice.toLocaleString()}`;
 
+    // Cartelito de alerta: Comanda sin enviar
+    if (alertBanner) {
+        if (newItemsCount > 0) {
+            alertBanner.className = "p-3 bg-amber-50 border-2 border-amber-500 rounded-2xl flex items-center justify-between gap-2 text-amber-900 shadow-sm animate-pulse mb-3";
+            alertBanner.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <span class="w-3 h-3 rounded-full bg-amber-500 animate-ping shrink-0"></span>
+                    <div>
+                        <p class="font-black text-xs uppercase tracking-wide text-amber-900">[ALERTA] COMANDA SIN ENVIAR</p>
+                        <p class="text-[11px] text-amber-800">Tienes <strong>${newItemsCount}</strong> plato${newItemsCount === 1 ? '' : 's'} pendiente${newItemsCount === 1 ? '' : 's'} de enviar a cocina.</p>
+                    </div>
+                </div>
+                <button onclick="sendOrderToKitchen()" class="bg-amber-500 hover:bg-amber-600 text-white font-black px-3.5 py-2 rounded-xl text-xs shadow-md transition-all shrink-0 cursor-pointer flex items-center space-x-1.5">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    <span>Enviar Ya</span>
+                </button>
+            `;
+        } else {
+            alertBanner.className = "hidden";
+            alertBanner.innerHTML = "";
+        }
+    }
+
+    if (printBillBtn) {
+        if (totalPrice > 0) {
+            printBillBtn.classList.remove('hidden');
+        } else {
+            printBillBtn.classList.add('hidden');
+        }
+    }
+
     if (items.length === 0) {
         container.innerHTML = `
             <div class="text-center py-6 text-slate-400 space-y-1">
@@ -2105,6 +2185,7 @@ function renderOrderList() {
         `;
         if (sendBtn) {
             sendBtn.disabled = true;
+            sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 cursor-not-allowed";
             sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina</span>';
         }
         if (payBtn) payBtn.disabled = true;
@@ -2116,8 +2197,8 @@ function renderOrderList() {
     if (sendBtn) {
         if (newItemsCount > 0) {
             sendBtn.disabled = false;
-            sendBtn.className = "w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 cursor-pointer";
-            sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina (${newItemsCount} nuevo${newItemsCount === 1 ? '' : 's'})</span>`;
+            sendBtn.className = "w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/30 flex items-center justify-center space-x-2 cursor-pointer ring-2 ring-amber-400 ring-offset-1 animate-pulse";
+            sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina (${newItemsCount} pendiente${newItemsCount === 1 ? '' : 's'})</span>`;
         } else {
             sendBtn.disabled = true;
             sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 cursor-not-allowed";
@@ -2971,6 +3052,8 @@ async function reopenTableOrderToPending(cmdId) {
 
 // ================= IMPRESIÓN DE TICKET TÉRMICO 80MM =================
 
+let currentTicketRawText = "";
+
 function openKitchenTicketPrint(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd) return;
@@ -2982,6 +3065,11 @@ function openKitchenTicketPrint(cmdId) {
 
     const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
     const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
+
+    const modalTitle = document.getElementById('ticket-modal-title');
+    const modalSubtitle = document.getElementById('ticket-modal-subtitle');
+    if (modalTitle) modalTitle.innerText = "Ticket Comanda (Cocina)";
+    if (modalSubtitle) modalSubtitle.innerText = `Comanda ${cmd.id} - ${cmd.table}`;
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
@@ -3052,7 +3140,166 @@ function openKitchenTicketPrint(cmdId) {
         </div>
     `;
 
+    currentTicketRawText =
+        `*COMANDA DE COCINA - RIVERA POS*\n` +
+        `Comanda: ${cmd.id} | Mesa: ${cmd.table}\n` +
+        `Mozo: ${cmd.waiterName} | Hora: ${cmd.time} hs\n` +
+        `--------------------------------\n` +
+        (pendingItems.length > 0 ? `*POR PREPARAR:*\n` + pendingItems.map(i => `• ${i.qty}x ${i.name} ${i.isAddon ? '(AGREGADO)' : ''}`).join('\n') + '\n' : '') +
+        (deliveredItems.length > 0 ? `*YA ENTREGADOS:*\n` + deliveredItems.map(i => `• [OK] ${i.qty}x ${i.name}`).join('\n') + '\n' : '') +
+        (cmd.note ? `*NOTAS:* ${cmd.note}\n` : '') +
+        `--------------------------------\n` +
+        `Total Mesa: $${cmd.total.toLocaleString()}`;
+
     document.getElementById('ticket-print-modal').classList.remove('hidden');
+}
+
+function openTableBillTicketPrint(tableName) {
+    const table = tableName || currentTable || activePaymentTable;
+    if (!table) {
+        showToast('Selecciona una mesa primero', 'info');
+        return;
+    }
+
+    const tableOrder = ordersByTable[table] || { items: [], note: "" };
+    const activeCmd = kitchenOrders.find(o => o.table === table && o.status !== 'paid');
+
+    let items = [];
+    if (tableOrder.items && tableOrder.items.length > 0) {
+        items = tableOrder.items;
+    } else if (activeCmd && activeCmd.items && activeCmd.items.length > 0) {
+        items = activeCmd.items;
+    }
+
+    if (items.length === 0) {
+        showToast(`La ${table} no tiene productos registrados`, 'info');
+        return;
+    }
+
+    const total = items.reduce((acc, i) => acc + (i.price * i.qty), 0);
+    const suggestedTip10 = Math.round(total * 0.10);
+    const totalWithTip10 = total + suggestedTip10;
+
+    const waiterName = (activeCmd && activeCmd.waiterName)
+        ? activeCmd.waiterName
+        : (currentUser ? currentUser.name : "Mozo");
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const modalTitle = document.getElementById('ticket-modal-title');
+    const modalSubtitle = document.getElementById('ticket-modal-subtitle');
+    if (modalTitle) modalTitle.innerText = "Ticket Pre-cuenta (Mesa)";
+    if (modalSubtitle) modalSubtitle.innerText = `Comprobante de consumo para ${table}`;
+
+    const container = document.getElementById('printable-ticket-area');
+    container.innerHTML = `
+        <div class="text-center space-y-1 border-b border-dashed border-slate-400 pb-2">
+            <h2 class="font-bold text-sm uppercase tracking-wide">RIVERA POS</h2>
+            <p class="text-[10px] font-semibold text-slate-600">CONTROL DE MESA / PRE-CUENTA</p>
+            <p class="text-[9px] text-slate-400">NO VALIDO COMO FACTURA FISCAL</p>
+        </div>
+
+        <div class="py-2 border-b border-dashed border-slate-400 space-y-0.5 text-[11px]">
+            <div class="flex justify-between">
+                <span>MESA:</span>
+                <strong class="text-sm font-black text-slate-900">${table}</strong>
+            </div>
+            <div class="flex justify-between">
+                <span>MOZO:</span>
+                <span class="font-semibold text-slate-800">${waiterName}</span>
+            </div>
+            <div class="flex justify-between">
+                <span>FECHA:</span>
+                <span>${dateStr} - ${timeStr} hs</span>
+            </div>
+        </div>
+
+        <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5">
+            <div class="flex justify-between font-bold text-[10px] uppercase text-slate-600 pb-1 border-b border-dashed border-slate-200">
+                <span>CANT / DETALLE</span>
+                <span>SUBTOTAL</span>
+            </div>
+            ${items.map(i => `
+                <div class="space-y-0.5">
+                    <div class="flex justify-between items-start text-xs">
+                        <span class="font-bold text-slate-900">${i.qty}x ${i.name}</span>
+                        <span class="font-bold text-slate-900">$${(i.price * i.qty).toLocaleString()}</span>
+                    </div>
+                    ${i.note ? `<p class="text-[10px] text-slate-500 italic pl-2">>> ${i.note}</p>` : ''}
+                </div>
+            `).join('')}
+        </div>
+
+        <div class="py-2 border-b border-dashed border-slate-400 space-y-1 text-xs">
+            <div class="flex justify-between items-center text-sm font-black text-slate-900">
+                <span>TOTAL CONSUMO:</span>
+                <span>$${total.toLocaleString()}</span>
+            </div>
+            <div class="flex justify-between items-center text-[11px] text-slate-600 pt-1">
+                <span>Propina sugerida (10%):</span>
+                <span>$${suggestedTip10.toLocaleString()}</span>
+            </div>
+            <div class="flex justify-between items-center text-[11px] font-bold text-[#2563eb]">
+                <span>Total con 10% propina:</span>
+                <span>$${totalWithTip10.toLocaleString()}</span>
+            </div>
+        </div>
+
+        <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5 text-[11px] text-slate-600">
+            <div class="flex justify-between">
+                <span>Propina voluntaria:</span>
+                <span class="font-mono text-slate-400">[ $___________ ]</span>
+            </div>
+            <div class="flex justify-between font-bold text-slate-800">
+                <span>TOTAL A PAGAR:</span>
+                <span class="font-mono text-slate-400">[ $___________ ]</span>
+            </div>
+            <div class="pt-2 text-center text-[10px] text-slate-400 border-t border-dashed border-slate-200">
+                Firma cliente: ___________________________
+            </div>
+        </div>
+
+        <div class="pt-2 text-center text-[10px] text-slate-500 space-y-0.5">
+            <p class="font-semibold">¡Muchas gracias por elegir Rivera!</p>
+            <p class="text-[9px] text-slate-400">Esperamos que hayan disfrutado el servicio</p>
+        </div>
+    `;
+
+    currentTicketRawText =
+        `*RIVERA POS - PRE-CUENTA*\n` +
+        `Mesa: ${table}\n` +
+        `Mozo: ${waiterName}\n` +
+        `Fecha: ${dateStr} ${timeStr} hs\n` +
+        `--------------------------------\n` +
+        items.map(i => `• ${i.qty}x ${i.name} = $${(i.price * i.qty).toLocaleString()}${i.note ? ` (${i.note})` : ''}`).join('\n') + '\n' +
+        `--------------------------------\n` +
+        `*TOTAL CONSUMO: $${total.toLocaleString()}*\n` +
+        `Propina sugerida 10%: $${suggestedTip10.toLocaleString()}\n` +
+        `*Total sugerido c/propina: $${totalWithTip10.toLocaleString()}*\n\n` +
+        `¡Muchas gracias por su visita!`;
+
+    document.getElementById('ticket-print-modal').classList.remove('hidden');
+}
+
+function copyTicketText() {
+    if (!currentTicketRawText) {
+        const area = document.getElementById('printable-ticket-area');
+        if (area) {
+            currentTicketRawText = area.innerText;
+        }
+    }
+    if (!currentTicketRawText) {
+        showToast('No hay contenido para copiar', 'info');
+        return;
+    }
+    navigator.clipboard.writeText(currentTicketRawText).then(() => {
+        showToast('Ticket copiado al portapapeles para WhatsApp', 'success');
+    }).catch(err => {
+        console.warn('Error al copiar ticket:', err);
+        showToast('No se pudo copiar automáticamente', 'error');
+    });
 }
 
 function closeTicketPrintModal() {
