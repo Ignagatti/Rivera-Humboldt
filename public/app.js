@@ -986,11 +986,269 @@ function clearSearchInput() {
     renderMenuGrid();
 }
 
+// ================= ARMADO DE PIZZAS (1, 2 Y 3 GUSTOS) =================
+
+let pizzaBuilderState = {
+    flavorCount: 1, // 1, 2 o 3
+    flavor1Id: null,
+    flavor2Id: null,
+    flavor3Id: null,
+    qty: 1,
+    currentUnitPrice: 0,
+    currentTitle: ''
+};
+
+function getPizzaFlavorsCatalog() {
+    const pizzaCat = menuData['pizzas'];
+    if (pizzaCat && Array.isArray(pizzaCat.items) && pizzaCat.items.length > 0) {
+        return pizzaCat.items;
+    }
+    // Catálogo clásico de pizzas si la categoría aún está vacía
+    return [
+        { id: 'pz_default_muz', name: 'Muzzarella', price: 8500, desc: 'Salsa de tomate, muzzarella y aceitunas verdes' },
+        { id: 'pz_default_nap', name: 'Napolitana', price: 9500, desc: 'Muzzarella, rodajas de tomate natural, ajo y orégano' },
+        { id: 'pz_default_fug', name: 'Fugazzeta', price: 9500, desc: 'Muzzarella y abundante cebolla fileteada' },
+        { id: 'pz_default_cal', name: 'Calabresa', price: 10000, desc: 'Muzzarella y rodajas de longaniza calabresa' },
+        { id: 'pz_default_jam', name: 'Jamón y Morrones', price: 10500, desc: 'Muzzarella, jamón cocido y morrones asados' },
+        { id: 'pz_default_roq', name: 'Roquefort', price: 11000, desc: 'Muzzarella y queso azul roquefort' },
+        { id: 'pz_default_4qu', name: 'Cuatro Quesos', price: 11500, desc: 'Muzzarella, roquefort, provolone y sardo' },
+        { id: 'pz_default_esp', name: 'Especial Rivera', price: 12000, desc: 'Muzzarella, jamón, morrones, huevo duro y aceitunas' }
+    ];
+}
+
+function openPizzaBuilderModal(preselectedFlavorId = null) {
+    const flavors = getPizzaFlavorsCatalog();
+    if (flavors.length === 0) {
+        showToast('No hay gustos de pizza disponibles', 'warning');
+        return;
+    }
+
+    pizzaBuilderState.flavorCount = 1;
+    pizzaBuilderState.qty = 1;
+
+    // Gusto 1 inicial
+    if (preselectedFlavorId) {
+        const found = flavors.find(f => f.id === preselectedFlavorId);
+        pizzaBuilderState.flavor1Id = found ? found.id : flavors[0].id;
+    } else {
+        pizzaBuilderState.flavor1Id = flavors[0].id;
+    }
+
+    // Gustos 2 y 3 predeterminados
+    pizzaBuilderState.flavor2Id = flavors.length > 1 ? flavors[1].id : flavors[0].id;
+    pizzaBuilderState.flavor3Id = flavors.length > 2 ? flavors[2].id : flavors[0].id;
+
+    populatePizzaFlavorSelects(flavors);
+
+    const subtitleElem = document.getElementById('pizza-modal-subtitle');
+    if (subtitleElem) subtitleElem.innerText = `${currentTable} • Selección de gustos`;
+
+    const noteInput = document.getElementById('pizza-note-input');
+    if (noteInput) noteInput.value = '';
+
+    const customInput = document.getElementById('pizza-custom-flavor-input');
+    if (customInput) customInput.value = '';
+
+    const qtyInput = document.getElementById('pizza-qty-input');
+    if (qtyInput) qtyInput.value = 1;
+
+    setPizzaFlavorsCount(1);
+    document.getElementById('pizza-builder-modal').classList.remove('hidden');
+}
+
+function closePizzaBuilderModal() {
+    const modal = document.getElementById('pizza-builder-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function populatePizzaFlavorSelects(flavors) {
+    const s1 = document.getElementById('select-pizza-flavor-1');
+    const s2 = document.getElementById('select-pizza-flavor-2');
+    const s3 = document.getElementById('select-pizza-flavor-3');
+
+    const optionsHtml = flavors.map(f => `
+        <option value="${f.id}" data-price="${f.price}" data-name="${f.name}">
+            ${f.name} — $${f.price.toLocaleString()}
+        </option>
+    `).join('');
+
+    if (s1) {
+        s1.innerHTML = optionsHtml;
+        s1.value = pizzaBuilderState.flavor1Id;
+    }
+    if (s2) {
+        s2.innerHTML = optionsHtml;
+        s2.value = pizzaBuilderState.flavor2Id;
+    }
+    if (s3) {
+        s3.innerHTML = optionsHtml;
+        s3.value = pizzaBuilderState.flavor3Id;
+    }
+}
+
+function setPizzaFlavorsCount(count) {
+    pizzaBuilderState.flavorCount = count;
+
+    const btn1 = document.getElementById('btn-pizza-gustos-1');
+    const btn2 = document.getElementById('btn-pizza-gustos-2');
+    const btn3 = document.getElementById('btn-pizza-gustos-3');
+
+    const cGusto2 = document.getElementById('container-gusto-2');
+    const cGusto3 = document.getElementById('container-gusto-3');
+    const labelGusto1 = document.getElementById('label-gusto-1');
+    const labelGusto2 = document.getElementById('label-gusto-2');
+
+    const activeClass = "py-2.5 px-2 rounded-2xl border-2 border-[#2563eb] bg-blue-50/80 text-[#2563eb] font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm";
+    const inactiveClass = "py-2.5 px-2 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all";
+
+    if (btn1) btn1.className = count === 1 ? activeClass : inactiveClass;
+    if (btn2) btn2.className = count === 2 ? activeClass : inactiveClass;
+    if (btn3) btn3.className = count === 3 ? activeClass : inactiveClass;
+
+    if (count === 1) {
+        if (cGusto2) cGusto2.classList.add('hidden');
+        if (cGusto3) cGusto3.classList.add('hidden');
+        if (labelGusto1) labelGusto1.innerText = "Gusto de la Pizza (Entera)";
+    } else if (count === 2) {
+        if (cGusto2) cGusto2.classList.remove('hidden');
+        if (cGusto3) cGusto3.classList.add('hidden');
+        if (labelGusto1) labelGusto1.innerText = "Primer Gusto (1/2)";
+        if (labelGusto2) labelGusto2.innerText = "Segundo Gusto (1/2)";
+    } else if (count === 3) {
+        if (cGusto2) cGusto2.classList.remove('hidden');
+        if (cGusto3) cGusto3.classList.remove('hidden');
+        if (labelGusto1) labelGusto1.innerText = "Primer Gusto (1/3)";
+        if (labelGusto2) labelGusto2.innerText = "Segundo Gusto (1/3)";
+    }
+
+    updatePizzaBuilderPreview();
+}
+
+function onPizzaFlavorSelectChange() {
+    const s1 = document.getElementById('select-pizza-flavor-1');
+    const s2 = document.getElementById('select-pizza-flavor-2');
+    const s3 = document.getElementById('select-pizza-flavor-3');
+
+    if (s1) pizzaBuilderState.flavor1Id = s1.value;
+    if (s2) pizzaBuilderState.flavor2Id = s2.value;
+    if (s3) pizzaBuilderState.flavor3Id = s3.value;
+
+    updatePizzaBuilderPreview();
+}
+
+function changePizzaModalQty(delta) {
+    let q = (pizzaBuilderState.qty || 1) + delta;
+    if (q < 1) q = 1;
+    pizzaBuilderState.qty = q;
+    const qtyInput = document.getElementById('pizza-qty-input');
+    if (qtyInput) qtyInput.value = q;
+    updatePizzaBuilderPreview();
+}
+
+function updatePizzaBuilderPreview() {
+    const flavors = getPizzaFlavorsCatalog();
+    const count = pizzaBuilderState.flavorCount;
+    const f1 = flavors.find(f => f.id === pizzaBuilderState.flavor1Id) || flavors[0];
+    const f2 = flavors.find(f => f.id === pizzaBuilderState.flavor2Id) || flavors[0];
+    const f3 = flavors.find(f => f.id === pizzaBuilderState.flavor3Id) || flavors[0];
+
+    const p1Elem = document.getElementById('price-gusto-1');
+    const p2Elem = document.getElementById('price-gusto-2');
+    const p3Elem = document.getElementById('price-gusto-3');
+    if (p1Elem && f1) p1Elem.innerText = `$${f1.price.toLocaleString()}`;
+    if (p2Elem && f2) p2Elem.innerText = `$${f2.price.toLocaleString()}`;
+    if (p3Elem && f3) p3Elem.innerText = `$${f3.price.toLocaleString()}`;
+
+    let unitPrice = 0;
+    let pizzaTitle = "";
+    let calcText = "";
+
+    const customFlavor = document.getElementById('pizza-custom-flavor-input')?.value.trim();
+
+    if (count === 1) {
+        unitPrice = f1.price;
+        pizzaTitle = `Pizza ${f1.name} (Entera)`;
+        calcText = `$${unitPrice.toLocaleString()} c/u (Pizza completa de 1 gusto)`;
+    } else if (count === 2) {
+        // En 2 gustos: promedio de los 2 sabores
+        unitPrice = Math.round((f1.price + f2.price) / 2);
+        pizzaTitle = `Pizza 2 Gustos: 1/2 ${f1.name} + 1/2 ${f2.name}`;
+        calcText = `1/2 ${f1.name} ($${Math.round(f1.price / 2).toLocaleString()}) + 1/2 ${f2.name} ($${Math.round(f2.price / 2).toLocaleString()}) = $${unitPrice.toLocaleString()} c/u`;
+    } else if (count === 3) {
+        // En 3 gustos: promedio de los 3 sabores
+        unitPrice = Math.round((f1.price + f2.price + f3.price) / 3);
+        pizzaTitle = `Pizza 3 Gustos: 1/3 ${f1.name} + 1/3 ${f2.name} + 1/3 ${f3.name}`;
+        calcText = `1/3 c/u ($${Math.round(f1.price / 3).toLocaleString()} + $${Math.round(f2.price / 3).toLocaleString()} + $${Math.round(f3.price / 3).toLocaleString()}) = $${unitPrice.toLocaleString()} c/u`;
+    }
+
+    if (customFlavor) {
+        pizzaTitle += ` [Especial: ${customFlavor}]`;
+    }
+
+    const subtotal = unitPrice * (pizzaBuilderState.qty || 1);
+
+    const nameElem = document.getElementById('pizza-preview-name');
+    const calcElem = document.getElementById('pizza-preview-calculation');
+    const totalElem = document.getElementById('pizza-preview-total');
+
+    if (nameElem) nameElem.innerText = pizzaTitle;
+    if (calcElem) calcElem.innerText = calcText;
+    if (totalElem) totalElem.innerText = `$${subtotal.toLocaleString()}`;
+
+    pizzaBuilderState.currentUnitPrice = unitPrice;
+    pizzaBuilderState.currentTitle = pizzaTitle;
+}
+
+function confirmAddPizzaToOrder() {
+    updatePizzaBuilderPreview();
+
+    const title = pizzaBuilderState.currentTitle;
+    const unitPrice = pizzaBuilderState.currentUnitPrice;
+    const qty = pizzaBuilderState.qty || 1;
+    const kitchenNote = document.getElementById('pizza-note-input')?.value.trim() || '';
+
+    if (!title || !unitPrice || unitPrice <= 0) {
+        showToast('Error al calcular los gustos de la pizza', 'warning');
+        return;
+    }
+
+    if (!ordersByTable[currentTable]) {
+        ordersByTable[currentTable] = { items: [], note: "" };
+    }
+
+    const tableItems = ordersByTable[currentTable].items;
+
+    // Si ya existe la misma combinación sin enviar aún a cocina, sumar cantidad
+    const existing = tableItems.find(i => i.name === title && (i.note || '') === kitchenNote && (i.qty > (i.sentQty || 0)));
+    if (existing) {
+        existing.qty += qty;
+    } else {
+        tableItems.push({
+            id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+            name: title,
+            price: unitPrice,
+            qty: qty,
+            sentQty: 0,
+            isPizza: true,
+            flavorCount: pizzaBuilderState.flavorCount,
+            note: kitchenNote
+        });
+    }
+
+    closePizzaBuilderModal();
+    saveCurrentTableState();
+    renderOrderList();
+    renderMenuGrid();
+
+    showToast(`${qty}x ${title} agregada a ${currentTable}`, 'success');
+}
+
 function renderMenuGrid() {
     const container = document.getElementById('menu-grid');
     if (!container) return;
 
     let itemsToDisplay = [];
+    const isPizzasView = activeCategory === 'pizzas' && searchQuery.length === 0;
 
     if (searchQuery.length > 0) {
         // Buscar en todas las categorías
@@ -1000,15 +1258,18 @@ function renderMenuGrid() {
                 const matchName = item.name.toLowerCase().includes(searchQuery);
                 const matchDesc = item.desc && item.desc.toLowerCase().includes(searchQuery);
                 if (matchName || matchDesc) {
-                    itemsToDisplay.push({ ...item, categoryName: cat.name });
+                    itemsToDisplay.push({ ...item, categoryKey: catKey, categoryName: cat.name });
                 }
             });
         });
     } else {
         // Mostrar ítems de la categoría activa
         const cat = menuData[activeCategory];
-        if (cat && Array.isArray(cat.items)) {
-            itemsToDisplay = cat.items;
+        if (cat && Array.isArray(cat.items) && cat.items.length > 0) {
+            itemsToDisplay = cat.items.map(item => ({ ...item, categoryKey: activeCategory, categoryName: cat.name }));
+        } else if (activeCategory === 'pizzas') {
+            // Si la categoría de pizzas aún no tiene platos creados, usar catálogo base sugerido
+            itemsToDisplay = getPizzaFlavorsCatalog().map(item => ({ ...item, categoryKey: 'pizzas', categoryName: 'Pizzas' }));
         }
     }
 
@@ -1024,9 +1285,44 @@ function renderMenuGrid() {
 
     const currentItems = (ordersByTable[currentTable] && ordersByTable[currentTable].items) || [];
 
-    container.innerHTML = itemsToDisplay.map(item => {
+    // Banner destacado si estamos en la categoría de Pizzas
+    let pizzaBannerHtml = '';
+    if (isPizzasView) {
+        pizzaBannerHtml = `
+            <div class="col-span-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-2xl p-3.5 sm:p-4 text-white shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 mb-1">
+                <div class="flex items-center space-x-3 text-center sm:text-left">
+                    <div class="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-xl shrink-0">
+                        🍕
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-sm sm:text-base">Pizzas por Gustos</h4>
+                        <p class="text-xs text-blue-100">Elegí si la querés de 1 gusto (entera), 2 gustos (1/2 y 1/2) o 3 gustos (1/3 c/u).</p>
+                    </div>
+                </div>
+                <button onclick="openPizzaBuilderModal()" class="w-full sm:w-auto bg-white text-[#2563eb] hover:bg-blue-50 font-bold px-3.5 py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-2 shrink-0 cursor-pointer">
+                    <i class="fa-solid fa-pizza-slice"></i>
+                    <span>Armar Pizza por Gustos</span>
+                </button>
+            </div>
+        `;
+    }
+
+    const cardsHtml = itemsToDisplay.map(item => {
+        const isPizza = item.categoryKey === 'pizzas' || (item.categoryName && item.categoryName.toLowerCase().includes('pizza')) || activeCategory === 'pizzas';
         const orderItem = currentItems.find(i => i.id === item.id);
         const qty = orderItem ? orderItem.qty : 0;
+
+        const actionButton = isPizza ? `
+            <button onclick="openPizzaBuilderModal('${item.id}')" class="bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                <i class="fa-solid fa-pizza-slice text-[10px]"></i>
+                <span>Elegir Gustos</span>
+            </button>
+        ` : `
+            <button onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                <i class="fa-solid fa-plus text-[10px]"></i>
+                <span>Agregar</span>
+            </button>
+        `;
 
         return `
             <div class="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm hover:border-blue-300 transition-all flex flex-col justify-between space-y-2">
@@ -1047,14 +1343,13 @@ function renderMenuGrid() {
                         <span class="text-[10px] text-slate-400">Disponible</span>
                     `}
 
-                    <button onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
-                        <i class="fa-solid fa-plus text-[10px]"></i>
-                        <span>Agregar</span>
-                    </button>
+                    ${actionButton}
                 </div>
             </div>
         `;
     }).join('');
+
+    container.innerHTML = pizzaBannerHtml + cardsHtml;
 }
 
 function findMenuItemById(itemId) {
@@ -1062,12 +1357,21 @@ function findMenuItemById(itemId) {
         const item = menuData[catKey].items.find(i => i.id === itemId);
         if (item) return item;
     }
+    // Buscar en catálogo de pizzas si no está en la categoría aún
+    const pizzaFlavor = getPizzaFlavorsCatalog().find(i => i.id === itemId);
+    if (pizzaFlavor) return pizzaFlavor;
     return null;
 }
 
 function addToOrder(itemId) {
     const item = findMenuItemById(itemId);
     if (!item) return;
+
+    // Si es pizza, abrir el modal de selección de gustos
+    if (activeCategory === 'pizzas' || (menuData.pizzas && menuData.pizzas.items.some(i => i.id === itemId))) {
+        openPizzaBuilderModal(itemId);
+        return;
+    }
 
     if (!ordersByTable[currentTable]) {
         ordersByTable[currentTable] = { items: [], note: "" };
@@ -1223,9 +1527,10 @@ function renderOrderList() {
             <div class="py-2 flex items-center justify-between gap-2 text-xs border-b border-slate-50 last:border-b-0">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <h5 class="font-bold text-slate-800 truncate">${item.name}</h5>
+                        <h5 class="font-bold text-slate-800 break-words leading-tight">${item.name}</h5>
                         ${statusPill}
                     </div>
+                    ${item.note ? `<p class="text-[10px] text-amber-700 font-semibold italic mt-0.5"><i class="fa-solid fa-note-sticky text-[9px] mr-1"></i>${item.note}</p>` : ''}
                     <span class="text-slate-400 text-[11px]">$${item.price.toLocaleString()} c/u</span>
                 </div>
 
@@ -1259,7 +1564,7 @@ async function sendOrderToKitchen() {
         if (diff > 0) {
             newItemsToSend.push({
                 id: item.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                name: item.name,
+                name: item.name + (item.note ? ` [${item.note}]` : ''),
                 price: item.price,
                 qty: diff,
                 isAddon: sent > 0,
@@ -1382,6 +1687,20 @@ function openPaymentByTable(tableName) {
     document.getElementById('pay-modal-subtitle').innerText = `${tableName}${cmd ? ' • ' + cmd.id : ''}`;
     document.getElementById('pay-modal-total').innerText = `$${total.toLocaleString()}`;
 
+    // Poblar y seleccionar mozo que cobra la mesa
+    const waiterSelect = document.getElementById('pay-waiter-select');
+    if (waiterSelect) {
+        const preferredWaiter = (currentUser && currentUser.name) || (cmd && cmd.waiterName) || '';
+        let staffOptions = staffList;
+        if (!staffOptions || staffOptions.length === 0) {
+            staffOptions = [{ id: 'm1', name: preferredWaiter || 'Mozo', role: 'Mozo' }];
+        }
+        waiterSelect.innerHTML = staffOptions.map(s => {
+            const isSelected = (preferredWaiter === s.name) || (!preferredWaiter && s.role !== 'Cocina / Admin');
+            return `<option value="${s.name}" ${isSelected ? 'selected' : ''}>${s.name} (${s.role || 'Personal'})</option>`;
+        }).join('');
+    }
+
     selectPaymentMethod('Efectivo');
     document.getElementById('payment-modal').classList.remove('hidden');
 }
@@ -1431,13 +1750,19 @@ async function confirmPaymentAndFinish() {
     const cmd = kitchenOrders.find(o => o.table === activePaymentTable && o.status !== 'paid');
     let itemsList = (tableOrder && tableOrder.items.length > 0) ? tableOrder.items : (cmd ? cmd.items : []);
     const itemsSummary = itemsList.map(i => `${i.qty}x ${i.name}`).join(', ') || 'Consumo salón';
-    const waiterName = cmd ? cmd.waiterName : (currentUser ? currentUser.name : 'Mozo');
+
+    // Mozo que cobró la mesa (desde selector de modal o usuario activo)
+    const waiterSelect = document.getElementById('pay-waiter-select');
+    const waiterName = (waiterSelect && waiterSelect.value)
+        ? waiterSelect.value
+        : (currentUser ? currentUser.name : (cmd ? cmd.waiterName : 'Mozo'));
+
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const paymentRecord = {
         id: `PAG-${101 + paymentHistory.length}`,
         table: activePaymentTable,
-        waiter: waiterName,
+        waiter: waiterName, // Mozo que realizó el cobro
         time: timeStr,
         method: selectedPaymentMethod,
         total: activePaymentTotal,
@@ -1486,7 +1811,7 @@ async function confirmPaymentAndFinish() {
 
     showModal(
         `${closedTable} Pagada (${methodUsed})`,
-        `Total pedido: $${totalAmount.toLocaleString()} • Abonó: $${paidWith.toLocaleString()} • Propina sumada a caja: $${tip.toLocaleString()}. Mesa liberada.`
+        `Cobró: ${waiterName} • Total: $${totalAmount.toLocaleString()} • Pagó: $${paidWith.toLocaleString()} • Propina: $${tip.toLocaleString()}. Mesa liberada.`
     );
 }
 
@@ -1532,24 +1857,33 @@ function renderPaymentHistoryList() {
             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
             : 'bg-indigo-50 text-indigo-700 border-indigo-200';
         const iconClass = isCash ? 'fa-money-bill-wave' : 'fa-building-columns';
+        const paidAmount = p.paidWith || p.total;
 
         return `
-            <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <div class="space-y-1">
-                    <div class="flex items-center space-x-2">
+            <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div class="space-y-1 min-w-0">
+                    <div class="flex items-center flex-wrap gap-1.5">
                         <span class="font-bold text-slate-900 text-sm">${p.table}</span>
                         <span class="px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${badgeClass}">
                             <i class="fa-solid ${iconClass}"></i> ${p.method}
                         </span>
-                        <span class="text-[11px] text-slate-400">${p.time} • Mozo: ${p.waiter}</span>
+                        <span class="text-[11px] text-slate-400">${p.time}</span>
+                        <span class="bg-blue-50 text-[#2563eb] border border-blue-200 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-user-check text-[9px]"></i> Cobró: ${p.waiter}
+                        </span>
                     </div>
                     <p class="text-[11px] text-slate-500">${p.itemsSummary}</p>
                 </div>
-                <div class="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 shrink-0">
-                    <span class="font-bold text-sm text-slate-900">Total: $${p.total.toLocaleString()}</span>
-                    <span class="text-[11px] text-slate-500">
-                        Pagó: $${p.paidWith.toLocaleString()} | <strong class="text-[#2563eb]">Propina: $${p.tip.toLocaleString()}</strong>
-                    </span>
+                <div class="flex sm:flex-col items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 shrink-0 text-right space-y-0.5">
+                    <div class="text-xs">
+                        <span class="text-slate-500 font-medium">Total:</span> <strong class="text-slate-900 text-sm">$${p.total.toLocaleString()}</strong>
+                    </div>
+                    <div class="text-[11px] space-x-2">
+                        <span class="text-slate-600">Pagó: <strong class="text-slate-800">$${paidAmount.toLocaleString()}</strong></span>
+                        <span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">
+                            Propina: $${(p.tip || 0).toLocaleString()}
+                        </span>
+                    </div>
                 </div>
             </div>
         `;
@@ -2423,22 +2757,43 @@ function renderNightReportView() {
     if (ordersCount === 0) {
         paymentsTable.innerHTML = `<p class="text-xs text-slate-400 py-6 text-center">Todavía no hay mesas cobradas en este turno.</p>`;
     } else {
-        paymentsTable.innerHTML = paymentHistory.map(p => `
-            <div class="py-2.5 flex items-start sm:items-center justify-between gap-2 text-xs">
-                <div class="space-y-0.5 min-w-0">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                        <strong class="text-slate-900">${p.table}</strong>
-                        <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">${p.method}</span>
-                        <span class="text-[10px] text-slate-400">${p.time} • ${p.waiter}</span>
+        paymentsTable.innerHTML = paymentHistory.map(p => {
+            const isCash = p.method === 'Efectivo';
+            const iconClass = isCash ? 'fa-money-bill-wave' : 'fa-building-columns';
+            const badgeClass = isCash
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200';
+            const paidAmount = p.paidWith || p.total;
+
+            return `
+                <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs border-b border-slate-100 last:border-b-0">
+                    <div class="space-y-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <strong class="text-slate-900 text-sm">${p.table}</strong>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full border font-bold flex items-center gap-1 ${badgeClass}">
+                                <i class="fa-solid ${iconClass}"></i> ${p.method}
+                            </span>
+                            <span class="text-[10px] text-slate-400">${p.time}</span>
+                            <span class="bg-blue-50 text-[#2563eb] border border-blue-200 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+                                <i class="fa-solid fa-user-check text-[9px]"></i> Cobró: ${p.waiter}
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 break-words">${p.itemsSummary}</p>
                     </div>
-                    <p class="text-[11px] text-slate-500 break-words">${p.itemsSummary}</p>
+                    <div class="flex sm:flex-col items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 shrink-0 text-right space-y-0.5">
+                        <div class="text-xs">
+                            <span class="text-slate-500 font-medium">Total:</span> <strong class="text-slate-900 text-sm">$${p.total.toLocaleString()}</strong>
+                        </div>
+                        <div class="text-[11px] space-x-2">
+                            <span class="text-slate-600">Pagó: <strong class="text-slate-800">$${paidAmount.toLocaleString()}</strong></span>
+                            <span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">
+                                Propina: $${(p.tip || 0).toLocaleString()}
+                            </span>
+                        </div>
+                    </div>
                 </div>
-                <div class="text-right shrink-0">
-                    <strong class="text-sm text-slate-900 block">$${p.total.toLocaleString()}</strong>
-                    <span class="text-[11px] text-[#2563eb] block">Propina: $${p.tip.toLocaleString()}</span>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     // 4. Historial de Cierres Nocturnos Guardados
@@ -2484,6 +2839,10 @@ function copyNightReportText() {
     const ordersCount = paymentHistory.length;
     const dateStr = new Date().toLocaleDateString('es-AR');
 
+    let tablesBreakdown = paymentHistory.map(p => 
+        `• ${p.table} (${p.method}): Cobró ${p.waiter} | Total: $${p.total.toLocaleString()} | Pagó: $${(p.paidWith || p.total).toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`
+    ).join('\n');
+
     const text = `*CIERRE NOCTURNO - RIVERA POS*\n` +
         `Fecha: ${dateStr}\n\n` +
         `Facturación Total: $${totalSales.toLocaleString()}\n` +
@@ -2491,20 +2850,22 @@ function copyNightReportText() {
         `Transferencias: $${totalTransfer.toLocaleString()}\n` +
         `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n` +
         `Mesas Cobradas: ${ordersCount}\n\n` +
+        `*RESUMEN DE COBRANZAS DE MESAS:*\n` +
+        (tablesBreakdown || 'Sin cobranzas registradas') + '\n\n' +
         `_Generado automáticamente desde Rivera POS_`;
 
     navigator.clipboard.writeText(text).then(() => {
-        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles en formato listo para enviar por WhatsApp.');
+        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con el detalle de quién cobró cada mesa, total, lo pagado y propina, listo para enviar por WhatsApp.');
     }).catch(err => {
         console.error(err);
     });
 }
 
 function downloadNightReportCSV() {
-    let csv = "ID,Mesa,Mozo,Hora,Metodo,Total,Abono,Propina,Detalle\n";
+    let csv = "ID,Mesa,Mozo que Cobro,Hora,Metodo,Total,Pago,Propina,Detalle\n";
     paymentHistory.forEach(p => {
         const cleanSummary = (p.itemsSummary || '').replace(/"/g, '""');
-        csv += `"${p.id}","${p.table}","${p.waiter}","${p.time}","${p.method}",${p.total},${p.paidWith},${p.tip},"${cleanSummary}"\n`;
+        csv += `"${p.id}","${p.table}","${p.waiter}","${p.time}","${p.method}",${p.total},${p.paidWith || p.total},${p.tip || 0},"${cleanSummary}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

@@ -1017,6 +1017,19 @@
                 <span id="pay-modal-total" class="text-[#2563eb] text-xl font-bold">$0</span>
             </div>
 
+            <!-- Mozo que realiza el cobro -->
+            <div>
+                <label class="text-xs font-semibold text-slate-700 block mb-1">Mozo que Cobra la Mesa</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+                        <i class="fa-solid fa-user-check text-xs"></i>
+                    </span>
+                    <select id="pay-waiter-select"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                    </select>
+                </div>
+            </div>
+
             <!-- 1. Método de Pago: Efectivo / Transferencia -->
             <div>
                 <label class="text-xs font-semibold text-slate-700 block mb-2">1. Método de Pago</label>
@@ -1069,6 +1082,165 @@
                     class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center space-x-1.5">
                     <i class="fa-solid fa-check-double"></i>
                     <span>Marcar Pagado</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: ARMADO DE PIZZAS (1, 2 Y 3 GUSTOS) ================= -->
+    <div id="pizza-builder-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            
+            <!-- Encabezado del modal -->
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 text-lg">
+                        🍕
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-900">Armar Pizza</h3>
+                        <p class="text-[11px] text-slate-500 font-medium" id="pizza-modal-subtitle">Mesa 01</p>
+                    </div>
+                </div>
+                <button onclick="closePizzaBuilderModal()"
+                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Paso 1: Elegir cuántos gustos (1, 2 o 3) -->
+            <div>
+                <label class="text-xs font-bold text-slate-700 block mb-2">1. Seleccionar Variedad de Gustos</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" id="btn-pizza-gustos-1" onclick="setPizzaFlavorsCount(1)"
+                        class="py-2.5 px-2 rounded-2xl border-2 border-[#2563eb] bg-blue-50/80 text-[#2563eb] font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all shadow-sm">
+                        <span class="text-base font-black">1 Gusto</span>
+                        <span class="text-[10px] text-blue-600 font-medium">Entera (100%)</span>
+                    </button>
+                    <button type="button" id="btn-pizza-gustos-2" onclick="setPizzaFlavorsCount(2)"
+                        class="py-2.5 px-2 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all">
+                        <span class="text-base font-black">2 Gustos</span>
+                        <span class="text-[10px] text-slate-400 font-medium">1/2 y 1/2</span>
+                    </button>
+                    <button type="button" id="btn-pizza-gustos-3" onclick="setPizzaFlavorsCount(3)"
+                        class="py-2.5 px-2 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all">
+                        <span class="text-base font-black">3 Gustos</span>
+                        <span class="text-[10px] text-slate-400 font-medium">1/3 c/u</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Paso 2: Selección de los sabores según la cantidad elegida -->
+            <div class="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                <label class="text-xs font-bold text-slate-700 block mb-1">2. Elegir Gustos / Sabores</label>
+                
+                <!-- Gusto 1 (Siempre visible) -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <span id="badge-gusto-1" class="w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] flex items-center justify-center font-bold">1</span>
+                            <span id="label-gusto-1">Gusto de la Pizza (Entera)</span>
+                        </span>
+                        <span id="price-gusto-1" class="text-[11px] font-bold text-[#2563eb]">$0</span>
+                    </div>
+                    <select id="select-pizza-flavor-1" onchange="onPizzaFlavorSelectChange()"
+                        class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                    </select>
+                </div>
+
+                <!-- Gusto 2 (Visible en 2 o 3 gustos) -->
+                <div id="container-gusto-2" class="hidden pt-2 border-t border-slate-200/70">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <span class="w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] flex items-center justify-center font-bold">2</span>
+                            <span id="label-gusto-2">Segundo Gusto (1/2)</span>
+                        </span>
+                        <span id="price-gusto-2" class="text-[11px] font-bold text-[#2563eb]">$0</span>
+                    </div>
+                    <select id="select-pizza-flavor-2" onchange="onPizzaFlavorSelectChange()"
+                        class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                    </select>
+                </div>
+
+                <!-- Gusto 3 (Visible solo en 3 gustos) -->
+                <div id="container-gusto-3" class="hidden pt-2 border-t border-slate-200/70">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <span class="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-bold">3</span>
+                            <span>Tercer Gusto (1/3)</span>
+                        </span>
+                        <span id="price-gusto-3" class="text-[11px] font-bold text-[#2563eb]">$0</span>
+                    </div>
+                    <select id="select-pizza-flavor-3" onchange="onPizzaFlavorSelectChange()"
+                        class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                    </select>
+                </div>
+
+                <!-- Opción de Gusto Personalizado si no está en la carta -->
+                <div class="pt-1">
+                    <details class="text-xs text-slate-500">
+                        <summary class="cursor-pointer text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                            + ¿Gusto especial o fuera de carta?
+                        </summary>
+                        <div class="mt-2 space-y-2">
+                            <input type="text" id="pizza-custom-flavor-input" placeholder="Ej: Con rúcula fresca y aceitunas negras"
+                                oninput="onPizzaFlavorSelectChange()"
+                                class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Paso 3: Nota de Cocina y Cantidad -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs font-bold text-slate-700 block mb-1">Aclaración para Cocina (Opcional)</label>
+                    <input type="text" id="pizza-note-input" placeholder="Ej: Bien cocida / sin orégano"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-700 block mb-1">Cantidad de Pizzas</label>
+                    <div class="flex items-center space-x-2">
+                        <button type="button" onclick="changePizzaModalQty(-1)"
+                            class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center transition-all">
+                            <i class="fa-solid fa-minus text-xs"></i>
+                        </button>
+                        <input type="number" id="pizza-qty-input" value="1" min="1" readonly
+                            class="w-14 text-center bg-slate-50 border border-slate-200 rounded-xl py-2 font-bold text-sm text-slate-900">
+                        <button type="button" onclick="changePizzaModalQty(1)"
+                            class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#2563eb] font-bold flex items-center justify-center transition-all">
+                            <i class="fa-solid fa-plus text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resumen de Pizza a agregar y Precio Total -->
+            <div class="bg-blue-50/70 p-3.5 rounded-2xl border border-blue-200 space-y-1.5">
+                <div class="flex justify-between items-start gap-2">
+                    <div class="min-w-0">
+                        <span class="text-[10px] uppercase font-bold text-blue-700 block">Detalle de la Pizza</span>
+                        <h5 id="pizza-preview-name" class="font-bold text-xs sm:text-sm text-slate-900 leading-snug">Pizza Muzzarella (Entera)</h5>
+                        <p id="pizza-preview-calculation" class="text-[10px] text-slate-500 mt-0.5">$8.500 c/u</p>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <span class="text-[10px] uppercase font-bold text-blue-700 block">Subtotal</span>
+                        <span id="pizza-preview-total" class="text-base sm:text-lg font-bold text-[#2563eb]">$8.500</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="flex space-x-2 pt-1">
+                <button type="button" onclick="closePizzaBuilderModal()"
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmAddPizzaToOrder()"
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-plus text-xs"></i>
+                    <span>Agregar a Comanda</span>
                 </button>
             </div>
         </div>
