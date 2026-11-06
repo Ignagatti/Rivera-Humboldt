@@ -66,46 +66,96 @@ let selectedPaymentMethod = "Efectivo";
 let isOnlineWithServer = false;
 let socket = null;
 
-// ================= SONIDO DE CAMPANA DE COCINA (WEB AUDIO API) =================
-function playKitchenBellSound() {
+// ================= SONIDO Y VIBRACIÓN PARA CELULAR DEL MOZO =================
+let globalAudioContext = null;
+
+function unlockMobileAudio() {
     try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
-        if (ctx.state === 'suspended') {
-            ctx.resume();
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtxClass) return;
+        if (!globalAudioContext) {
+            globalAudioContext = new AudioCtxClass();
+        }
+        if (globalAudioContext.state === 'suspended') {
+            globalAudioContext.resume().catch(() => {});
+        }
+    } catch (e) {
+        console.warn('AudioContext no inicializado:', e);
+    }
+}
+
+// Desbloquear audio automáticamente con el primer toque o click en el celular
+window.addEventListener('touchstart', unlockMobileAudio, { passive: true });
+window.addEventListener('click', unlockMobileAudio, { passive: true });
+
+function playWaiterNotificationSound() {
+    // 1. Vibración táctil en el teléfono móvil del mozo
+    try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([350, 120, 350, 120, 500]);
+        }
+    } catch (e) {}
+
+    // 2. Timbre acústico brillante de aviso de pedido listo
+    try {
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtxClass) return;
+        if (!globalAudioContext) {
+            globalAudioContext = new AudioCtxClass();
+        }
+        if (globalAudioContext.state === 'suspended') {
+            globalAudioContext.resume().catch(() => {});
         }
 
+        const ctx = globalAudioContext;
         const now = ctx.currentTime;
 
-        // Oscilador 1: Armónico brillante metálico
+        // Tono 1 (880 Hz - Campanada metálica inicial brillante)
         const osc1 = ctx.createOscillator();
         const gain1 = ctx.createGain();
         osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(1100, now);
-        osc1.frequency.exponentialRampToValueAtTime(1040, now + 0.8);
-        gain1.gain.setValueAtTime(0.35, now);
-        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+        osc1.frequency.setValueAtTime(880, now);
+        osc1.frequency.exponentialRampToValueAtTime(860, now + 0.5);
+        gain1.gain.setValueAtTime(0.5, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
         osc1.connect(gain1);
         gain1.connect(ctx.destination);
         osc1.start(now);
-        osc1.stop(now + 0.8);
+        osc1.stop(now + 0.6);
 
-        // Oscilador 2: Campanada de fondo agradable
+        // Tono 2 (1320 Hz - Segundo repique armónico alegre tipo "ding!")
         const osc2 = ctx.createOscillator();
         const gain2 = ctx.createGain();
         osc2.type = 'triangle';
-        osc2.frequency.setValueAtTime(2200, now);
-        gain2.gain.setValueAtTime(0.2, now);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        osc2.frequency.setValueAtTime(1320, now + 0.15);
+        osc2.frequency.exponentialRampToValueAtTime(1300, now + 0.85);
+        gain2.gain.setValueAtTime(0.001, now);
+        gain2.gain.setValueAtTime(0.6, now + 0.15);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
         osc2.connect(gain2);
         gain2.connect(ctx.destination);
-        osc2.start(now);
-        osc2.stop(now + 0.5);
+        osc2.start(now + 0.15);
+        osc2.stop(now + 0.9);
+
+        // Tono 3 (1760 Hz - Brillo de campana de mostrador)
+        const osc3 = ctx.createOscillator();
+        const gain3 = ctx.createGain();
+        osc3.type = 'sine';
+        osc3.frequency.setValueAtTime(1760, now + 0.18);
+        gain3.gain.setValueAtTime(0.001, now);
+        gain3.gain.setValueAtTime(0.35, now + 0.18);
+        gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+        osc3.connect(gain3);
+        gain3.connect(ctx.destination);
+        osc3.start(now + 0.18);
+        osc3.stop(now + 0.7);
     } catch (e) {
-        console.warn('Audio no disponible aún en este navegador:', e);
+        console.warn('Error reproduciendo sonido en celular:', e);
     }
 }
+
+// Alias para compatibilidad
+const playKitchenBellSound = playWaiterNotificationSound;
 
 // ================= SINCRONIZACIÓN Y PERSISTENCIA (100% NEON DB) =================
 
@@ -260,15 +310,25 @@ function handleRealtimeMessage(msg) {
                     waiterName: msg.order.waiterName
                 });
 
-                // VERIFICACIÓN ESTRICTA: El aviso acústico y el banner flotante suenan y se muestran ÚNICAMENTE al mozo asignado
-                // NUNCA a administración / cocina
-                const isAssignedWaiter = currentUser && currentUser.name && msg.order.waiterName &&
-                    currentUser.name.trim().toLowerCase() === msg.order.waiterName.trim().toLowerCase();
-                const isAdmin = currentUser && (currentUser.role.includes('Admin') || currentUser.role.includes('Cocina') || currentUser.role.includes('Encargado'));
+                // VERIFICACIÓN ESTRICTA: El aviso acústico y la vibración suenan y vibran ÚNICAMENTE en el celular del mozo
+                // NUNCA en la parte de administración / cocina
+                const isAdmin = currentUser && (
+                    currentUser.role.includes('Admin') ||
+                    currentUser.role.includes('Cocina') ||
+                    currentUser.role.includes('Encargado')
+                );
 
-                if (isAssignedWaiter && !isAdmin) {
-                    playKitchenBellSound();
-                    showToast(`¡${msg.order.table} lista en Cocina! Retirar por mostrador`, 'warning');
+                if (!isAdmin) {
+                    playWaiterNotificationSound();
+
+                    const isAssignedWaiter = currentUser && currentUser.name && msg.order.waiterName &&
+                        (currentUser.name.trim().toLowerCase() === msg.order.waiterName.trim().toLowerCase());
+
+                    if (isAssignedWaiter) {
+                        showToast(`🔔 ¡${msg.order.table} lista en Cocina! Retirar por mostrador`, 'warning');
+                    } else {
+                        showToast(`🔔 ¡${msg.order.table} lista en Cocina! (${msg.order.waiterName || 'Salón'})`, 'info');
+                    }
                 }
                 updateWaiterNotificationUI();
             }
@@ -594,6 +654,8 @@ function loginAs(staffId, isAlreadyAuthenticated = false) {
 
     document.getElementById('login-view').classList.add('hidden');
     document.getElementById('main-header').classList.remove('hidden');
+
+    unlockMobileAudio();
 
     document.getElementById('header-user-name').innerText = currentUser.name;
     document.getElementById('header-role-badge').innerText = currentUser.role;
@@ -2226,7 +2288,8 @@ async function updateOrderStatus(id, newStatus) {
     cmd.status = newStatus;
 
     if (newStatus === 'ready') {
-        playKitchenBellSound();
+        // En administración / cocina NO se reproduce sonido.
+        // La notificación acústica y vibración se envían por WebSocket al celular del mozo.
         waiterNotifications.unshift({
             id: cmd.id,
             table: cmd.table,
