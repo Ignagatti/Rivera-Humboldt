@@ -16,13 +16,28 @@ let generalTipsPool = 0;
 let activeAdminTab = 'kitchen';
 let kitchenFilterStatus = 'all';
 
-// Catálogo de categorías base (sin ninguna comida agregada)
+const OFFICIAL_PIZZAS = [
+    { id: 'pz_libre', name: 'Pizza libre', price: 16000, desc: 'Por persona' },
+    { id: 'pz_muz', name: 'Muzzarella', price: 15000, desc: 'Salsa casera, muzzarella, y orégano' },
+    { id: 'pz_ceb', name: 'Cebolla', price: 16000, desc: 'Cebolla' },
+    { id: 'pz_prov', name: 'Provenzal', price: 16000, desc: 'Ajo y perejil' },
+    { id: 'pz_marg', name: 'Margarita', price: 16000, desc: 'Huevo rallado y oregano' },
+    { id: 'pz_esp', name: 'Especial', price: 17000, desc: 'Jamón cocido y huevo' },
+    { id: 'pz_nap', name: 'Napolitana', price: 17000, desc: 'Rodajas de tomate, provenzal y queso sardo' },
+    { id: 'pz_cal', name: 'Calabresa', price: 17000, desc: 'Rodajas de salame' },
+    { id: 'pz_ruc', name: 'Rucula', price: 17000, desc: 'Rucula y queso sardo' },
+    { id: 'pz_anc', name: 'Anchoa', price: 18000, desc: 'Anchoas y orégano' },
+    { id: 'pz_roq', name: 'Roquefort', price: 18000, desc: 'Roquefort' },
+    { id: 'pz_3q', name: '3 Quesos', price: 18000, desc: 'Roquefort y sardo' }
+];
+
+// Catálogo de categorías base
 let menuData = {
     pizzas: {
         id: 'pizzas',
         name: "Pizzas",
         icon: "fa-pizza-slice",
-        items: []
+        items: [...OFFICIAL_PIZZAS]
     },
     milanesas: {
         id: 'milanesas',
@@ -325,9 +340,9 @@ function handleRealtimeMessage(msg) {
                         (currentUser.name.trim().toLowerCase() === msg.order.waiterName.trim().toLowerCase());
 
                     if (isAssignedWaiter) {
-                        showToast(`🔔 ¡${msg.order.table} lista en Cocina! Retirar por mostrador`, 'warning');
+                        showToast(`¡${msg.order.table} lista en Cocina! Retirar por mostrador`, 'warning');
                     } else {
-                        showToast(`🔔 ¡${msg.order.table} lista en Cocina! (${msg.order.waiterName || 'Salón'})`, 'info');
+                        showToast(`¡${msg.order.table} lista en Cocina! (${msg.order.waiterName || 'Salón'})`, 'info');
                     }
                 }
                 updateWaiterNotificationUI();
@@ -1048,10 +1063,185 @@ function clearSearchInput() {
     renderMenuGrid();
 }
 
-// ================= ARMADO DE PIZZAS (1, 2 Y 3 GUSTOS) =================
+// ================= SISTEMA DE PIZZAS (1, 2 Y 3 GUSTOS) =================
 
+let pizzaSelectionMode = 1; // 1: 1 gusto (entera), 2: 2 gustos, 3: 3 gustos ($20.000)
+let selectedPizzaFlavors = []; // gustos seleccionados en modo 2 o 3
+let pizzaLibreCount = 1;
+
+function getPizzaFlavorsCatalog() {
+    const pizzaCat = menuData['pizzas'];
+    if (pizzaCat && Array.isArray(pizzaCat.items) && pizzaCat.items.length > 0) {
+        return pizzaCat.items;
+    }
+    return OFFICIAL_PIZZAS;
+}
+
+function setPizzaSelectionMode(mode) {
+    pizzaSelectionMode = mode;
+    selectedPizzaFlavors = [];
+    renderMenuGrid();
+}
+
+function cancelPizzaSelection() {
+    selectedPizzaFlavors = [];
+    renderMenuGrid();
+}
+
+// Modal de Pizza Libre (por persona)
+function openPizzaLibreModal() {
+    pizzaLibreCount = 1;
+    updatePizzaLibreModalDisplay();
+    document.getElementById('pizza-libre-modal').classList.remove('hidden');
+}
+
+function closePizzaLibreModal() {
+    document.getElementById('pizza-libre-modal').classList.add('hidden');
+}
+
+function changePizzaLibreCount(delta) {
+    let q = (pizzaLibreCount || 1) + delta;
+    if (q < 1) q = 1;
+    pizzaLibreCount = q;
+    updatePizzaLibreModalDisplay();
+}
+
+function updatePizzaLibreModalDisplay() {
+    const total = (pizzaLibreCount || 1) * 16000;
+    const countElem = document.getElementById('pizza-libre-count');
+    const totalElem = document.getElementById('pizza-libre-total-display');
+    if (countElem) countElem.innerText = pizzaLibreCount;
+    if (totalElem) totalElem.innerText = `$${total.toLocaleString()}`;
+}
+
+function confirmAddPizzaLibre() {
+    const persons = pizzaLibreCount || 1;
+    const unitPrice = 16000;
+
+    if (!ordersByTable[currentTable]) {
+        ordersByTable[currentTable] = { items: [], note: "" };
+    }
+
+    const tableItems = ordersByTable[currentTable].items;
+    tableItems.push({
+        id: `pz_libre_${Date.now().toString().slice(-6)}`,
+        name: `Pizza libre (${persons} persona${persons === 1 ? '' : 's'})`,
+        price: unitPrice,
+        qty: persons,
+        sentQty: 0,
+        isPizza: true
+    });
+
+    closePizzaLibreModal();
+    saveCurrentTableState();
+    renderOrderList();
+    renderMenuGrid();
+
+    showToast(`Pizza libre para ${persons} persona${persons === 1 ? '' : 's'} agregada a ${currentTable}`, 'success');
+}
+
+// Interacción al hacer clic en un gusto de pizza según el modo activo
+function onPizzaItemClicked(itemId) {
+    const item = findMenuItemById(itemId);
+    if (!item) return;
+
+    // Si es Pizza Libre, siempre abre el modal para elegir personas
+    if (item.id === 'pz_libre' || item.name.toLowerCase().includes('pizza libre')) {
+        openPizzaLibreModal();
+        return;
+    }
+
+    if (!ordersByTable[currentTable]) {
+        ordersByTable[currentTable] = { items: [], note: "" };
+    }
+    const tableItems = ordersByTable[currentTable].items;
+
+    // MODO 1: Entera y se va agregando directamente
+    if (pizzaSelectionMode === 1) {
+        tableItems.push({
+            id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+            name: `Pizza ${item.name} (Entera)`,
+            price: item.price,
+            qty: 1,
+            sentQty: 0,
+            isPizza: true
+        });
+        saveCurrentTableState();
+        renderOrderList();
+        renderMenuGrid();
+        showToast(`Pizza ${item.name} entera agregada a ${currentTable}`, 'success');
+        return;
+    }
+
+    // MODO 2: Dos gustos (marcas 2 pizzas y se agrega)
+    if (pizzaSelectionMode === 2) {
+        if (selectedPizzaFlavors.length === 0) {
+            selectedPizzaFlavors.push(item);
+            renderMenuGrid();
+            showToast(`Mitad 1: ${item.name}. Ahora marca la segunda mitad`, 'info');
+        } else if (selectedPizzaFlavors.length === 1) {
+            const f1 = selectedPizzaFlavors[0];
+            const f2 = item;
+            const avgPrice = Math.round((f1.price + f2.price) / 2);
+            const pizzaTitle = `Pizza 2 Gustos: 1/2 ${f1.name} + 1/2 ${f2.name}`;
+
+            tableItems.push({
+                id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+                name: pizzaTitle,
+                price: avgPrice,
+                qty: 1,
+                sentQty: 0,
+                isPizza: true
+            });
+
+            selectedPizzaFlavors = [];
+            saveCurrentTableState();
+            renderOrderList();
+            renderMenuGrid();
+            showToast(`${pizzaTitle} agregada a ${currentTable}`, 'success');
+        }
+        return;
+    }
+
+    // MODO 3: Tres gustos (precio fijo de $20.000 sin importar el valor de los gustos)
+    if (pizzaSelectionMode === 3) {
+        if (selectedPizzaFlavors.length === 0) {
+            selectedPizzaFlavors.push(item);
+            renderMenuGrid();
+            showToast(`1/3: ${item.name}. Ahora marca el segundo tercio`, 'info');
+        } else if (selectedPizzaFlavors.length === 1) {
+            selectedPizzaFlavors.push(item);
+            renderMenuGrid();
+            showToast(`1/3: ${selectedPizzaFlavors[0].name} + 1/3: ${item.name}. Marca el tercer tercio`, 'info');
+        } else if (selectedPizzaFlavors.length === 2) {
+            const f1 = selectedPizzaFlavors[0];
+            const f2 = selectedPizzaFlavors[1];
+            const f3 = item;
+            const pizzaTitle = `Pizza 3 Gustos: 1/3 ${f1.name} + 1/3 ${f2.name} + 1/3 ${f3.name}`;
+            const fixedPrice = 20000; // Precio fijo sin importar los sabores
+
+            tableItems.push({
+                id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+                name: pizzaTitle,
+                price: fixedPrice,
+                qty: 1,
+                sentQty: 0,
+                isPizza: true
+            });
+
+            selectedPizzaFlavors = [];
+            saveCurrentTableState();
+            renderOrderList();
+            renderMenuGrid();
+            showToast(`${pizzaTitle} agregada a ${currentTable} ($20.000)`, 'success');
+        }
+        return;
+    }
+}
+
+// Modal alternativo de personalización con notas
 let pizzaBuilderState = {
-    flavorCount: 1, // 1, 2 o 3
+    flavorCount: 1,
     flavor1Id: null,
     flavor2Id: null,
     flavor3Id: null,
@@ -1060,50 +1250,27 @@ let pizzaBuilderState = {
     currentTitle: ''
 };
 
-function getPizzaFlavorsCatalog() {
-    const pizzaCat = menuData['pizzas'];
-    if (pizzaCat && Array.isArray(pizzaCat.items) && pizzaCat.items.length > 0) {
-        return pizzaCat.items;
-    }
-    // Catálogo clásico de pizzas si la categoría aún está vacía
-    return [
-        { id: 'pz_default_muz', name: 'Muzzarella', price: 8500, desc: 'Salsa de tomate, muzzarella y aceitunas verdes' },
-        { id: 'pz_default_nap', name: 'Napolitana', price: 9500, desc: 'Muzzarella, rodajas de tomate natural, ajo y orégano' },
-        { id: 'pz_default_fug', name: 'Fugazzeta', price: 9500, desc: 'Muzzarella y abundante cebolla fileteada' },
-        { id: 'pz_default_cal', name: 'Calabresa', price: 10000, desc: 'Muzzarella y rodajas de longaniza calabresa' },
-        { id: 'pz_default_jam', name: 'Jamón y Morrones', price: 10500, desc: 'Muzzarella, jamón cocido y morrones asados' },
-        { id: 'pz_default_roq', name: 'Roquefort', price: 11000, desc: 'Muzzarella y queso azul roquefort' },
-        { id: 'pz_default_4qu', name: 'Cuatro Quesos', price: 11500, desc: 'Muzzarella, roquefort, provolone y sardo' },
-        { id: 'pz_default_esp', name: 'Especial Rivera', price: 12000, desc: 'Muzzarella, jamón, morrones, huevo duro y aceitunas' }
-    ];
-}
-
 function openPizzaBuilderModal(preselectedFlavorId = null) {
-    const flavors = getPizzaFlavorsCatalog();
-    if (flavors.length === 0) {
-        showToast('No hay gustos de pizza disponibles', 'warning');
-        return;
-    }
+    const flavors = getPizzaFlavorsCatalog().filter(f => f.id !== 'pz_libre');
+    if (flavors.length === 0) return;
 
     pizzaBuilderState.flavorCount = 1;
     pizzaBuilderState.qty = 1;
 
-    // Gusto 1 inicial
-    if (preselectedFlavorId) {
+    if (preselectedFlavorId && preselectedFlavorId !== 'pz_libre') {
         const found = flavors.find(f => f.id === preselectedFlavorId);
         pizzaBuilderState.flavor1Id = found ? found.id : flavors[0].id;
     } else {
         pizzaBuilderState.flavor1Id = flavors[0].id;
     }
 
-    // Gustos 2 y 3 predeterminados
     pizzaBuilderState.flavor2Id = flavors.length > 1 ? flavors[1].id : flavors[0].id;
     pizzaBuilderState.flavor3Id = flavors.length > 2 ? flavors[2].id : flavors[0].id;
 
     populatePizzaFlavorSelects(flavors);
 
     const subtitleElem = document.getElementById('pizza-modal-subtitle');
-    if (subtitleElem) subtitleElem.innerText = `${currentTable} • Selección de gustos`;
+    if (subtitleElem) subtitleElem.innerText = `${currentTable} - Personalización`;
 
     const noteInput = document.getElementById('pizza-note-input');
     if (noteInput) noteInput.value = '';
@@ -1130,7 +1297,7 @@ function populatePizzaFlavorSelects(flavors) {
 
     const optionsHtml = flavors.map(f => `
         <option value="${f.id}" data-price="${f.price}" data-name="${f.name}">
-            ${f.name} — $${f.price.toLocaleString()}
+            ${f.name} - $${f.price.toLocaleString()}
         </option>
     `).join('');
 
@@ -1208,7 +1375,7 @@ function changePizzaModalQty(delta) {
 }
 
 function updatePizzaBuilderPreview() {
-    const flavors = getPizzaFlavorsCatalog();
+    const flavors = getPizzaFlavorsCatalog().filter(f => f.id !== 'pz_libre');
     const count = pizzaBuilderState.flavorCount;
     const f1 = flavors.find(f => f.id === pizzaBuilderState.flavor1Id) || flavors[0];
     const f2 = flavors.find(f => f.id === pizzaBuilderState.flavor2Id) || flavors[0];
@@ -1232,15 +1399,13 @@ function updatePizzaBuilderPreview() {
         pizzaTitle = `Pizza ${f1.name} (Entera)`;
         calcText = `$${unitPrice.toLocaleString()} c/u (Pizza completa de 1 gusto)`;
     } else if (count === 2) {
-        // En 2 gustos: promedio de los 2 sabores
         unitPrice = Math.round((f1.price + f2.price) / 2);
         pizzaTitle = `Pizza 2 Gustos: 1/2 ${f1.name} + 1/2 ${f2.name}`;
-        calcText = `1/2 ${f1.name} ($${Math.round(f1.price / 2).toLocaleString()}) + 1/2 ${f2.name} ($${Math.round(f2.price / 2).toLocaleString()}) = $${unitPrice.toLocaleString()} c/u`;
+        calcText = `1/2 ${f1.name} + 1/2 ${f2.name} = $${unitPrice.toLocaleString()} c/u`;
     } else if (count === 3) {
-        // En 3 gustos: promedio de los 3 sabores
-        unitPrice = Math.round((f1.price + f2.price + f3.price) / 3);
+        unitPrice = 20000; // PRECIO FIJO DE $20.000
         pizzaTitle = `Pizza 3 Gustos: 1/3 ${f1.name} + 1/3 ${f2.name} + 1/3 ${f3.name}`;
-        calcText = `1/3 c/u ($${Math.round(f1.price / 3).toLocaleString()} + $${Math.round(f2.price / 3).toLocaleString()} + $${Math.round(f3.price / 3).toLocaleString()}) = $${unitPrice.toLocaleString()} c/u`;
+        calcText = `Precio fijo: $20.000`;
     }
 
     if (customFlavor) {
@@ -1280,7 +1445,6 @@ function confirmAddPizzaToOrder() {
 
     const tableItems = ordersByTable[currentTable].items;
 
-    // Si ya existe la misma combinación sin enviar aún a cocina, sumar cantidad
     const existing = tableItems.find(i => i.name === title && (i.note || '') === kitchenNote && (i.qty > (i.sentQty || 0)));
     if (existing) {
         existing.qty += qty;
@@ -1313,7 +1477,6 @@ function renderMenuGrid() {
     const isPizzasView = activeCategory === 'pizzas' && searchQuery.length === 0;
 
     if (searchQuery.length > 0) {
-        // Buscar en todas las categorías
         Object.keys(menuData).forEach(catKey => {
             const cat = menuData[catKey];
             cat.items.forEach(item => {
@@ -1325,13 +1488,11 @@ function renderMenuGrid() {
             });
         });
     } else {
-        // Mostrar ítems de la categoría activa
         const cat = menuData[activeCategory];
         if (cat && Array.isArray(cat.items) && cat.items.length > 0) {
             itemsToDisplay = cat.items.map(item => ({ ...item, categoryKey: activeCategory, categoryName: cat.name }));
         } else if (activeCategory === 'pizzas') {
-            // Si la categoría de pizzas aún no tiene platos creados, usar catálogo base sugerido
-            itemsToDisplay = getPizzaFlavorsCatalog().map(item => ({ ...item, categoryKey: 'pizzas', categoryName: 'Pizzas' }));
+            itemsToDisplay = OFFICIAL_PIZZAS.map(item => ({ ...item, categoryKey: 'pizzas', categoryName: 'Pizzas' }));
         }
     }
 
@@ -1347,56 +1508,149 @@ function renderMenuGrid() {
 
     const currentItems = (ordersByTable[currentTable] && ordersByTable[currentTable].items) || [];
 
-    // Banner destacado si estamos en la categoría de Pizzas
-    let pizzaBannerHtml = '';
+    // TRES BOTONES EN LA SECCIÓN DE PIZZAS (1 gusto, 2 gustos, 3 gustos)
+    let pizzaToolbarHtml = '';
     if (isPizzasView) {
-        pizzaBannerHtml = `
-            <div class="col-span-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-2xl p-3.5 sm:p-4 text-white shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 mb-1">
-                <div class="flex items-center space-x-3 text-center sm:text-left">
-                    <div class="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-xl shrink-0">
-                        🍕
+        let statusBarHtml = '';
+        if (pizzaSelectionMode === 2) {
+            if (selectedPizzaFlavors.length === 0) {
+                statusBarHtml = `
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-900 flex items-center justify-between">
+                        <span>Modo 2 Gustos: selecciona la primera mitad...</span>
                     </div>
-                    <div>
-                        <h4 class="font-bold text-sm sm:text-base">Pizzas por Gustos</h4>
-                        <p class="text-xs text-blue-100">Elegí si la querés de 1 gusto (entera), 2 gustos (1/2 y 1/2) o 3 gustos (1/3 c/u).</p>
+                `;
+            } else if (selectedPizzaFlavors.length === 1) {
+                statusBarHtml = `
+                    <div class="bg-blue-100 border border-blue-300 rounded-xl px-3 py-2 text-xs text-blue-950 flex items-center justify-between font-medium">
+                        <span>Mitad 1: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca la segunda mitad para agregar.</span>
+                        <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
                     </div>
+                `;
+            }
+        } else if (pizzaSelectionMode === 3) {
+            if (selectedPizzaFlavors.length === 0) {
+                statusBarHtml = `
+                    <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2 text-xs text-indigo-900 flex items-center justify-between">
+                        <span>Modo 3 Gustos ($20.000 fijo): selecciona el primer tercio...</span>
+                    </div>
+                `;
+            } else if (selectedPizzaFlavors.length === 1) {
+                statusBarHtml = `
+                    <div class="bg-indigo-100 border border-indigo-300 rounded-xl px-3 py-2 text-xs text-indigo-950 flex items-center justify-between font-medium">
+                        <span>1/3: <strong>${selectedPizzaFlavors[0].name}</strong>. Marca el segundo tercio...</span>
+                        <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
+                    </div>
+                `;
+            } else if (selectedPizzaFlavors.length === 2) {
+                statusBarHtml = `
+                    <div class="bg-indigo-100 border border-indigo-300 rounded-xl px-3 py-2 text-xs text-indigo-950 flex items-center justify-between font-medium">
+                        <span>1/3: <strong>${selectedPizzaFlavors[0].name}</strong> + 1/3: <strong>${selectedPizzaFlavors[1].name}</strong>. Marca el tercer tercio para agregar ($20.000).</span>
+                        <button type="button" onclick="cancelPizzaSelection()" class="text-rose-600 text-[11px] font-bold hover:underline cursor-pointer">Cancelar</button>
+                    </div>
+                `;
+            }
+        }
+
+        pizzaToolbarHtml = `
+            <div class="col-span-full space-y-2 mb-2">
+                <div class="bg-white border border-slate-200 rounded-2xl p-1.5 shadow-sm grid grid-cols-3 gap-1.5">
+                    <button type="button" onclick="setPizzaSelectionMode(1)"
+                        class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 1 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
+                        <span>1 Gusto</span>
+                        <span class="text-[10px] font-normal ${pizzaSelectionMode === 1 ? 'text-blue-100' : 'text-slate-400'}">Entera</span>
+                    </button>
+                    <button type="button" onclick="setPizzaSelectionMode(2)"
+                        class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 2 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
+                        <span>2 Gustos</span>
+                        <span class="text-[10px] font-normal ${pizzaSelectionMode === 2 ? 'text-blue-100' : 'text-slate-400'}">Mitad y mitad</span>
+                    </button>
+                    <button type="button" onclick="setPizzaSelectionMode(3)"
+                        class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${pizzaSelectionMode === 3 ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}">
+                        <span>3 Gustos</span>
+                        <span class="text-[10px] font-normal ${pizzaSelectionMode === 3 ? 'text-blue-100' : 'text-slate-400'}">$20.000 fijo</span>
+                    </button>
                 </div>
-                <button onclick="openPizzaBuilderModal()" class="w-full sm:w-auto bg-white text-[#2563eb] hover:bg-blue-50 font-bold px-3.5 py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-2 shrink-0 cursor-pointer">
-                    <i class="fa-solid fa-pizza-slice"></i>
-                    <span>Armar Pizza por Gustos</span>
-                </button>
+                ${statusBarHtml}
             </div>
         `;
     }
 
     const cardsHtml = itemsToDisplay.map(item => {
         const isPizza = item.categoryKey === 'pizzas' || (item.categoryName && item.categoryName.toLowerCase().includes('pizza')) || activeCategory === 'pizzas';
+        const isPizzaLibre = item.id === 'pz_libre' || item.name.toLowerCase().includes('pizza libre');
         const orderItem = currentItems.find(i => i.id === item.id);
         const qty = orderItem ? orderItem.qty : 0;
 
-        const actionButton = isPizza ? `
-            <button onclick="openPizzaBuilderModal('${item.id}')" class="bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
-                <i class="fa-solid fa-pizza-slice text-[10px]"></i>
-                <span>Elegir Gustos</span>
-            </button>
-        ` : `
-            <button onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
-                <i class="fa-solid fa-plus text-[10px]"></i>
-                <span>Agregar</span>
-            </button>
-        `;
+        const isSelectedFlavor = selectedPizzaFlavors.some(f => f.id === item.id);
+        let selectedIndexBadge = '';
+        if (isSelectedFlavor) {
+            const idx = selectedPizzaFlavors.findIndex(f => f.id === item.id);
+            if (pizzaSelectionMode === 2) {
+                selectedIndexBadge = `<span class="bg-[#2563eb] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Mitad 1</span>`;
+            } else if (pizzaSelectionMode === 3) {
+                selectedIndexBadge = `<span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Tercio ${idx + 1}</span>`;
+            }
+        }
+
+        let cardBorderClass = "border-slate-200 hover:border-blue-300";
+        if (isSelectedFlavor) {
+            cardBorderClass = "border-2 border-[#2563eb] bg-blue-50/40 shadow-md ring-2 ring-blue-300/40";
+        }
+
+        let actionButton = '';
+        if (isPizzaLibre) {
+            actionButton = `
+                <button type="button" onclick="openPizzaLibreModal()" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-users text-[10px]"></i>
+                    <span>Elegir Personas</span>
+                </button>
+            `;
+        } else if (isPizza) {
+            if (pizzaSelectionMode === 1) {
+                actionButton = `
+                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                        <i class="fa-solid fa-plus text-[10px]"></i>
+                        <span>Agregar</span>
+                    </button>
+                `;
+            } else if (pizzaSelectionMode === 2) {
+                actionButton = `
+                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-blue-700' : 'bg-[#2563eb] hover:bg-blue-600'} active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                        <i class="fa-solid fa-check text-[10px]"></i>
+                        <span>${isSelectedFlavor ? 'Mitad 1' : 'Elegir Mitad'}</span>
+                    </button>
+                `;
+            } else if (pizzaSelectionMode === 3) {
+                actionButton = `
+                    <button type="button" onclick="onPizzaItemClicked('${item.id}')" class="${isSelectedFlavor ? 'bg-indigo-700' : 'bg-[#2563eb] hover:bg-blue-600'} active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                        <i class="fa-solid fa-check text-[10px]"></i>
+                        <span>${isSelectedFlavor ? 'Seleccionada' : 'Elegir Tercio'}</span>
+                    </button>
+                `;
+            }
+        } else {
+            actionButton = `
+                <button type="button" onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-plus text-[10px]"></i>
+                    <span>Agregar</span>
+                </button>
+            `;
+        }
 
         return `
-            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm hover:border-blue-300 transition-all flex flex-col justify-between space-y-2">
+            <div onclick="${isPizza ? `onPizzaItemClicked('${item.id}')` : ''}" class="bg-white border ${cardBorderClass} rounded-2xl p-3.5 shadow-sm transition-all flex flex-col justify-between space-y-2 cursor-pointer">
                 <div>
                     <div class="flex items-start justify-between gap-1">
-                        <h4 class="font-bold text-sm text-slate-800 leading-snug">${item.name}</h4>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <h4 class="font-bold text-sm text-slate-800 leading-snug">${item.name}</h4>
+                            ${selectedIndexBadge}
+                        </div>
                         <span class="font-bold text-sm text-[#2563eb] shrink-0">$${item.price.toLocaleString()}</span>
                     </div>
                     ${item.desc ? `<p class="text-[11px] text-slate-500 line-clamp-2 mt-0.5 leading-tight">${item.desc}</p>` : ''}
                 </div>
 
-                <div class="flex items-center justify-between pt-1">
+                <div class="flex items-center justify-between pt-1" onclick="event.stopPropagation()">
                     ${qty > 0 ? `
                         <span class="bg-blue-50 text-[#2563eb] border border-blue-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
                             ${qty} en comanda
@@ -1411,7 +1665,7 @@ function renderMenuGrid() {
         `;
     }).join('');
 
-    container.innerHTML = pizzaBannerHtml + cardsHtml;
+    container.innerHTML = pizzaToolbarHtml + cardsHtml;
 }
 
 function findMenuItemById(itemId) {
@@ -1419,8 +1673,7 @@ function findMenuItemById(itemId) {
         const item = menuData[catKey].items.find(i => i.id === itemId);
         if (item) return item;
     }
-    // Buscar en catálogo de pizzas si no está en la categoría aún
-    const pizzaFlavor = getPizzaFlavorsCatalog().find(i => i.id === itemId);
+    const pizzaFlavor = OFFICIAL_PIZZAS.find(i => i.id === itemId);
     if (pizzaFlavor) return pizzaFlavor;
     return null;
 }
@@ -1429,9 +1682,10 @@ function addToOrder(itemId) {
     const item = findMenuItemById(itemId);
     if (!item) return;
 
-    // Si es pizza, abrir el modal de selección de gustos
-    if (activeCategory === 'pizzas' || (menuData.pizzas && menuData.pizzas.items.some(i => i.id === itemId))) {
-        openPizzaBuilderModal(itemId);
+    // Si es pizza, derivar a la lógica de selección de pizza
+    const isPizza = item.categoryKey === 'pizzas' || activeCategory === 'pizzas' || (menuData.pizzas && menuData.pizzas.items.some(i => i.id === itemId));
+    if (isPizza) {
+        onPizzaItemClicked(itemId);
         return;
     }
 

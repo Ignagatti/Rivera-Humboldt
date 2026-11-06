@@ -1095,8 +1095,8 @@
             <!-- Encabezado del modal -->
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <div class="flex items-center space-x-2.5">
-                    <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 text-lg">
-                        🍕
+                    <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 text-sm">
+                        <i class="fa-solid fa-pizza-slice"></i>
                     </div>
                     <div>
                         <h3 class="font-bold text-base text-slate-900">Armar Pizza</h3>
@@ -1241,6 +1241,58 @@
                     class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
                     <i class="fa-solid fa-plus text-xs"></i>
                     <span>Agregar a Comanda</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: PIZZA LIBRE (POR PERSONA) ================= -->
+    <div id="pizza-libre-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="font-bold text-base text-slate-900">Pizza Libre</h3>
+                    <p class="text-xs text-slate-500">$16.000 por persona</p>
+                </div>
+                <button onclick="closePizzaLibreModal()"
+                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <label class="text-xs font-semibold text-slate-700 block">Cantidad de Personas</label>
+                <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-2">
+                    <button type="button" onclick="changePizzaLibreCount(-1)"
+                        class="w-10 h-10 rounded-xl bg-white shadow-sm border border-slate-200 text-slate-700 font-bold text-base flex items-center justify-center hover:bg-slate-100 transition-all">
+                        <i class="fa-solid fa-minus text-xs"></i>
+                    </button>
+                    <div class="text-center">
+                        <span id="pizza-libre-count" class="text-2xl font-black text-slate-900">1</span>
+                        <span class="text-[10px] text-slate-400 block font-medium">personas</span>
+                    </div>
+                    <button type="button" onclick="changePizzaLibreCount(1)"
+                        class="w-10 h-10 rounded-xl bg-white shadow-sm border border-slate-200 text-[#2563eb] font-bold text-base flex items-center justify-center hover:bg-blue-50 transition-all">
+                        <i class="fa-solid fa-plus text-xs"></i>
+                    </button>
+                </div>
+
+                <div class="bg-blue-50 p-3.5 rounded-2xl border border-blue-100 flex justify-between items-center">
+                    <span class="text-xs font-semibold text-slate-600">Total a cobrar:</span>
+                    <span id="pizza-libre-total-display" class="text-lg font-bold text-[#2563eb]">$16.000</span>
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-1">
+                <button type="button" onclick="closePizzaLibreModal()"
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmAddPizzaLibre()"
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-check"></i>
+                    <span>Enviar a Comanda</span>
                 </button>
             </div>
         </div>

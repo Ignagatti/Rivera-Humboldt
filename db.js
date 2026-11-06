@@ -160,6 +160,33 @@ async function initDatabase() {
       `);
     }
 
+    // Catálogo oficial de pizzas
+    const officialPizzas = [
+      { id: 'pz_libre', name: 'Pizza libre', price: 16000, desc: 'Por persona' },
+      { id: 'pz_muz', name: 'Muzzarella', price: 15000, desc: 'Salsa casera, muzzarella, y orégano' },
+      { id: 'pz_ceb', name: 'Cebolla', price: 16000, desc: 'Cebolla' },
+      { id: 'pz_prov', name: 'Provenzal', price: 16000, desc: 'Ajo y perejil' },
+      { id: 'pz_marg', name: 'Margarita', price: 16000, desc: 'Huevo rallado y oregano' },
+      { id: 'pz_esp', name: 'Especial', price: 17000, desc: 'Jamón cocido y huevo' },
+      { id: 'pz_nap', name: 'Napolitana', price: 17000, desc: 'Rodajas de tomate, provenzal y queso sardo' },
+      { id: 'pz_cal', name: 'Calabresa', price: 17000, desc: 'Rodajas de salame' },
+      { id: 'pz_ruc', name: 'Rucula', price: 17000, desc: 'Rucula y queso sardo' },
+      { id: 'pz_anc', name: 'Anchoa', price: 18000, desc: 'Anchoas y orégano' },
+      { id: 'pz_roq', name: 'Roquefort', price: 18000, desc: 'Roquefort' },
+      { id: 'pz_3q', name: '3 Quesos', price: 18000, desc: 'Roquefort y sardo' }
+    ];
+
+    for (const p of officialPizzas) {
+      await client.query(`
+        INSERT INTO pos_menu_items (id, category_id, name, price, description)
+        VALUES ($1, 'pizzas', $2, $3, $4)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          price = EXCLUDED.price,
+          description = EXCLUDED.description;
+      `, [p.id, p.name, p.price, p.desc]);
+    }
+
     // Mesas iniciales del salón (sin borrar mesas adicionales agregadas por el usuario)
     const defaultTables = ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"];
     for (const tbl of defaultTables) {
