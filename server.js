@@ -3,7 +3,7 @@ const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { pool, initDatabase, officialPizzas } = require('./db');
 

@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -188,7 +189,8 @@ async function initDatabase() {
     }
 
     // Sincronizar precios en tabla legacy pizzas_precios si existe
-    try {
+    const legacyCheck = await client.query("SELECT to_regclass('public.pizzas_precios') AS tbl");
+    if (legacyCheck.rows[0] && legacyCheck.rows[0].tbl) {
       await client.query(`
         UPDATE pizzas_precios
         SET precio_entera = CASE
@@ -200,7 +202,7 @@ async function initDatabase() {
         END,
         updated_at = CURRENT_TIMESTAMP;
       `);
-    } catch (_) {}
+    }
 
     // Mesas iniciales del salón (sin borrar mesas adicionales agregadas por el usuario)
     const defaultTables = ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"];
