@@ -1628,10 +1628,10 @@
                     </div>
                 </div>
                 <div class="grid grid-cols-3 gap-1.5">
-                    <button type="button" onclick="connectDirectUsbPrinter()" id="btn-connect-usb"
-                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar impresora térmica por cable USB directo (sin ventana Guardar como PDF)">
-                        <i class="fa-brands fa-usb"></i>
-                        <span>USB Directo</span>
+                    <button type="button" onclick="connectWindowsBridgePrinter()" id="btn-connect-win"
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar directo a impresora instalada en Windows (POS-80C / 3nStar RPT004) sin ventana PDF">
+                        <i class="fa-solid fa-desktop"></i>
+                        <span>PC Windows</span>
                     </button>
                     <button type="button" onclick="connectDirectSerialPrinter()" id="btn-connect-serial"
                         class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar impresora térmica por puerto COM o Bluetooth Serial (sin ventana Guardar como PDF)">
@@ -1643,6 +1643,12 @@
                         <i class="fa-solid fa-mobile-screen"></i>
                         <span>RawBT</span>
                     </button>
+                </div>
+                <!-- Selector de impresora Windows detectada (ej. POS-80C) -->
+                <div id="windows-printer-select-wrap" class="hidden pt-1">
+                    <select id="windows-printer-select" onchange="onWindowsPrinterSelected(this.value)"
+                        class="w-full bg-white border border-emerald-300 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500">
+                    </select>
                 </div>
             </div>
 

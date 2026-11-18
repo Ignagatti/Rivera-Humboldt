@@ -798,6 +798,39 @@ app.put('/api/auth/admin-password', async (req, res) => {
   }
 });
 
+// ================= IMPRESIÓN TÉRMICA RAW DIRECTA (WINDOWS LOCAL) =================
+const { listWindowsPrinters, sendRawBytesToWindowsPrinter } = require('./win-raw-printer');
+
+app.get('/api/printers', async (req, res) => {
+  if (process.env.VERCEL || process.platform !== 'win32') {
+    return res.json({ success: false, localOnly: true, printers: [] });
+  }
+  try {
+    const printers = await listWindowsPrinters();
+    res.json({ success: true, printers });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, printers: [] });
+  }
+});
+
+app.post('/api/print-raw', async (req, res) => {
+  if (process.env.VERCEL || process.platform !== 'win32') {
+    return res.status(400).json({ success: false, error: 'Impresión RAW directa solo disponible en servidor local Windows o Puente de Impresión.' });
+  }
+  const { printerName, dataBase64 } = req.body || {};
+  if (!printerName || !dataBase64) {
+    return res.status(400).json({ success: false, error: 'Faltan printerName o dataBase64' });
+  }
+  try {
+    const buffer = Buffer.from(dataBase64, 'base64');
+    const result = await sendRawBytesToWindowsPrinter(printerName, buffer);
+    res.json(result);
+  } catch (err) {
+    console.error('Error enviando ticket RAW a impresora Windows:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 let dbInitPromise = null;
 function ensureDbReady() {
   if (!dbInitPromise) {

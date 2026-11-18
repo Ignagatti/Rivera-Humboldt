@@ -3041,6 +3041,9 @@ let directUsbPrinter = null;
 let directSerialPort = null;
 let rawBtEnabled = localStorage.getItem('rivera_rawbt_enabled') === '1';
 let printerPaperWidth = Number(localStorage.getItem('rivera_paper_width')) === 58 ? 58 : 80;
+let winPrintEndpoint = null; // { listUrl, printUrl }
+let winPrintersList = [];
+let selectedWinPrinter = localStorage.getItem('rivera_win_printer') || '';
 
 function openKitchenTicketPrint(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
@@ -3336,10 +3339,12 @@ function updatePrinterStatusUI() {
     const txt = document.getElementById('printer-status-text');
     const btn80 = document.getElementById('btn-paper-80');
     const btn58 = document.getElementById('btn-paper-58');
-    const btnUsb = document.getElementById('btn-connect-usb');
+    const btnWin = document.getElementById('btn-connect-win');
     const btnSerial = document.getElementById('btn-connect-serial');
     const btnRawBt = document.getElementById('btn-toggle-rawbt');
     const printLabel = document.getElementById('btn-execute-print-label');
+    const winSelectWrap = document.getElementById('windows-printer-select-wrap');
+    const winSelect = document.getElementById('windows-printer-select');
 
     const activePill = "px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#2563eb] text-white cursor-pointer";
     const inactivePill = "px-2 py-0.5 rounded-lg text-[10px] font-bold bg-white text-slate-600 border border-slate-200 cursor-pointer";
@@ -3349,11 +3354,29 @@ function updatePrinterStatusUI() {
     const btnIdle = "bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer";
     const btnActive = "bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer shadow-sm";
 
-    if (btnUsb) btnUsb.className = directUsbPrinter ? btnActive : btnIdle;
+    const isWinActive = Boolean(winPrintEndpoint && selectedWinPrinter);
+    if (btnWin) btnWin.className = isWinActive ? btnActive : btnIdle;
     if (btnSerial) btnSerial.className = directSerialPort ? btnActive : btnIdle;
     if (btnRawBt) btnRawBt.className = rawBtEnabled ? btnActive : btnIdle;
 
-    if (directUsbPrinter) {
+    if (winSelectWrap && winSelect) {
+        if (isWinActive && winPrintersList.length > 0) {
+            winSelectWrap.classList.remove('hidden');
+            winSelect.innerHTML = winPrintersList.map(p => {
+                const tag = p.isThermal ? ' (Térmica)' : '';
+                const portStr = p.port ? ` [${p.port}]` : '';
+                return `<option value="${escapeHtmlSafe(p.name)}" ${p.name === selectedWinPrinter ? 'selected' : ''}>${escapeHtmlSafe(p.name)}${portStr}${tag}</option>`;
+            }).join('');
+        } else {
+            winSelectWrap.classList.add('hidden');
+        }
+    }
+
+    if (isWinActive) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 shrink-0";
+        if (txt) txt.innerText = `Directa Windows: ${selectedWinPrinter}`;
+        if (printLabel) printLabel.innerText = "Imprimir Directo";
+    } else if (directUsbPrinter) {
         if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 shrink-0";
         if (txt) txt.innerText = `Directa USB: ${directUsbPrinter.name}`;
         if (printLabel) printLabel.innerText = "Imprimir Directo";
@@ -3370,6 +3393,86 @@ function updatePrinterStatusUI() {
         if (txt) txt.innerText = `Impresora del sistema (${printerPaperWidth}mm)`;
         if (printLabel) printLabel.innerText = "Imprimir";
     }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 2000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function discoverWindowsBridge(silent = true) {
+    const candidates = [
+        { listUrl: 'http://127.0.0.1:9100/printers', printUrl: 'http://127.0.0.1:9100/print' },
+        { listUrl: '/api/printers', printUrl: '/api/print-raw' }
+    ];
+
+    for (const c of candidates) {
+        try {
+            const res = await fetchWithTimeout(c.listUrl, { method: 'GET' }, 2000);
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data && data.success && Array.isArray(data.printers) && data.printers.length > 0) {
+                winPrintEndpoint = c;
+                winPrintersList = data.printers;
+
+                // Elegir impresora guardada si existe, si no priorizar la primera térmica física (ej. POS-80C)
+                const savedExists = winPrintersList.some(p => p.name === selectedWinPrinter);
+                if (!savedExists) {
+                    const thermal = winPrintersList.find(p => p.isThermal) || winPrintersList.find(p => !p.isVirtual) || winPrintersList[0];
+                    selectedWinPrinter = thermal ? thermal.name : '';
+                    if (selectedWinPrinter) {
+                        localStorage.setItem('rivera_win_printer', selectedWinPrinter);
+                    }
+                }
+                localStorage.setItem('rivera_printer_mode', 'windows');
+                updatePrinterStatusUI();
+                if (!silent) {
+                    showToast(`Vinculada directo en Windows: ${selectedWinPrinter}`, 'success');
+                }
+                return true;
+            }
+        } catch (e) {
+            // Probar siguiente candidato
+        }
+    }
+
+    if (!silent) {
+        showToast('No se detectó el puente local. Abre "iniciar-impresora.bat" en la PC de cocina para vincular POS-80C.', 'warning');
+    }
+    return false;
+}
+
+async function connectWindowsBridgePrinter() {
+    if (winPrintEndpoint && selectedWinPrinter) {
+        winPrintEndpoint = null;
+        localStorage.removeItem('rivera_printer_mode');
+        updatePrinterStatusUI();
+        showToast('Impresora directa Windows desvinculada', 'info');
+        return;
+    }
+
+    if (directSerialPort) {
+        try { await directSerialPort.close(); } catch (e) {}
+        directSerialPort = null;
+    }
+    rawBtEnabled = false;
+    localStorage.setItem('rivera_rawbt_enabled', '0');
+
+    await discoverWindowsBridge(false);
+}
+
+function onWindowsPrinterSelected(printerName) {
+    selectedWinPrinter = printerName || '';
+    if (selectedWinPrinter) {
+        localStorage.setItem('rivera_win_printer', selectedWinPrinter);
+        showToast(`Impresora seleccionada: ${selectedWinPrinter}`, 'success');
+    }
+    updatePrinterStatusUI();
 }
 
 async function openUsbDevice(device) {
@@ -3514,6 +3617,13 @@ function toggleRawBtMode() {
 
 async function autoReconnectDirectPrinter() {
     const savedMode = localStorage.getItem('rivera_printer_mode');
+
+    // Siempre intentar detectar automáticamente el puente local Windows (POS-80C / 3nStar RPT004)
+    if (!savedMode || savedMode === 'windows') {
+        const foundWin = await discoverWindowsBridge(true);
+        if (foundWin) return;
+    }
+
     if (savedMode === 'serial' && 'serial' in navigator) {
         try {
             const ports = await navigator.serial.getPorts();
@@ -4385,6 +4495,33 @@ function printViaCleanIframe() {
 }
 
 async function triggerBrowserPrint() {
+    // 0. Impresión RAW ESC/POS directa por Windows (POS-80C / 3nStar RPT004) - Sin ventana de Guardar como PDF
+    if (winPrintEndpoint && selectedWinPrinter) {
+        try {
+            const bytes = buildEscPosBytes(currentTicketData);
+            const dataBase64 = uint8ToBase64(bytes);
+            const res = await fetchWithTimeout(winPrintEndpoint.printUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    printerName: selectedWinPrinter,
+                    dataBase64
+                })
+            }, 15000);
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                throw new Error((result && result.error) || 'Error enviando ticket a Windows');
+            }
+            showToast(`Ticket impreso directo en ${selectedWinPrinter}`, 'success');
+            closeTicketPrintModal();
+            return;
+        } catch (err) {
+            console.error('Error imprimiendo directo en Windows:', err);
+            showToast(`Error imprimiendo en ${selectedWinPrinter}: ${err.message}`, 'error');
+            return;
+        }
+    }
+
     // 1. Impresión directa por cable USB (ESC/POS) - Sin ventana de Guardar como PDF
     if (directUsbPrinter) {
         try {
