@@ -2255,7 +2255,7 @@ async function sendOrderToKitchen() {
         if (diff > 0) {
             newItemsToSend.push({
                 id: item.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                name: item.name + (item.note ? ` [${item.note}]` : ''),
+                name: item.name,
                 note: item.note || '',
                 price: item.price,
                 qty: diff,
@@ -2842,7 +2842,7 @@ function renderKitchenOrders() {
                                         <div class="flex items-center space-x-2 min-w-0">
                                             <span class="inline-block bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md font-black text-xs shrink-0">${item.qty}x</span>
                                             <div class="min-w-0">
-                                                <span class="font-bold text-slate-900 truncate block">${item.name}</span>
+                                                <span class="font-bold text-slate-900 truncate block">${stripBracketNotes(item.name)}</span>
                                                 ${item.note ? `<span class="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold block mt-0.5">${item.note}</span>` : ''}
                                             </div>
                                             ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0">Agregado</span>' : ''}
@@ -3155,6 +3155,50 @@ async function saveTicketConfig() {
     }
 }
 
+function stripBracketNotes(name) {
+    return String(name || '')
+        .replace(/\s*\[[^\]]*\]\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function normalizeKitchenItemForPrint(item) {
+    const rawName = String(item.name || '');
+    const bracketMatch = rawName.match(/\[([^\]]+)\]/);
+    const cleanName = stripBracketNotes(rawName);
+    const extractedNote = (item.note && String(item.note).trim())
+        ? String(item.note).trim()
+        : (bracketMatch ? bracketMatch[1].trim() : '');
+    return {
+        ...item,
+        name: cleanName,
+        note: extractedNote
+    };
+}
+
+function formatBillItemName(item) {
+    let clean = stripBracketNotes(item.name);
+    const isLibre = item.isPizzaLibre || /^pizza\s+libre\b/i.test(clean);
+    if (isLibre) {
+        return 'Pizza libre';
+    }
+    return clean;
+}
+
+function filterBillItems(items) {
+    return (items || [])
+        .filter(i => {
+            const price = Number(i.price || 0);
+            const isFreeRound = price === 0 && (i.isPizzaLibre || /ronda/i.test(String(i.name || '')));
+            return !isFreeRound;
+        })
+        .map(i => ({
+            ...i,
+            name: formatBillItemName(i),
+            note: ''
+        }));
+}
+
 function markKitchenOrderPrinted(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (cmd) {
@@ -3184,9 +3228,19 @@ function openKitchenTicketPrint(cmdId) {
     // Imprimir SOLO los productos nuevos que todavía no salieron en un ticket anterior.
     // Si ya se imprimió todo, queda en modo Reimpresión de los pendientes actuales.
     const isReprint = unprintedPending.length === 0;
-    const itemsToPrint = unprintedPending.length > 0
+    const rawItemsToPrint = unprintedPending.length > 0
         ? unprintedPending
         : (pendingItems.length > 0 ? pendingItems : (cmd.items || []));
+
+    // Limpiar notas incrustadas entre [corchetes] para que nunca se repitan en nombre y OBS
+    const itemsToPrint = rawItemsToPrint.map(normalizeKitchenItemForPrint);
+
+    // Evitar repetir la nota general si ya está contenida en las observaciones de un plato
+    const rawCmdNote = (cmd.note || '').trim();
+    const itemNotesLower = itemsToPrint.map(i => (i.note || '').toLowerCase()).filter(Boolean);
+    const generalNote = (rawCmdNote && !itemNotesLower.some(n => n.includes(rawCmdNote.toLowerCase())))
+        ? rawCmdNote
+        : '';
 
     currentTicketData = {
         type: 'kitchen',
@@ -3198,7 +3252,7 @@ function openKitchenTicketPrint(cmdId) {
         waiter: cmd.waiterName,
         itemsToPrint,
         isReprint,
-        note: cmd.note || ''
+        note: generalNote
     };
 
     const subtitleLabel = isReprint ? 'REIMPRESIÓN - COMANDA' : 'COMANDA DE COCINA';
@@ -3251,10 +3305,10 @@ function openKitchenTicketPrint(cmdId) {
             </div>
         ` : ''}
 
-        ${cmd.note ? `
+        ${generalNote ? `
             <div class="border-2 border-black p-2 my-2 text-black">
                 <div class="font-black text-xs uppercase border-b border-black pb-0.5 mb-1">OBSERVACIONES:</div>
-                <p class="text-sm font-black leading-snug break-words">${escapeHtmlSafe(cmd.note)}</p>
+                <p class="text-sm font-black leading-snug break-words">${escapeHtmlSafe(generalNote)}</p>
             </div>
         ` : ''}
     `;
@@ -3266,7 +3320,7 @@ function openKitchenTicketPrint(cmdId) {
         `Mozo: ${cmd.waiterName}\n` +
         `--------------------------------\n` +
         itemsToPrint.map(i => `- [${i.qty}x] ${i.name}${i.note ? ` | OBS: ${i.note}` : ''}`).join('\n') + '\n' +
-        (cmd.note ? `*OBSERVACIONES:* ${cmd.note}\n` : '');
+        (generalNote ? `*OBSERVACIONES:* ${generalNote}\n` : '');
 
     updatePrinterStatusUI();
     document.getElementById('ticket-print-modal').classList.remove('hidden');
@@ -3283,18 +3337,20 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
     const activeCmd = kitchenOrders.find(o => o.table === table && o.status !== 'paid');
     const anyTableCmd = activeCmd || kitchenOrders.find(o => o.table === table);
 
-    let items = [];
+    let rawItems = [];
     if (tableOrder.items && tableOrder.items.length > 0) {
-        items = tableOrder.items;
+        rawItems = tableOrder.items;
     } else if (activeCmd && activeCmd.items && activeCmd.items.length > 0) {
-        items = activeCmd.items;
+        rawItems = activeCmd.items;
     }
 
-    if (items.length === 0) {
+    if (rawItems.length === 0) {
         showToast(`La ${table} no tiene productos registrados`, 'info');
         return;
     }
 
+    // En la cuenta del cliente NO van observaciones internas de cocina ni rondas $0
+    const items = filterBillItems(rawItems);
     const total = items.reduce((acc, i) => acc + (i.price * i.qty), 0);
     const suggestedTip10 = Math.round(total * 0.10);
     const totalWithTip10 = total + suggestedTip10;
@@ -3367,7 +3423,6 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
                             <span class="leading-tight break-words"><strong class="font-black">${i.qty}x</strong> ${escapeHtmlSafe(i.name)}</span>
                             <span class="shrink-0 font-black">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
                         </div>
-                        ${i.note ? `<p class="text-xs font-bold pl-2 mt-0.5">OBS: ${escapeHtmlSafe(i.note)}</p>` : ''}
                     </div>
                 `).join('')}
             </div>
@@ -3410,7 +3465,7 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
         `Mozo: ${waiterName}\n` +
         `Fecha: ${dateStr} ${timeStr} hs\n` +
         `--------------------------------\n` +
-        items.map(i => `- ${i.qty}x ${i.name} = $${(i.price * i.qty).toLocaleString('es-AR')}${i.note ? ` (${i.note})` : ''}`).join('\n') + '\n' +
+        items.map(i => `- ${i.qty}x ${i.name} = $${(i.price * i.qty).toLocaleString('es-AR')}`).join('\n') + '\n' +
         `--------------------------------\n` +
         `*TOTAL: $${total.toLocaleString('es-AR')}*\n` +
         (showSuggestedTip ? `Propina sugerida 10%: $${suggestedTip10.toLocaleString('es-AR')}\n*Total con 10% propina: $${totalWithTip10.toLocaleString('es-AR')}*\n` : '') +
@@ -4063,14 +4118,9 @@ function buildEscPosBytes(data) {
         (data.items || []).forEach((i, idx) => {
             pushBytes(BOLD_ON);
             pushBytes(SIZE_1X2);
-            const label = `[${i.qty}x] ${i.name}`;
+            const label = `[${i.qty}x] ${formatBillItemName(i)}`;
             const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
             pushLeftRight(label, sub, cols1x);
-            if (i.note) {
-                pushBytes(SIZE_1X);
-                const noteLines = wrapTextWords(`  OBS: ${i.note}`, cols1x);
-                noteLines.forEach(nl => pushLine(nl));
-            }
             if (idx < data.items.length - 1) {
                 feedDots(10);
             }
@@ -4229,10 +4279,9 @@ function buildThermalPrintHtml(data) {
                 ${(data.items || []).map(i => `
                     <div class="bill-item">
                         <div class="bill-item-row">
-                            <span class="bill-item-name"><strong>${i.qty}x</strong> ${escapeHtmlSafe(i.name)}</span>
+                            <span class="bill-item-name"><strong>${i.qty}x</strong> ${escapeHtmlSafe(formatBillItemName(i))}</span>
                             <span class="bill-item-price">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
                         </div>
-                        ${i.note ? `<div class="bill-item-note">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
                     </div>
                 `).join('')}
             </div>
