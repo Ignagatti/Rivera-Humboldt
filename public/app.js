@@ -3051,6 +3051,9 @@ function openKitchenTicketPrint(cmdId) {
 
     fetch(`/api/orders/${cmdId}/print`, { method: 'PUT' }).catch(e => console.warn(e));
 
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
     const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
     const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
 
@@ -3058,6 +3061,7 @@ function openKitchenTicketPrint(cmdId) {
         type: 'kitchen',
         id: cmd.id,
         table: cmd.table,
+        dateStr,
         time: cmd.time,
         waiter: cmd.waiterName,
         pendingItems,
@@ -3068,88 +3072,91 @@ function openKitchenTicketPrint(cmdId) {
 
     const modalTitle = document.getElementById('ticket-modal-title');
     const modalSubtitle = document.getElementById('ticket-modal-subtitle');
-    if (modalTitle) modalTitle.innerText = "Ticket Comanda (Cocina)";
+    if (modalTitle) modalTitle.innerText = "Comanda de Cocina (3nStar 80mm)";
     if (modalSubtitle) modalSubtitle.innerText = `Comanda ${cmd.id} - ${cmd.table}`;
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
-        <div class="text-center space-y-1 border-b border-dashed border-slate-400 pb-2">
-            <h2 class="font-bold text-sm uppercase tracking-wide">RIVERA POS</h2>
-            <p class="text-[10px]">COMANDA DE COCINA</p>
+        <div class="text-center border-b-2 border-black pb-2 mb-2">
+            <h2 class="font-black text-2xl uppercase tracking-wider text-black leading-none">RIVERA</h2>
+            <p class="text-xs font-extrabold uppercase tracking-widest text-black mt-1">COMANDA DE COCINA</p>
         </div>
 
-        <div class="py-2 border-b border-dashed border-slate-400 space-y-0.5 text-[11px]">
+        <div class="text-center border-y-2 border-black py-1.5 my-2 bg-slate-100">
+            <div class="text-2xl font-black uppercase text-black leading-tight">${cmd.table}</div>
+            <div class="text-xs font-bold text-black">COMANDA: ${cmd.id}</div>
+        </div>
+
+        <div class="border-b-2 border-dashed border-black pb-2 mb-2 space-y-0.5 text-xs font-bold text-black">
             <div class="flex justify-between">
-                <span>COMANDA:</span>
-                <strong>${cmd.id}</strong>
+                <span>FECHA: ${dateStr}</span>
+                <span>HORA: ${cmd.time} hs</span>
             </div>
-            <div class="flex justify-between">
-                <span>MESA:</span>
-                <strong class="text-sm font-black">${cmd.table}</strong>
-            </div>
-            <div class="flex justify-between">
-                <span>HORA:</span>
-                <span>${cmd.time} hs</span>
-            </div>
-            <div class="flex justify-between">
-                <span>MOZO:</span>
-                <span>${cmd.waiterName}</span>
-            </div>
+            <div>MOZO: ${cmd.waiterName}</div>
         </div>
 
         ${pendingItems.length > 0 ? `
-            <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5">
-                <div class="flex justify-between font-bold text-[10px] uppercase text-black">
-                    <span>* POR PREPARAR / PENDIENTES *</span>
-                    <span>SUBTOTAL</span>
+            <div class="border-b-2 border-black pb-2 mb-2">
+                <div class="text-center font-black text-sm uppercase tracking-wide text-black border-b border-black pb-1 mb-2">
+                    POR PREPARAR
                 </div>
-                ${pendingItems.map(i => `
-                    <div class="flex justify-between items-start text-xs font-black">
-                        <span>${i.qty}x ${i.name} ${i.isAddon ? '(AGREGADO)' : ''}</span>
-                        <span>$${(i.price * i.qty).toLocaleString()}</span>
-                    </div>
-                `).join('')}
+                <div class="space-y-2.5">
+                    ${pendingItems.map(i => `
+                        <div class="border-b border-dashed border-black pb-2 last:border-b-0 last:pb-0">
+                            <div class="flex items-start gap-2 text-black">
+                                <span class="font-black text-lg leading-none border-2 border-black px-1.5 py-0.5 shrink-0">${i.qty}x</span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-black text-base leading-tight break-words">${i.name}</div>
+                                    ${i.isAddon ? '<div class="text-xs font-black uppercase mt-0.5">*** AGREGADO ***</div>' : ''}
+                                    ${i.note ? `<div class="text-xs font-bold mt-0.5">OBS: ${i.note}</div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
             </div>
         ` : ''}
 
         ${deliveredItems.length > 0 ? `
-            <div class="py-2 border-b border-dashed border-slate-400 space-y-1 text-slate-600">
-                <div class="flex justify-between font-semibold text-[9px] uppercase text-slate-500">
-                    <span>[ YA ENTREGADOS ANTERIORMENTE ]</span>
-                    <span>SUBTOTAL</span>
+            <div class="border-b-2 border-dashed border-black pb-2 mb-2 text-black">
+                <div class="font-bold text-[11px] uppercase mb-1">
+                    [ YA ENTREGADOS ANTERIORMENTE ]
                 </div>
-                ${deliveredItems.map(i => `
-                    <div class="flex justify-between items-start text-[11px]">
-                        <span>[OK] ${i.qty}x ${i.name}</span>
-                        <span>$${(i.price * i.qty).toLocaleString()}</span>
-                    </div>
-                `).join('')}
+                <div class="space-y-1">
+                    ${deliveredItems.map(i => `
+                        <div class="flex justify-between items-start text-xs font-semibold">
+                            <span>[OK] ${i.qty}x ${i.name}</span>
+                            <span>$${(i.price * i.qty).toLocaleString('es-AR')}</span>
+                        </div>
+                    `).join('')}
+                </div>
             </div>
         ` : ''}
 
         ${cmd.note ? `
-            <div class="py-2 border-b border-dashed border-slate-400">
-                <span class="font-bold uppercase text-[10px] block text-slate-500">NOTAS / OBSERVACIONES:</span>
-                <p class="text-xs font-bold mt-0.5 text-black">>> ${cmd.note}</p>
+            <div class="border-2 border-black p-2 my-2 text-black">
+                <div class="font-black text-xs uppercase border-b border-black pb-0.5 mb-1">OBSERVACIONES:</div>
+                <p class="text-sm font-black leading-snug break-words">${cmd.note}</p>
             </div>
         ` : ''}
 
-        <div class="pt-2 flex justify-between items-center text-sm font-bold">
+        <div class="pt-2 border-t-2 border-black flex justify-between items-center text-lg font-black text-black">
             <span>TOTAL MESA:</span>
-            <span>$${cmd.total.toLocaleString()}</span>
+            <span>$${cmd.total.toLocaleString('es-AR')}</span>
         </div>
     `;
 
     currentTicketRawText =
-        `*COMANDA DE COCINA - RIVERA POS*\n` +
-        `Comanda: ${cmd.id} | Mesa: ${cmd.table}\n` +
-        `Mozo: ${cmd.waiterName} | Hora: ${cmd.time} hs\n` +
+        `*COMANDA DE COCINA - RIVERA*\n` +
+        `Mesa: ${cmd.table} | Comanda: ${cmd.id}\n` +
+        `Fecha: ${dateStr} | Hora: ${cmd.time} hs\n` +
+        `Mozo: ${cmd.waiterName}\n` +
         `--------------------------------\n` +
-        (pendingItems.length > 0 ? `*POR PREPARAR:*\n` + pendingItems.map(i => `• ${i.qty}x ${i.name} ${i.isAddon ? '(AGREGADO)' : ''}`).join('\n') + '\n' : '') +
-        (deliveredItems.length > 0 ? `*YA ENTREGADOS:*\n` + deliveredItems.map(i => `• [OK] ${i.qty}x ${i.name}`).join('\n') + '\n' : '') +
-        (cmd.note ? `*NOTAS:* ${cmd.note}\n` : '') +
+        (pendingItems.length > 0 ? `*POR PREPARAR:*\n` + pendingItems.map(i => `- [${i.qty}x] ${i.name}${i.isAddon ? ' (AGREGADO)' : ''}`).join('\n') + '\n' : '') +
+        (deliveredItems.length > 0 ? `*YA ENTREGADOS:*\n` + deliveredItems.map(i => `- [OK] ${i.qty}x ${i.name}`).join('\n') + '\n' : '') +
+        (cmd.note ? `*OBSERVACIONES:* ${cmd.note}\n` : '') +
         `--------------------------------\n` +
-        `Total Mesa: $${cmd.total.toLocaleString()}`;
+        `Total Mesa: $${cmd.total.toLocaleString('es-AR')}`;
 
     updatePrinterStatusUI();
     document.getElementById('ticket-print-modal').classList.remove('hidden');
@@ -3203,94 +3210,90 @@ function openTableBillTicketPrint(tableName) {
 
     const modalTitle = document.getElementById('ticket-modal-title');
     const modalSubtitle = document.getElementById('ticket-modal-subtitle');
-    if (modalTitle) modalTitle.innerText = "Ticket Pre-cuenta (Mesa)";
+    if (modalTitle) modalTitle.innerText = "Ticket Pre-cuenta (3nStar 80mm)";
     if (modalSubtitle) modalSubtitle.innerText = `Comprobante de consumo para ${table}`;
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
-        <div class="text-center space-y-1 border-b border-dashed border-slate-400 pb-2">
-            <h2 class="font-bold text-sm uppercase tracking-wide">RIVERA POS</h2>
-            <p class="text-[10px] font-semibold text-slate-600">CONTROL DE MESA / PRE-CUENTA</p>
-            <p class="text-[9px] text-slate-400">NO VALIDO COMO FACTURA FISCAL</p>
+        <div class="text-center border-b-2 border-black pb-2 mb-2 text-black">
+            <h2 class="font-black text-2xl uppercase tracking-wider leading-none">RIVERA</h2>
+            <p class="text-xs font-extrabold uppercase mt-1">CONTROL DE MESA / PRE-CUENTA</p>
+            <p class="text-[10px] font-bold mt-0.5">NO VÁLIDO COMO FACTURA FISCAL</p>
         </div>
 
-        <div class="py-2 border-b border-dashed border-slate-400 space-y-0.5 text-[11px]">
-            <div class="flex justify-between">
-                <span>MESA:</span>
-                <strong class="text-sm font-black text-slate-900">${table}</strong>
+        <div class="text-center border-b-2 border-black pb-2 mb-2 text-black">
+            <div class="text-xl font-black uppercase">${table}</div>
+            <div class="flex justify-between text-xs font-bold mt-1">
+                <span>FECHA: ${dateStr}</span>
+                <span>HORA: ${timeStr} hs</span>
             </div>
-            <div class="flex justify-between">
-                <span>MOZO:</span>
-                <span class="font-semibold text-slate-800">${waiterName}</span>
-            </div>
-            <div class="flex justify-between">
-                <span>FECHA:</span>
-                <span>${dateStr} - ${timeStr} hs</span>
-            </div>
+            <div class="text-left text-xs font-bold">MOZO: ${waiterName}</div>
         </div>
 
-        <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5">
-            <div class="flex justify-between font-bold text-[10px] uppercase text-slate-600 pb-1 border-b border-dashed border-slate-200">
-                <span>CANT / DETALLE</span>
+        <div class="border-b-2 border-black pb-2 mb-2 text-black">
+            <div class="flex justify-between font-black text-xs uppercase border-b border-black pb-1 mb-1.5">
+                <span>CANT / PRODUCTO</span>
                 <span>SUBTOTAL</span>
             </div>
-            ${items.map(i => `
-                <div class="space-y-0.5">
-                    <div class="flex justify-between items-start text-xs">
-                        <span class="font-bold text-slate-900">${i.qty}x ${i.name}</span>
-                        <span class="font-bold text-slate-900">$${(i.price * i.qty).toLocaleString()}</span>
+            <div class="space-y-2">
+                ${items.map(i => `
+                    <div class="border-b border-dashed border-black pb-1.5 last:border-b-0 last:pb-0">
+                        <div class="flex justify-between items-start gap-2 text-sm font-extrabold">
+                            <span class="leading-tight break-words"><strong class="font-black">${i.qty}x</strong> ${i.name}</span>
+                            <span class="shrink-0 font-black">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
+                        </div>
+                        ${i.note ? `<p class="text-xs font-bold pl-2 mt-0.5">OBS: ${i.note}</p>` : ''}
                     </div>
-                    ${i.note ? `<p class="text-[10px] text-slate-500 italic pl-2">>> ${i.note}</p>` : ''}
-                </div>
-            `).join('')}
+                `).join('')}
+            </div>
         </div>
 
-        <div class="py-2 border-b border-dashed border-slate-400 space-y-1 text-xs">
-            <div class="flex justify-between items-center text-sm font-black text-slate-900">
+        <div class="border-b-2 border-black pb-2 mb-2 space-y-1 text-black">
+            <div class="flex justify-between items-center text-lg font-black">
                 <span>TOTAL CONSUMO:</span>
-                <span>$${total.toLocaleString()}</span>
+                <span>$${total.toLocaleString('es-AR')}</span>
             </div>
-            <div class="flex justify-between items-center text-[11px] text-slate-600 pt-1">
+            <div class="flex justify-between items-center text-xs font-bold pt-1">
                 <span>Propina sugerida (10%):</span>
-                <span>$${suggestedTip10.toLocaleString()}</span>
+                <span>$${suggestedTip10.toLocaleString('es-AR')}</span>
             </div>
-            <div class="flex justify-between items-center text-[11px] font-bold text-[#2563eb]">
+            <div class="flex justify-between items-center text-sm font-black">
                 <span>Total con 10% propina:</span>
-                <span>$${totalWithTip10.toLocaleString()}</span>
+                <span>$${totalWithTip10.toLocaleString('es-AR')}</span>
             </div>
         </div>
 
-        <div class="py-2 border-b border-dashed border-slate-400 space-y-1.5 text-[11px] text-slate-600">
+        <div class="border-b-2 border-dashed border-black pb-2 mb-2 space-y-1.5 text-xs font-bold text-black">
             <div class="flex justify-between">
                 <span>Propina voluntaria:</span>
-                <span class="font-mono text-slate-400">[ $___________ ]</span>
+                <span>[ $___________ ]</span>
             </div>
-            <div class="flex justify-between font-bold text-slate-800">
+            <div class="flex justify-between text-sm font-black">
                 <span>TOTAL A PAGAR:</span>
-                <span class="font-mono text-slate-400">[ $___________ ]</span>
+                <span>[ $___________ ]</span>
             </div>
-            <div class="pt-2 text-center text-[10px] text-slate-400 border-t border-dashed border-slate-200">
-                Firma cliente: ___________________________
+            <div class="pt-2 text-center text-xs font-bold">
+                Firma: ___________________________
             </div>
         </div>
 
-        <div class="pt-2 text-center text-[10px] text-slate-500 space-y-0.5">
-            <p class="font-semibold">¡Muchas gracias por elegir Rivera!</p>
-            <p class="text-[9px] text-slate-400">Esperamos que hayan disfrutado el servicio</p>
+        <div class="pt-1 text-center text-xs font-extrabold text-black space-y-0.5">
+            <p>¡Muchas gracias por elegir Rivera!</p>
+            <p class="text-[11px] font-bold">Esperamos que hayan disfrutado el servicio</p>
         </div>
     `;
 
     currentTicketRawText =
-        `*RIVERA POS - PRE-CUENTA*\n` +
+        `*RIVERA - PRE-CUENTA*\n` +
         `Mesa: ${table}\n` +
         `Mozo: ${waiterName}\n` +
         `Fecha: ${dateStr} ${timeStr} hs\n` +
         `--------------------------------\n` +
-        items.map(i => `• ${i.qty}x ${i.name} = $${(i.price * i.qty).toLocaleString()}${i.note ? ` (${i.note})` : ''}`).join('\n') + '\n' +
+        items.map(i => `- ${i.qty}x ${i.name} = $${(i.price * i.qty).toLocaleString('es-AR')}${i.note ? ` (${i.note})` : ''}`).join('\n') + '\n' +
         `--------------------------------\n` +
-        `*TOTAL CONSUMO: $${total.toLocaleString()}*\n` +
-        `Propina sugerida 10%: $${suggestedTip10.toLocaleString()}\n` +
-        `*Total sugerido c/propina: $${totalWithTip10.toLocaleString()}*\n\n` +
+        `*TOTAL CONSUMO: $${total.toLocaleString('es-AR')}*\n` +
+        `Propina sugerida 10%: $${suggestedTip10.toLocaleString('es-AR')}\n` +
+        `*Total sugerido c/propina: $${totalWithTip10.toLocaleString('es-AR')}*\n\n` +
         `¡Muchas gracias por su visita!`;
 
     updatePrinterStatusUI();
@@ -3542,187 +3545,364 @@ window.addEventListener('load', () => {
     autoReconnectDirectPrinter();
 });
 
-function normalizePrinterText(str) {
-    return String(str || '')
-        .replace(/ñ/g, 'n').replace(/Ñ/g, 'N')
-        .replace(/¡/g, '!').replace(/¿/g, '?')
-        .replace(/•/g, '-')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^\x20-\x7E\n]/g, '');
+// Mapa de codificación PC850 (ESC t 2) para impresoras térmicas 3nStar RPT004 (acentos y ñ nativos)
+const PC850_MAP = {
+    'á': 0xA0, 'é': 0x82, 'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3,
+    'Á': 0xB5, 'É': 0x90, 'Í': 0xD6, 'Ó': 0xE0, 'Ú': 0xE9,
+    'ñ': 0xA4, 'Ñ': 0xA5, 'ü': 0x81, 'Ü': 0x9A,
+    '¡': 0xAD, '¿': 0xA8, '°': 0xF8, 'º': 0xA7, 'ª': 0xA6,
+    '•': 0x2D, '–': 0x2D, '—': 0x2D
+};
+
+function encodePC850Bytes(str) {
+    const out = [];
+    const s = String(str || '');
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (PC850_MAP[ch] !== undefined) {
+            out.push(PC850_MAP[ch]);
+        } else {
+            const code = ch.charCodeAt(0);
+            if (code === 0x0A || (code >= 0x20 && code <= 0x7E)) {
+                out.push(code);
+            } else {
+                // Fallback seguro para cualquier símbolo fuera de PC850
+                const stripped = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                for (let j = 0; j < stripped.length; j++) {
+                    const c2 = stripped.charCodeAt(j);
+                    if (c2 >= 0x20 && c2 <= 0x7E) out.push(c2);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+function wrapTextWords(text, maxCols) {
+    const words = String(text || '').trim().split(/\s+/);
+    const lines = [];
+    let current = '';
+
+    for (const word of words) {
+        if (!word) continue;
+        if (current.length === 0) {
+            if (word.length <= maxCols) {
+                current = word;
+            } else {
+                for (let i = 0; i < word.length; i += maxCols) {
+                    const chunk = word.slice(i, i + maxCols);
+                    if (i + maxCols < word.length) lines.push(chunk);
+                    else current = chunk;
+                }
+            }
+        } else if (current.length + 1 + word.length <= maxCols) {
+            current += ' ' + word;
+        } else {
+            lines.push(current);
+            if (word.length <= maxCols) {
+                current = word;
+            } else {
+                current = '';
+                for (let i = 0; i < word.length; i += maxCols) {
+                    const chunk = word.slice(i, i + maxCols);
+                    if (i + maxCols < word.length) lines.push(chunk);
+                    else current = chunk;
+                }
+            }
+        }
+    }
+    if (current.length > 0) lines.push(current);
+    return lines.length > 0 ? lines : [''];
 }
 
 function buildEscPosBytes(data) {
-    const cols = printerPaperWidth === 58 ? 32 : 42;
-    const sep = '-'.repeat(cols);
-    const eqSep = '='.repeat(cols);
+    // 3nStar RPT004 (80mm papel / 72mm imprimible / 576 dots -> Font A 12x24 = 48 cols)
+    // En modo 58mm (48mm imprimible / 384 dots -> Font A = 32 cols)
+    const is80mm = printerPaperWidth !== 58;
+    const cols1x = is80mm ? 48 : 32;
+    const cols2x = is80mm ? 24 : 16;
+    const cols3x = is80mm ? 16 : 10;
+
+    const sepDash = '-'.repeat(cols1x);
+    const sepEq = '='.repeat(cols1x);
+    const sepStar = '*'.repeat(cols1x);
     const bytes = [];
 
     const pushBytes = (arr) => {
         for (let i = 0; i < arr.length; i++) bytes.push(arr[i]);
     };
     const pushText = (text) => {
-        const clean = normalizePrinterText(text);
-        for (let i = 0; i < clean.length; i++) {
-            bytes.push(clean.charCodeAt(i));
-        }
+        pushBytes(encodePC850Bytes(text));
     };
     const pushLine = (text = '') => {
         pushText(text + '\n');
     };
-    const pushLeftRight = (left, right) => {
-        const l = normalizePrinterText(left);
-        const r = normalizePrinterText(right);
-        const maxLeft = Math.max(8, cols - r.length - 1);
+    const feedDots = (dots) => {
+        // ESC J n -> Avance vertical fino en puntos (8 dots = 1mm en RPT004)
+        pushBytes([0x1B, 0x4A, Math.max(0, Math.min(255, dots))]);
+    };
+    const pushLeftRight = (left, right, maxCols = cols1x) => {
+        const l = String(left || '');
+        const r = String(right || '');
+        const maxLeft = Math.max(6, maxCols - r.length - 1);
         if (l.length <= maxLeft) {
-            const spaces = Math.max(1, cols - l.length - r.length);
+            const spaces = Math.max(1, maxCols - l.length - r.length);
             pushLine(l + ' '.repeat(spaces) + r);
         } else {
-            // Dividir texto largo respetando el precio a la derecha en la primera línea
-            const firstPart = l.slice(0, maxLeft);
-            const rest = l.slice(maxLeft);
-            const spaces = Math.max(1, cols - firstPart.length - r.length);
-            pushLine(firstPart + ' '.repeat(spaces) + r);
-            for (let idx = 0; idx < rest.length; idx += cols - 2) {
-                pushLine('  ' + rest.slice(idx, idx + cols - 2).trim());
+            const wrapped = wrapTextWords(l, maxLeft);
+            const first = wrapped[0];
+            const spaces = Math.max(1, maxCols - first.length - r.length);
+            pushLine(first + ' '.repeat(spaces) + r);
+            for (let idx = 1; idx < wrapped.length; idx++) {
+                pushLine('  ' + wrapped[idx]);
             }
         }
     };
 
-    const INIT = [0x1B, 0x40];
+    // Comandos ESC/POS nativos para 3nStar RPT004
+    const INIT = [0x1B, 0x40];                                      // Reiniciar impresora
+    const CODEPAGE_PC850 = [0x1B, 0x74, 0x02];                      // Tabla PC850 (acentos y ñ del español)
+    const FONT_A = [0x1B, 0x4D, 0x00];                              // Font A (12x24 dots, más grande y oscura)
+    const LEFT_MARGIN_0 = [0x1D, 0x4C, 0x00, 0x00];                 // Margen izquierdo = 0 puntos
+    const PRINT_WIDTH = is80mm
+        ? [0x1D, 0x57, 0x40, 0x02]                                  // 576 dots (72mm exactos de 3nStar RPT004)
+        : [0x1D, 0x57, 0x80, 0x01];                                 // 384 dots (48mm para rollo 58mm)
+    const LINE_SPACING_COMFORT = [0x1B, 0x33, 0x24];                // Interlineado legible (36 dots)
     const ALIGN_LEFT = [0x1B, 0x61, 0x00];
     const ALIGN_CENTER = [0x1B, 0x61, 0x01];
     const BOLD_ON = [0x1B, 0x45, 0x01];
     const BOLD_OFF = [0x1B, 0x45, 0x00];
-    const SIZE_NORMAL = [0x1D, 0x21, 0x00];
-    const SIZE_DOUBLE_H = [0x1D, 0x21, 0x01];
-    const SIZE_DOUBLE = [0x1D, 0x21, 0x11];
-    const CUT = [0x1D, 0x56, 0x41, 0x03];
+    const SIZE_1X = [0x1D, 0x21, 0x00];                             // 1x ancho, 1x alto (48 cols)
+    const SIZE_1X2 = [0x1D, 0x21, 0x01];                            // 1x ancho, 2x alto (48 cols, doble altura)
+    const SIZE_2X2 = [0x1D, 0x21, 0x11];                            // 2x ancho, 2x alto (24 cols)
+    const SIZE_2X3 = [0x1D, 0x21, 0x12];                            // 2x ancho, 3x alto (24 cols)
+    const SIZE_3X2 = [0x1D, 0x21, 0x21];                            // 3x ancho, 2x alto (16 cols)
+    const SIZE_3X3 = [0x1D, 0x21, 0x22];                            // 3x ancho, 3x alto (16 cols)
+    const FEED_AND_CUT = [0x1B, 0x64, 0x04, 0x1D, 0x56, 0x42, 0x03]; // Avance 4 líneas + corte parcial automático
 
     pushBytes(INIT);
+    pushBytes(CODEPAGE_PC850);
+    pushBytes(FONT_A);
+    pushBytes(LEFT_MARGIN_0);
+    pushBytes(PRINT_WIDTH);
+    pushBytes(LINE_SPACING_COMFORT);
 
     if (!data) {
         pushBytes(ALIGN_LEFT);
+        pushBytes(BOLD_ON);
         pushLine(currentTicketRawText || '');
-        pushLine('\n\n\n');
-        pushBytes(CUT);
+        pushBytes(BOLD_OFF);
+        pushBytes(FEED_AND_CUT);
         return new Uint8Array(bytes);
     }
 
     if (data.type === 'kitchen') {
+        // 1. ENCABEZADO DEL ESTABLECIMIENTO (3x ancho x 2x alto en 80mm)
         pushBytes(ALIGN_CENTER);
         pushBytes(BOLD_ON);
-        pushBytes(SIZE_DOUBLE_H);
-        pushLine('RIVERA POS');
-        pushBytes(SIZE_NORMAL);
+        pushBytes(is80mm ? SIZE_3X2 : SIZE_2X2);
+        pushLine('RIVERA');
+        pushBytes(SIZE_1X2);
         pushLine('COMANDA DE COCINA');
-        pushBytes(BOLD_OFF);
-        pushLine(sep);
+        pushBytes(SIZE_1X);
+        pushLine(sepEq);
 
+        // 2. NÚMERO DE MESA / PEDIDO DESTACADO (3x3 si entra en 16 cols, si no 2x3)
+        feedDots(8);
         pushBytes(ALIGN_CENTER);
         pushBytes(BOLD_ON);
-        pushBytes(SIZE_DOUBLE);
-        pushLine(data.table);
-        pushBytes(SIZE_NORMAL);
-        pushBytes(BOLD_OFF);
+        const tableUpper = String(data.table || '').toUpperCase();
+        if (tableUpper.length <= cols3x) {
+            pushBytes(SIZE_3X3);
+        } else {
+            pushBytes(SIZE_2X3);
+        }
+        pushLine(tableUpper);
+        feedDots(8);
+        pushBytes(SIZE_1X2);
+        pushLine(`COMANDA: ${data.id}`);
+        pushBytes(SIZE_1X);
+        pushLine(sepEq);
 
+        // 3. FECHA, HORA Y MOZO (1x2 doble altura y negrita para lectura rápida)
         pushBytes(ALIGN_LEFT);
-        pushLeftRight('COMANDA:', data.id);
-        pushLeftRight('HORA:', `${data.time} hs`);
-        pushLeftRight('MOZO:', data.waiter);
-        pushLine(sep);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_1X2);
+        const dateLabel = data.dateStr ? `FECHA: ${data.dateStr}` : '';
+        const timeLabel = `HORA: ${data.time} hs`;
+        if (dateLabel) {
+            pushLeftRight(dateLabel, timeLabel, cols1x);
+        } else {
+            pushLine(timeLabel);
+        }
+        pushLine(`MOZO: ${data.waiter}`);
+        pushBytes(SIZE_1X);
+        pushLine(sepEq);
 
+        // 4. PRODUCTOS POR PREPARAR (2x2 NEGRITA con cantidad diferenciada y espaciado)
         if (data.pendingItems && data.pendingItems.length > 0) {
+            pushBytes(ALIGN_CENTER);
             pushBytes(BOLD_ON);
-            pushLine('* POR PREPARAR / PENDIENTES *');
-            data.pendingItems.forEach(i => {
-                const label = `${i.qty}x ${i.name}${i.isAddon ? ' (AGREGADO)' : ''}`;
-                const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
-                pushLeftRight(label, sub);
+            pushBytes(SIZE_2X2);
+            pushLine('POR PREPARAR');
+            pushBytes(SIZE_1X);
+            pushLine(sepDash);
+
+            pushBytes(ALIGN_LEFT);
+            data.pendingItems.forEach((i, idx) => {
+                const qtyTag = `[${i.qty}x] `;
+                const indent = ' '.repeat(qtyTag.length);
+                const availForName = Math.max(8, cols2x - qtyTag.length);
+                const wrappedName = wrapTextWords(i.name, availForName);
+
+                pushBytes(BOLD_ON);
+                pushBytes(SIZE_2X2);
+                pushLine(qtyTag + wrappedName[0]);
+                for (let k = 1; k < wrappedName.length; k++) {
+                    pushLine(indent + wrappedName[k]);
+                }
+
+                if (i.isAddon) {
+                    pushBytes(SIZE_1X2);
+                    pushLine('  *** AGREGADO ***');
+                }
+                if (i.note) {
+                    pushBytes(SIZE_1X2);
+                    const noteLines = wrapTextWords(`OBS: ${i.note}`, cols1x - 2);
+                    noteLines.forEach(nl => pushLine('  ' + nl));
+                }
+
+                pushBytes(SIZE_1X);
+                if (idx < data.pendingItems.length - 1) {
+                    feedDots(10);
+                    pushLine(sepDash);
+                    feedDots(10);
+                } else {
+                    feedDots(8);
+                }
             });
-            pushBytes(BOLD_OFF);
-            pushLine(sep);
+            pushBytes(SIZE_1X);
+            pushLine(sepEq);
         }
 
+        // 5. YA ENTREGADOS ANTERIORMENTE (sección secundaria clara)
         if (data.deliveredItems && data.deliveredItems.length > 0) {
+            pushBytes(ALIGN_LEFT);
+            pushBytes(BOLD_ON);
+            pushBytes(SIZE_1X);
             pushLine('[ YA ENTREGADOS ANTERIORMENTE ]');
+            pushBytes(BOLD_OFF);
             data.deliveredItems.forEach(i => {
                 const label = `[OK] ${i.qty}x ${i.name}`;
                 const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
-                pushLeftRight(label, sub);
+                pushLeftRight(label, sub, cols1x);
             });
-            pushLine(sep);
+            pushLine(sepDash);
         }
 
+        // 6. OBSERVACIONES E INDICACIONES ESPECIALES (Destacadas en 2x2 negrita)
         if (data.note) {
+            feedDots(8);
+            pushBytes(ALIGN_LEFT);
             pushBytes(BOLD_ON);
-            pushLine('NOTAS / OBSERVACIONES:');
-            pushLine(`>> ${data.note}`);
-            pushBytes(BOLD_OFF);
-            pushLine(sep);
+            pushBytes(SIZE_1X);
+            pushLine(sepStar);
+            pushBytes(SIZE_2X2);
+            pushLine('OBSERVACIONES:');
+            const obsLines = wrapTextWords(data.note, cols2x);
+            obsLines.forEach(ol => pushLine(ol));
+            pushBytes(SIZE_1X);
+            pushLine(sepStar);
+            feedDots(8);
         }
 
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_DOUBLE_H);
-        pushLeftRight('TOTAL MESA:', `$${data.total.toLocaleString('es-AR')}`);
-        pushBytes(SIZE_NORMAL);
-        pushBytes(BOLD_OFF);
-    } else {
-        pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_DOUBLE_H);
-        pushLine('RIVERA POS');
-        pushBytes(SIZE_NORMAL);
-        pushLine('CONTROL DE MESA / PRE-CUENTA');
-        pushBytes(BOLD_OFF);
-        pushLine('NO VALIDO COMO FACTURA FISCAL');
-        pushLine(sep);
-
+        // 7. TOTAL MESA DESTACADO (2x2 NEGRITA)
         pushBytes(ALIGN_LEFT);
         pushBytes(BOLD_ON);
-        pushLeftRight('MESA:', data.table);
+        pushBytes(SIZE_2X2);
+        pushLeftRight('TOTAL:', `$${data.total.toLocaleString('es-AR')}`, cols2x);
+        pushBytes(SIZE_1X);
         pushBytes(BOLD_OFF);
-        pushLeftRight('MOZO:', data.waiter);
-        pushLeftRight('FECHA:', `${data.dateStr} ${data.timeStr} hs`);
-        pushLine(sep);
-
+    } else {
+        // TICKET PRE-CUENTA / MESA (3nStar RPT004 - 72mm / 48 cols)
+        pushBytes(ALIGN_CENTER);
         pushBytes(BOLD_ON);
-        pushLeftRight('CANT / DETALLE', 'SUBTOTAL');
+        pushBytes(is80mm ? SIZE_3X2 : SIZE_2X2);
+        pushLine('RIVERA');
+        pushBytes(SIZE_1X2);
+        pushLine('CONTROL DE MESA / PRE-CUENTA');
+        pushBytes(SIZE_1X);
         pushBytes(BOLD_OFF);
-        (data.items || []).forEach(i => {
-            const label = `${i.qty}x ${i.name}`;
-            const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
-            pushLeftRight(label, sub);
-            if (i.note) {
-                pushLine(`  >> ${i.note}`);
-            }
-        });
-        pushLine(eqSep);
-
+        pushLine('NO VÁLIDO COMO FACTURA FISCAL');
         pushBytes(BOLD_ON);
-        pushBytes(SIZE_DOUBLE_H);
-        pushLeftRight('TOTAL CONSUMO:', `$${data.total.toLocaleString('es-AR')}`);
-        pushBytes(SIZE_NORMAL);
-        pushBytes(BOLD_OFF);
-        pushLeftRight('Propina sugerida (10%):', `$${data.suggestedTip10.toLocaleString('es-AR')}`);
-        pushBytes(BOLD_ON);
-        pushLeftRight('Total con 10% propina:', `$${data.totalWithTip10.toLocaleString('es-AR')}`);
-        pushBytes(BOLD_OFF);
-        pushLine(sep);
-
-        pushLeftRight('Propina voluntaria:', '[ $_________ ]');
-        pushLeftRight('TOTAL A PAGAR:', '[ $_________ ]');
-        pushLine('');
-        pushLine('Firma: _________________________');
-        pushLine(sep);
+        pushLine(sepEq);
 
         pushBytes(ALIGN_CENTER);
-        pushLine('Muchas gracias por elegir Rivera!');
-        pushLine('Esperamos que hayan disfrutado');
+        pushBytes(SIZE_2X2);
+        pushLine(String(data.table || '').toUpperCase());
+        pushBytes(SIZE_1X2);
+        pushBytes(ALIGN_LEFT);
+        pushLeftRight(`FECHA: ${data.dateStr}`, `${data.timeStr} hs`, cols1x);
+        pushLine(`MOZO: ${data.waiter}`);
+        pushBytes(SIZE_1X);
+        pushLine(sepEq);
+
+        pushBytes(BOLD_ON);
+        pushLeftRight('CANT / PRODUCTO', 'SUBTOTAL', cols1x);
+        pushLine(sepDash);
+
+        (data.items || []).forEach((i, idx) => {
+            pushBytes(BOLD_ON);
+            pushBytes(SIZE_1X2);
+            const label = `[${i.qty}x] ${i.name}`;
+            const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
+            pushLeftRight(label, sub, cols1x);
+            if (i.note) {
+                pushBytes(SIZE_1X);
+                const noteLines = wrapTextWords(`  OBS: ${i.note}`, cols1x);
+                noteLines.forEach(nl => pushLine(nl));
+            }
+            if (idx < data.items.length - 1) {
+                feedDots(10);
+            }
+        });
+
+        pushBytes(SIZE_1X);
+        pushLine(sepEq);
+
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_2X2);
+        pushLeftRight('TOTAL:', `$${data.total.toLocaleString('es-AR')}`, cols2x);
+
+        pushBytes(SIZE_1X2);
+        pushBytes(BOLD_OFF);
+        pushLeftRight('Propina sugerida (10%):', `$${data.suggestedTip10.toLocaleString('es-AR')}`, cols1x);
+        pushBytes(BOLD_ON);
+        pushLeftRight('Total con 10% propina:', `$${data.totalWithTip10.toLocaleString('es-AR')}`, cols1x);
+
+        pushBytes(SIZE_1X);
+        pushLine(sepDash);
+        pushBytes(SIZE_1X2);
+        pushBytes(BOLD_OFF);
+        pushLeftRight('Propina voluntaria:', '[ $___________ ]', cols1x);
+        pushBytes(BOLD_ON);
+        pushLeftRight('TOTAL A PAGAR:', '[ $___________ ]', cols1x);
+        pushBytes(SIZE_1X);
+        pushBytes(BOLD_OFF);
+        pushLine('');
+        pushLine('Firma: _________________________________________'.slice(0, cols1x));
+        pushLine(sepDash);
+
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_1X2);
+        pushLine('¡Muchas gracias por elegir Rivera!');
+        pushBytes(SIZE_1X);
+        pushBytes(BOLD_OFF);
+        pushLine('Esperamos que hayan disfrutado el servicio');
     }
 
-    pushLine('\n\n\n');
-    pushBytes(CUT);
+    pushBytes(FEED_AND_CUT);
     return new Uint8Array(bytes);
 }
 
@@ -3734,13 +3914,442 @@ function uint8ToBase64(uint8) {
     return btoa(binary);
 }
 
-function printViaCleanIframe() {
-    const ticketArea = document.getElementById('printable-ticket-area');
-    if (!ticketArea) {
-        window.print();
-        return;
+function escapeHtmlSafe(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function buildThermalPrintHtml(data) {
+    // 3nStar RPT004: Papel 80mm -> Ancho imprimible máximo exacto = 72mm (576 dots)
+    // En modo 58mm -> Ancho imprimible = 48mm (384 dots)
+    const is80mm = printerPaperWidth !== 58;
+    const printWidthMm = is80mm ? 72 : 48;
+
+    let bodyContent = '';
+    if (!data) {
+        const ticketArea = document.getElementById('printable-ticket-area');
+        bodyContent = ticketArea ? ticketArea.innerHTML : `<pre>${escapeHtmlSafe(currentTicketRawText)}</pre>`;
+    } else if (data.type === 'kitchen') {
+        bodyContent = `
+            <div class="header-block">
+                <div class="brand-title">RIVERA</div>
+                <div class="doc-subtitle">COMANDA DE COCINA</div>
+            </div>
+
+            <div class="table-banner">
+                <div class="table-name">${escapeHtmlSafe(data.table)}</div>
+                <div class="cmd-id">COMANDA: ${escapeHtmlSafe(data.id)}</div>
+            </div>
+
+            <div class="meta-block">
+                <div class="meta-row">
+                    <span>FECHA: ${escapeHtmlSafe(data.dateStr || '')}</span>
+                    <span>HORA: ${escapeHtmlSafe(data.time)} hs</span>
+                </div>
+                <div class="meta-row">
+                    <span>MOZO: ${escapeHtmlSafe(data.waiter)}</span>
+                </div>
+            </div>
+
+            ${data.pendingItems && data.pendingItems.length > 0 ? `
+                <div class="section-title">POR PREPARAR</div>
+                <div class="items-list">
+                    ${data.pendingItems.map(i => `
+                        <div class="kitchen-item">
+                            <div class="kitchen-item-row">
+                                <span class="qty-box">${i.qty}x</span>
+                                <div class="item-main">
+                                    <div class="item-name">${escapeHtmlSafe(i.name)}</div>
+                                    ${i.isAddon ? '<div class="addon-tag">*** AGREGADO ***</div>' : ''}
+                                    ${i.note ? `<div class="item-note">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+
+            ${data.deliveredItems && data.deliveredItems.length > 0 ? `
+                <div class="delivered-section">
+                    <div class="delivered-title">[ YA ENTREGADOS ANTERIORMENTE ]</div>
+                    ${data.deliveredItems.map(i => `
+                        <div class="delivered-row">
+                            <span>[OK] ${i.qty}x ${escapeHtmlSafe(i.name)}</span>
+                            <span>$${(i.price * i.qty).toLocaleString('es-AR')}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+
+            ${data.note ? `
+                <div class="obs-box">
+                    <div class="obs-label">OBSERVACIONES:</div>
+                    <div class="obs-text">${escapeHtmlSafe(data.note)}</div>
+                </div>
+            ` : ''}
+
+            <div class="total-block">
+                <span>TOTAL MESA:</span>
+                <span>$${data.total.toLocaleString('es-AR')}</span>
+            </div>
+        `;
+    } else {
+        bodyContent = `
+            <div class="header-block">
+                <div class="brand-title">RIVERA</div>
+                <div class="doc-subtitle">CONTROL DE MESA / PRE-CUENTA</div>
+                <div class="legal-note">NO VÁLIDO COMO FACTURA FISCAL</div>
+            </div>
+
+            <div class="table-banner">
+                <div class="table-name">${escapeHtmlSafe(data.table)}</div>
+            </div>
+
+            <div class="meta-block">
+                <div class="meta-row">
+                    <span>FECHA: ${escapeHtmlSafe(data.dateStr)}</span>
+                    <span>HORA: ${escapeHtmlSafe(data.timeStr)} hs</span>
+                </div>
+                <div class="meta-row">
+                    <span>MOZO: ${escapeHtmlSafe(data.waiter)}</span>
+                </div>
+            </div>
+
+            <div class="bill-cols-header">
+                <span>CANT / PRODUCTO</span>
+                <span>SUBTOTAL</span>
+            </div>
+
+            <div class="items-list">
+                ${(data.items || []).map(i => `
+                    <div class="bill-item">
+                        <div class="bill-item-row">
+                            <span class="bill-item-name"><strong>${i.qty}x</strong> ${escapeHtmlSafe(i.name)}</span>
+                            <span class="bill-item-price">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
+                        </div>
+                        ${i.note ? `<div class="bill-item-note">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+
+            <div class="total-block">
+                <span>TOTAL:</span>
+                <span>$${data.total.toLocaleString('es-AR')}</span>
+            </div>
+
+            <div class="tips-block">
+                <div class="meta-row">
+                    <span>Propina sugerida (10%):</span>
+                    <span>$${data.suggestedTip10.toLocaleString('es-AR')}</span>
+                </div>
+                <div class="meta-row strong-row">
+                    <span>Total con 10% propina:</span>
+                    <span>$${data.totalWithTip10.toLocaleString('es-AR')}</span>
+                </div>
+            </div>
+
+            <div class="voluntary-block">
+                <div class="meta-row">
+                    <span>Propina voluntaria:</span>
+                    <span>[ $__________ ]</span>
+                </div>
+                <div class="meta-row strong-row">
+                    <span>TOTAL A PAGAR:</span>
+                    <span>[ $__________ ]</span>
+                </div>
+                <div class="sign-line">Firma: ___________________________</div>
+            </div>
+
+            <div class="footer-block">
+                <div class="footer-thanks">¡Muchas gracias por elegir Rivera!</div>
+                <div class="footer-sub">Esperamos que hayan disfrutado el servicio</div>
+            </div>
+        `;
     }
 
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Comanda Rivera - 3nStar RPT004</title>
+<style>
+  @page {
+    size: ${printWidthMm}mm auto;
+    margin: 0mm !important;
+  }
+  * {
+    box-sizing: border-box;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: ${printWidthMm}mm !important;
+    max-width: ${printWidthMm}mm !important;
+    min-width: ${printWidthMm}mm !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    font-family: 'Arial', 'Helvetica Neue', sans-serif;
+  }
+  .ticket-root {
+    width: ${printWidthMm}mm;
+    padding: 1mm 0mm 6mm 0mm;
+  }
+  .header-block {
+    text-align: center;
+    padding-bottom: 2mm;
+    border-bottom: 0.7mm solid #000;
+  }
+  .brand-title {
+    font-size: ${is80mm ? '26pt' : '19pt'};
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .doc-subtitle {
+    font-size: ${is80mm ? '12.5pt' : '10pt'};
+    font-weight: 900;
+    margin-top: 1mm;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  .legal-note {
+    font-size: ${is80mm ? '9.5pt' : '8pt'};
+    font-weight: 700;
+    margin-top: 0.5mm;
+  }
+  .table-banner {
+    text-align: center;
+    padding: 2mm 0;
+    border-bottom: 0.8mm solid #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .table-name {
+    font-size: ${is80mm ? '24pt' : '18pt'};
+    font-weight: 900;
+    line-height: 1.05;
+    text-transform: uppercase;
+  }
+  .cmd-id {
+    font-size: ${is80mm ? '12pt' : '10pt'};
+    font-weight: 800;
+    margin-top: 1mm;
+  }
+  .meta-block {
+    padding: 2mm 0;
+    border-bottom: 0.6mm dashed #000;
+    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
+    font-weight: 700;
+    line-height: 1.35;
+    break-inside: avoid;
+  }
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 2mm;
+  }
+  .strong-row {
+    font-weight: 900;
+    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
+  }
+  .section-title {
+    text-align: center;
+    font-size: ${is80mm ? '15pt' : '12pt'};
+    font-weight: 900;
+    padding: 2mm 0 1.5mm 0;
+    border-bottom: 0.6mm solid #000;
+    letter-spacing: 0.8px;
+  }
+  .items-list {
+    width: 100%;
+  }
+  .kitchen-item {
+    padding: 2.5mm 0;
+    border-bottom: 0.45mm dashed #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .kitchen-item:last-child {
+    border-bottom: 0.7mm solid #000;
+  }
+  .kitchen-item-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 2.2mm;
+  }
+  .qty-box {
+    font-size: ${is80mm ? '19pt' : '14pt'};
+    font-weight: 900;
+    line-height: 1;
+    border: 0.6mm solid #000;
+    padding: 1mm 1.5mm;
+    flex-shrink: 0;
+  }
+  .item-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .item-name {
+    font-size: ${is80mm ? '17pt' : '13pt'};
+    font-weight: 900;
+    line-height: 1.15;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+  .addon-tag {
+    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
+    font-weight: 900;
+    margin-top: 1mm;
+  }
+  .item-note {
+    font-size: ${is80mm ? '13pt' : '10.5pt'};
+    font-weight: 800;
+    margin-top: 1mm;
+    line-height: 1.2;
+    word-wrap: break-word;
+  }
+  .delivered-section {
+    padding: 2mm 0;
+    border-bottom: 0.5mm dashed #000;
+    break-inside: avoid;
+  }
+  .delivered-title {
+    font-size: ${is80mm ? '10.5pt' : '9pt'};
+    font-weight: 900;
+    margin-bottom: 1mm;
+  }
+  .delivered-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 2mm;
+    font-size: ${is80mm ? '10.5pt' : '9pt'};
+    font-weight: 700;
+    padding: 0.5mm 0;
+  }
+  .obs-box {
+    margin: 2.5mm 0;
+    padding: 2mm;
+    border: 0.7mm solid #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .obs-label {
+    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
+    font-weight: 900;
+    border-bottom: 0.4mm solid #000;
+    padding-bottom: 1mm;
+    margin-bottom: 1.2mm;
+  }
+  .obs-text {
+    font-size: ${is80mm ? '15pt' : '12pt'};
+    font-weight: 900;
+    line-height: 1.2;
+    word-wrap: break-word;
+  }
+  .bill-cols-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: ${is80mm ? '11pt' : '9.5pt'};
+    font-weight: 900;
+    padding: 1.5mm 0;
+    border-bottom: 0.6mm solid #000;
+  }
+  .bill-item {
+    padding: 2mm 0;
+    border-bottom: 0.4mm dashed #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .bill-item:last-child {
+    border-bottom: 0.7mm solid #000;
+  }
+  .bill-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 2mm;
+    font-size: ${is80mm ? '13pt' : '10.5pt'};
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .bill-item-name {
+    flex: 1;
+    word-wrap: break-word;
+  }
+  .bill-item-price {
+    flex-shrink: 0;
+    font-weight: 900;
+  }
+  .bill-item-note {
+    font-size: ${is80mm ? '11pt' : '9.5pt'};
+    font-weight: 700;
+    margin-top: 0.8mm;
+    padding-left: 2mm;
+  }
+  .total-block {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2.5mm 0;
+    font-size: ${is80mm ? '18pt' : '14pt'};
+    font-weight: 900;
+    border-top: 0.7mm solid #000;
+    border-bottom: 0.7mm solid #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .tips-block {
+    padding: 2mm 0;
+    border-bottom: 0.5mm dashed #000;
+    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
+    font-weight: 700;
+    line-height: 1.45;
+    break-inside: avoid;
+  }
+  .voluntary-block {
+    padding: 2mm 0;
+    border-bottom: 0.5mm dashed #000;
+    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
+    font-weight: 700;
+    line-height: 1.55;
+    break-inside: avoid;
+  }
+  .sign-line {
+    text-align: center;
+    padding-top: 3mm;
+    font-weight: 800;
+  }
+  .footer-block {
+    text-align: center;
+    padding-top: 2.5mm;
+    break-inside: avoid;
+  }
+  .footer-thanks {
+    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
+    font-weight: 900;
+  }
+  .footer-sub {
+    font-size: ${is80mm ? '10.5pt' : '9pt'};
+    font-weight: 700;
+    margin-top: 0.8mm;
+  }
+</style>
+</head>
+<body>
+  <div class="ticket-root">${bodyContent}</div>
+</body>
+</html>`;
+}
+
+function printViaCleanIframe() {
     const oldFrame = document.getElementById('rivera-print-iframe');
     if (oldFrame) oldFrame.remove();
 
@@ -3754,67 +4363,9 @@ function printViaCleanIframe() {
     iframe.style.border = '0';
     document.body.appendChild(iframe);
 
-    const widthMm = printerPaperWidth;
     const doc = iframe.contentWindow.document;
     doc.open();
-    doc.write(`<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<title>Ticket Rivera POS</title>
-<style>
-  @page {
-    size: ${widthMm}mm auto;
-    margin: 0mm;
-  }
-  * {
-    box-sizing: border-box;
-    color: #000000 !important;
-    background: transparent !important;
-  }
-  html, body {
-    margin: 0;
-    padding: 0;
-    width: ${widthMm}mm;
-    background: #ffffff !important;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: ${widthMm === 58 ? '11px' : '12px'};
-    line-height: 1.3;
-  }
-  .ticket-wrapper {
-    width: ${widthMm}mm;
-    padding: 3mm 2.5mm;
-  }
-  .text-center { text-align: center; }
-  .text-right { text-align: right; }
-  .flex { display: flex; }
-  .justify-between { justify-content: space-between; }
-  .items-start { align-items: flex-start; }
-  .items-center { align-items: center; }
-  .font-bold, .font-black, strong { font-weight: 700; }
-  .font-semibold { font-weight: 600; }
-  .uppercase { text-transform: uppercase; }
-  .italic { font-style: italic; }
-  .block { display: block; }
-  .border-b { border-bottom: 1px dashed #000; }
-  .border-t { border-top: 1px dashed #000; }
-  .pb-2 { padding-bottom: 6px; margin-bottom: 6px; }
-  .pb-1 { padding-bottom: 4px; margin-bottom: 4px; }
-  .pt-2 { padding-top: 6px; }
-  .pt-1 { padding-top: 4px; }
-  .py-2 { padding-top: 6px; padding-bottom: 6px; }
-  .pl-2 { padding-left: 8px; }
-  .mt-0\\.5 { margin-top: 2px; }
-  .text-sm { font-size: ${widthMm === 58 ? '12px' : '14px'}; }
-  .text-xs { font-size: ${widthMm === 58 ? '11px' : '12px'}; }
-  h2 { margin: 0 0 2px 0; font-size: ${widthMm === 58 ? '14px' : '16px'}; }
-  p { margin: 0; }
-</style>
-</head>
-<body>
-  <div class="ticket-wrapper">${ticketArea.innerHTML}</div>
-</body>
-</html>`);
+    doc.write(buildThermalPrintHtml(currentTicketData));
     doc.close();
 
     iframe.contentWindow.focus();
@@ -3829,7 +4380,7 @@ function printViaCleanIframe() {
             if (iframe && iframe.parentNode) {
                 iframe.parentNode.removeChild(iframe);
             }
-        }, 2000);
+        }, 2500);
     }, 150);
 }
 

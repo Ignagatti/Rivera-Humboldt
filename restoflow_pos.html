@@ -58,20 +58,25 @@
             scrollbar-width: none;
         }
 
-        /* Estilos exclusivos para impresión de comanda térmica (80mm) */
+        /* Estilos exclusivos para impresión térmica 3nStar RPT004 (Papel 80mm / Imprimible 72mm / 576 dots) */
         @page {
-            size: 80mm auto;
-            margin: 0mm;
+            size: 72mm auto;
+            margin: 0mm !important;
         }
 
         @media print {
             html,
             body {
+                width: 72mm !important;
+                max-width: 72mm !important;
                 height: auto !important;
                 overflow: visible !important;
                 background: #ffffff !important;
-                margin: 0 !important;
-                padding: 0 !important;
+                color: #000000 !important;
+                margin: 0mm !important;
+                padding: 0mm !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
 
             body * {
@@ -81,20 +86,24 @@
             #printable-ticket-area,
             #printable-ticket-area * {
                 visibility: visible !important;
+                color: #000000 !important;
             }
 
             #printable-ticket-area {
                 position: absolute !important;
                 left: 0 !important;
                 top: 0 !important;
-                width: 80mm !important;
+                width: 72mm !important;
+                max-width: 72mm !important;
                 max-height: none !important;
                 overflow: visible !important;
-                padding: 3mm !important;
+                margin: 0mm !important;
+                padding: 0mm !important;
                 background: #ffffff !important;
                 color: #000000 !important;
                 box-shadow: none !important;
                 border: none !important;
+                border-radius: 0 !important;
             }
 
             .no-print {
@@ -1637,9 +1646,9 @@
                 </div>
             </div>
 
-            <!-- Área Imprimible -->
+            <!-- Área Imprimible (Vista Previa 3nStar RPT004 - 72mm imprimible) -->
             <div id="printable-ticket-area"
-                class="bg-amber-50/40 border border-dashed border-slate-300 rounded-xl p-4 font-mono text-slate-900 text-xs space-y-2.5 max-h-[52vh] overflow-y-auto">
+                class="bg-white border-2 border-dashed border-slate-300 rounded-xl p-3 text-black max-h-[52vh] overflow-y-auto">
                 <!-- Generado dinámicamente -->
             </div>
 
