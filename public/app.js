@@ -3033,9 +3033,14 @@ async function reopenTableOrderToPending(cmdId) {
     }
 }
 
-// ================= IMPRESIÓN DE TICKET TÉRMICO 80MM =================
+// ================= IMPRESIÓN DE TICKET TÉRMICO (DIRECTA USB/SERIAL/RAWBT + 80MM/58MM) =================
 
 let currentTicketRawText = "";
+let currentTicketData = null;
+let directUsbPrinter = null;
+let directSerialPort = null;
+let rawBtEnabled = localStorage.getItem('rivera_rawbt_enabled') === '1';
+let printerPaperWidth = Number(localStorage.getItem('rivera_paper_width')) === 58 ? 58 : 80;
 
 function openKitchenTicketPrint(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
@@ -3048,6 +3053,18 @@ function openKitchenTicketPrint(cmdId) {
 
     const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
     const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
+
+    currentTicketData = {
+        type: 'kitchen',
+        id: cmd.id,
+        table: cmd.table,
+        time: cmd.time,
+        waiter: cmd.waiterName,
+        pendingItems,
+        deliveredItems,
+        note: cmd.note || '',
+        total: cmd.total
+    };
 
     const modalTitle = document.getElementById('ticket-modal-title');
     const modalSubtitle = document.getElementById('ticket-modal-subtitle');
@@ -3134,6 +3151,7 @@ function openKitchenTicketPrint(cmdId) {
         `--------------------------------\n` +
         `Total Mesa: $${cmd.total.toLocaleString()}`;
 
+    updatePrinterStatusUI();
     document.getElementById('ticket-print-modal').classList.remove('hidden');
 }
 
@@ -3170,6 +3188,18 @@ function openTableBillTicketPrint(tableName) {
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    currentTicketData = {
+        type: 'bill',
+        table,
+        waiter: waiterName,
+        dateStr,
+        timeStr,
+        items,
+        total,
+        suggestedTip10,
+        totalWithTip10
+    };
 
     const modalTitle = document.getElementById('ticket-modal-title');
     const modalSubtitle = document.getElementById('ticket-modal-subtitle');
@@ -3263,6 +3293,7 @@ function openTableBillTicketPrint(tableName) {
         `*Total sugerido c/propina: $${totalWithTip10.toLocaleString()}*\n\n` +
         `¡Muchas gracias por su visita!`;
 
+    updatePrinterStatusUI();
     document.getElementById('ticket-print-modal').classList.remove('hidden');
 }
 
@@ -3289,8 +3320,578 @@ function closeTicketPrintModal() {
     document.getElementById('ticket-print-modal').classList.add('hidden');
 }
 
-function triggerBrowserPrint() {
-    window.print();
+// ================= MOTOR DE IMPRESIÓN TÉRMICA DIRECTA (SIN GUARDAR COMO PDF) =================
+
+function setPaperWidth(mm) {
+    printerPaperWidth = mm === 58 ? 58 : 80;
+    localStorage.setItem('rivera_paper_width', String(printerPaperWidth));
+    updatePrinterStatusUI();
+}
+
+function updatePrinterStatusUI() {
+    const dot = document.getElementById('printer-status-dot');
+    const txt = document.getElementById('printer-status-text');
+    const btn80 = document.getElementById('btn-paper-80');
+    const btn58 = document.getElementById('btn-paper-58');
+    const btnUsb = document.getElementById('btn-connect-usb');
+    const btnSerial = document.getElementById('btn-connect-serial');
+    const btnRawBt = document.getElementById('btn-toggle-rawbt');
+    const printLabel = document.getElementById('btn-execute-print-label');
+
+    const activePill = "px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#2563eb] text-white cursor-pointer";
+    const inactivePill = "px-2 py-0.5 rounded-lg text-[10px] font-bold bg-white text-slate-600 border border-slate-200 cursor-pointer";
+    if (btn80) btn80.className = printerPaperWidth === 80 ? activePill : inactivePill;
+    if (btn58) btn58.className = printerPaperWidth === 58 ? activePill : inactivePill;
+
+    const btnIdle = "bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer";
+    const btnActive = "bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer shadow-sm";
+
+    if (btnUsb) btnUsb.className = directUsbPrinter ? btnActive : btnIdle;
+    if (btnSerial) btnSerial.className = directSerialPort ? btnActive : btnIdle;
+    if (btnRawBt) btnRawBt.className = rawBtEnabled ? btnActive : btnIdle;
+
+    if (directUsbPrinter) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 shrink-0";
+        if (txt) txt.innerText = `Directa USB: ${directUsbPrinter.name}`;
+        if (printLabel) printLabel.innerText = "Imprimir Directo";
+    } else if (directSerialPort) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 shrink-0";
+        if (txt) txt.innerText = "Directa COM / Bluetooth";
+        if (printLabel) printLabel.innerText = "Imprimir Directo";
+    } else if (rawBtEnabled) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 shrink-0";
+        if (txt) txt.innerText = "Directa Android (RawBT)";
+        if (printLabel) printLabel.innerText = "Imprimir Directo";
+    } else {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-slate-400 shrink-0";
+        if (txt) txt.innerText = `Impresora del sistema (${printerPaperWidth}mm)`;
+        if (printLabel) printLabel.innerText = "Imprimir";
+    }
+}
+
+async function openUsbDevice(device) {
+    if (!device.opened) {
+        await device.open();
+    }
+    if (device.configuration === null) {
+        await device.selectConfiguration(1);
+    }
+
+    let selectedInterface = null;
+    let selectedEndpoint = null;
+
+    // Priorizar interfaz clase 7 (Impresora USB estándar)
+    for (const iface of device.configuration.interfaces) {
+        const alt = iface.alternates[0];
+        if (!alt) continue;
+        const outEp = alt.endpoints.find(ep => ep.direction === 'out');
+        if (outEp) {
+            if (alt.interfaceClass === 7) {
+                selectedInterface = iface.interfaceNumber;
+                selectedEndpoint = outEp.endpointNumber;
+                break;
+            }
+            if (selectedInterface === null) {
+                selectedInterface = iface.interfaceNumber;
+                selectedEndpoint = outEp.endpointNumber;
+            }
+        }
+    }
+
+    if (selectedInterface === null || selectedEndpoint === null) {
+        throw new Error('No se encontró un canal de salida de impresión en este dispositivo USB.');
+    }
+
+    await device.claimInterface(selectedInterface);
+    return {
+        device,
+        interfaceNumber: selectedInterface,
+        endpointNumber: selectedEndpoint,
+        name: device.productName || 'Térmica USB'
+    };
+}
+
+async function connectDirectUsbPrinter() {
+    if (directUsbPrinter) {
+        try {
+            await directUsbPrinter.device.close();
+        } catch (e) {}
+        directUsbPrinter = null;
+        localStorage.removeItem('rivera_printer_mode');
+        updatePrinterStatusUI();
+        showToast('Impresora USB desconectada', 'info');
+        return;
+    }
+
+    if (!('usb' in navigator)) {
+        showToast('Tu navegador no soporta USB directo. Usa Chrome o Edge en PC.', 'warning');
+        return;
+    }
+
+    try {
+        const device = await navigator.usb.requestDevice({ filters: [] });
+        directUsbPrinter = await openUsbDevice(device);
+        if (directSerialPort) {
+            try { await directSerialPort.close(); } catch (e) {}
+            directSerialPort = null;
+        }
+        rawBtEnabled = false;
+        localStorage.setItem('rivera_rawbt_enabled', '0');
+        localStorage.setItem('rivera_printer_mode', 'usb');
+        updatePrinterStatusUI();
+        showToast(`Impresora USB conectada: ${directUsbPrinter.name}`, 'success');
+    } catch (err) {
+        if (err && err.name === 'NotFoundError') return;
+        console.warn('Error conectando USB directo:', err);
+        showToast('No se pudo abrir el puerto USB directo. Prueba COM / BT o verifica el driver de Windows.', 'error');
+    }
+}
+
+async function connectDirectSerialPrinter() {
+    if (directSerialPort) {
+        try {
+            await directSerialPort.close();
+        } catch (e) {}
+        directSerialPort = null;
+        localStorage.removeItem('rivera_printer_mode');
+        updatePrinterStatusUI();
+        showToast('Puerto COM / Bluetooth desconectado', 'info');
+        return;
+    }
+
+    if (!('serial' in navigator)) {
+        showToast('Tu navegador no soporta puerto Serial/COM. Usa Chrome o Edge en PC.', 'warning');
+        return;
+    }
+
+    try {
+        const port = await navigator.serial.requestPort();
+        try {
+            await port.open({ baudRate: 9600 });
+        } catch (e) {
+            await port.open({ baudRate: 115200 });
+        }
+        directSerialPort = port;
+        if (directUsbPrinter) {
+            try { await directUsbPrinter.device.close(); } catch (e) {}
+            directUsbPrinter = null;
+        }
+        rawBtEnabled = false;
+        localStorage.setItem('rivera_rawbt_enabled', '0');
+        localStorage.setItem('rivera_printer_mode', 'serial');
+        updatePrinterStatusUI();
+        showToast('Impresora COM / Bluetooth conectada en modo directo', 'success');
+    } catch (err) {
+        if (err && err.name === 'NotFoundError') return;
+        console.warn('Error conectando puerto Serial:', err);
+        showToast('No se pudo abrir el puerto COM / Bluetooth seleccionado.', 'error');
+    }
+}
+
+function toggleRawBtMode() {
+    rawBtEnabled = !rawBtEnabled;
+    localStorage.setItem('rivera_rawbt_enabled', rawBtEnabled ? '1' : '0');
+    if (rawBtEnabled) {
+        if (directUsbPrinter) {
+            try { directUsbPrinter.device.close(); } catch (e) {}
+            directUsbPrinter = null;
+        }
+        if (directSerialPort) {
+            try { directSerialPort.close(); } catch (e) {}
+            directSerialPort = null;
+        }
+        localStorage.setItem('rivera_printer_mode', 'rawbt');
+        showToast('Modo RawBT activado para impresión térmica directa en Android', 'success');
+    } else {
+        localStorage.removeItem('rivera_printer_mode');
+        showToast('Modo RawBT desactivado', 'info');
+    }
+    updatePrinterStatusUI();
+}
+
+async function autoReconnectDirectPrinter() {
+    const savedMode = localStorage.getItem('rivera_printer_mode');
+    if (savedMode === 'serial' && 'serial' in navigator) {
+        try {
+            const ports = await navigator.serial.getPorts();
+            if (ports.length > 0) {
+                const port = ports[0];
+                if (!port.readable && !port.writable) {
+                    try { await port.open({ baudRate: 9600 }); } catch (e) { await port.open({ baudRate: 115200 }); }
+                }
+                directSerialPort = port;
+                updatePrinterStatusUI();
+            }
+        } catch (e) {
+            console.warn('Reconexión Serial diferida:', e);
+        }
+    } else if (savedMode === 'usb' && 'usb' in navigator) {
+        try {
+            const devices = await navigator.usb.getDevices();
+            if (devices.length > 0) {
+                directUsbPrinter = await openUsbDevice(devices[0]);
+                updatePrinterStatusUI();
+            }
+        } catch (e) {
+            console.warn('Reconexión USB diferida:', e);
+        }
+    }
+}
+
+window.addEventListener('load', () => {
+    autoReconnectDirectPrinter();
+});
+
+function normalizePrinterText(str) {
+    return String(str || '')
+        .replace(/ñ/g, 'n').replace(/Ñ/g, 'N')
+        .replace(/¡/g, '!').replace(/¿/g, '?')
+        .replace(/•/g, '-')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7E\n]/g, '');
+}
+
+function buildEscPosBytes(data) {
+    const cols = printerPaperWidth === 58 ? 32 : 42;
+    const sep = '-'.repeat(cols);
+    const eqSep = '='.repeat(cols);
+    const bytes = [];
+
+    const pushBytes = (arr) => {
+        for (let i = 0; i < arr.length; i++) bytes.push(arr[i]);
+    };
+    const pushText = (text) => {
+        const clean = normalizePrinterText(text);
+        for (let i = 0; i < clean.length; i++) {
+            bytes.push(clean.charCodeAt(i));
+        }
+    };
+    const pushLine = (text = '') => {
+        pushText(text + '\n');
+    };
+    const pushLeftRight = (left, right) => {
+        const l = normalizePrinterText(left);
+        const r = normalizePrinterText(right);
+        const maxLeft = Math.max(8, cols - r.length - 1);
+        if (l.length <= maxLeft) {
+            const spaces = Math.max(1, cols - l.length - r.length);
+            pushLine(l + ' '.repeat(spaces) + r);
+        } else {
+            // Dividir texto largo respetando el precio a la derecha en la primera línea
+            const firstPart = l.slice(0, maxLeft);
+            const rest = l.slice(maxLeft);
+            const spaces = Math.max(1, cols - firstPart.length - r.length);
+            pushLine(firstPart + ' '.repeat(spaces) + r);
+            for (let idx = 0; idx < rest.length; idx += cols - 2) {
+                pushLine('  ' + rest.slice(idx, idx + cols - 2).trim());
+            }
+        }
+    };
+
+    const INIT = [0x1B, 0x40];
+    const ALIGN_LEFT = [0x1B, 0x61, 0x00];
+    const ALIGN_CENTER = [0x1B, 0x61, 0x01];
+    const BOLD_ON = [0x1B, 0x45, 0x01];
+    const BOLD_OFF = [0x1B, 0x45, 0x00];
+    const SIZE_NORMAL = [0x1D, 0x21, 0x00];
+    const SIZE_DOUBLE_H = [0x1D, 0x21, 0x01];
+    const SIZE_DOUBLE = [0x1D, 0x21, 0x11];
+    const CUT = [0x1D, 0x56, 0x41, 0x03];
+
+    pushBytes(INIT);
+
+    if (!data) {
+        pushBytes(ALIGN_LEFT);
+        pushLine(currentTicketRawText || '');
+        pushLine('\n\n\n');
+        pushBytes(CUT);
+        return new Uint8Array(bytes);
+    }
+
+    if (data.type === 'kitchen') {
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_DOUBLE_H);
+        pushLine('RIVERA POS');
+        pushBytes(SIZE_NORMAL);
+        pushLine('COMANDA DE COCINA');
+        pushBytes(BOLD_OFF);
+        pushLine(sep);
+
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_DOUBLE);
+        pushLine(data.table);
+        pushBytes(SIZE_NORMAL);
+        pushBytes(BOLD_OFF);
+
+        pushBytes(ALIGN_LEFT);
+        pushLeftRight('COMANDA:', data.id);
+        pushLeftRight('HORA:', `${data.time} hs`);
+        pushLeftRight('MOZO:', data.waiter);
+        pushLine(sep);
+
+        if (data.pendingItems && data.pendingItems.length > 0) {
+            pushBytes(BOLD_ON);
+            pushLine('* POR PREPARAR / PENDIENTES *');
+            data.pendingItems.forEach(i => {
+                const label = `${i.qty}x ${i.name}${i.isAddon ? ' (AGREGADO)' : ''}`;
+                const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
+                pushLeftRight(label, sub);
+            });
+            pushBytes(BOLD_OFF);
+            pushLine(sep);
+        }
+
+        if (data.deliveredItems && data.deliveredItems.length > 0) {
+            pushLine('[ YA ENTREGADOS ANTERIORMENTE ]');
+            data.deliveredItems.forEach(i => {
+                const label = `[OK] ${i.qty}x ${i.name}`;
+                const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
+                pushLeftRight(label, sub);
+            });
+            pushLine(sep);
+        }
+
+        if (data.note) {
+            pushBytes(BOLD_ON);
+            pushLine('NOTAS / OBSERVACIONES:');
+            pushLine(`>> ${data.note}`);
+            pushBytes(BOLD_OFF);
+            pushLine(sep);
+        }
+
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_DOUBLE_H);
+        pushLeftRight('TOTAL MESA:', `$${data.total.toLocaleString('es-AR')}`);
+        pushBytes(SIZE_NORMAL);
+        pushBytes(BOLD_OFF);
+    } else {
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_DOUBLE_H);
+        pushLine('RIVERA POS');
+        pushBytes(SIZE_NORMAL);
+        pushLine('CONTROL DE MESA / PRE-CUENTA');
+        pushBytes(BOLD_OFF);
+        pushLine('NO VALIDO COMO FACTURA FISCAL');
+        pushLine(sep);
+
+        pushBytes(ALIGN_LEFT);
+        pushBytes(BOLD_ON);
+        pushLeftRight('MESA:', data.table);
+        pushBytes(BOLD_OFF);
+        pushLeftRight('MOZO:', data.waiter);
+        pushLeftRight('FECHA:', `${data.dateStr} ${data.timeStr} hs`);
+        pushLine(sep);
+
+        pushBytes(BOLD_ON);
+        pushLeftRight('CANT / DETALLE', 'SUBTOTAL');
+        pushBytes(BOLD_OFF);
+        (data.items || []).forEach(i => {
+            const label = `${i.qty}x ${i.name}`;
+            const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
+            pushLeftRight(label, sub);
+            if (i.note) {
+                pushLine(`  >> ${i.note}`);
+            }
+        });
+        pushLine(eqSep);
+
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_DOUBLE_H);
+        pushLeftRight('TOTAL CONSUMO:', `$${data.total.toLocaleString('es-AR')}`);
+        pushBytes(SIZE_NORMAL);
+        pushBytes(BOLD_OFF);
+        pushLeftRight('Propina sugerida (10%):', `$${data.suggestedTip10.toLocaleString('es-AR')}`);
+        pushBytes(BOLD_ON);
+        pushLeftRight('Total con 10% propina:', `$${data.totalWithTip10.toLocaleString('es-AR')}`);
+        pushBytes(BOLD_OFF);
+        pushLine(sep);
+
+        pushLeftRight('Propina voluntaria:', '[ $_________ ]');
+        pushLeftRight('TOTAL A PAGAR:', '[ $_________ ]');
+        pushLine('');
+        pushLine('Firma: _________________________');
+        pushLine(sep);
+
+        pushBytes(ALIGN_CENTER);
+        pushLine('Muchas gracias por elegir Rivera!');
+        pushLine('Esperamos que hayan disfrutado');
+    }
+
+    pushLine('\n\n\n');
+    pushBytes(CUT);
+    return new Uint8Array(bytes);
+}
+
+function uint8ToBase64(uint8) {
+    let binary = '';
+    for (let i = 0; i < uint8.length; i++) {
+        binary += String.fromCharCode(uint8[i]);
+    }
+    return btoa(binary);
+}
+
+function printViaCleanIframe() {
+    const ticketArea = document.getElementById('printable-ticket-area');
+    if (!ticketArea) {
+        window.print();
+        return;
+    }
+
+    const oldFrame = document.getElementById('rivera-print-iframe');
+    if (oldFrame) oldFrame.remove();
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'rivera-print-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const widthMm = printerPaperWidth;
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Ticket Rivera POS</title>
+<style>
+  @page {
+    size: ${widthMm}mm auto;
+    margin: 0mm;
+  }
+  * {
+    box-sizing: border-box;
+    color: #000000 !important;
+    background: transparent !important;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: ${widthMm}mm;
+    background: #ffffff !important;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: ${widthMm === 58 ? '11px' : '12px'};
+    line-height: 1.3;
+  }
+  .ticket-wrapper {
+    width: ${widthMm}mm;
+    padding: 3mm 2.5mm;
+  }
+  .text-center { text-align: center; }
+  .text-right { text-align: right; }
+  .flex { display: flex; }
+  .justify-between { justify-content: space-between; }
+  .items-start { align-items: flex-start; }
+  .items-center { align-items: center; }
+  .font-bold, .font-black, strong { font-weight: 700; }
+  .font-semibold { font-weight: 600; }
+  .uppercase { text-transform: uppercase; }
+  .italic { font-style: italic; }
+  .block { display: block; }
+  .border-b { border-bottom: 1px dashed #000; }
+  .border-t { border-top: 1px dashed #000; }
+  .pb-2 { padding-bottom: 6px; margin-bottom: 6px; }
+  .pb-1 { padding-bottom: 4px; margin-bottom: 4px; }
+  .pt-2 { padding-top: 6px; }
+  .pt-1 { padding-top: 4px; }
+  .py-2 { padding-top: 6px; padding-bottom: 6px; }
+  .pl-2 { padding-left: 8px; }
+  .mt-0\\.5 { margin-top: 2px; }
+  .text-sm { font-size: ${widthMm === 58 ? '12px' : '14px'}; }
+  .text-xs { font-size: ${widthMm === 58 ? '11px' : '12px'}; }
+  h2 { margin: 0 0 2px 0; font-size: ${widthMm === 58 ? '14px' : '16px'}; }
+  p { margin: 0; }
+</style>
+</head>
+<body>
+  <div class="ticket-wrapper">${ticketArea.innerHTML}</div>
+</body>
+</html>`);
+    doc.close();
+
+    iframe.contentWindow.focus();
+    setTimeout(() => {
+        try {
+            iframe.contentWindow.print();
+        } catch (err) {
+            console.warn('Fallback a window.print:', err);
+            window.print();
+        }
+        setTimeout(() => {
+            if (iframe && iframe.parentNode) {
+                iframe.parentNode.removeChild(iframe);
+            }
+        }, 2000);
+    }, 150);
+}
+
+async function triggerBrowserPrint() {
+    // 1. Impresión directa por cable USB (ESC/POS) - Sin ventana de Guardar como PDF
+    if (directUsbPrinter) {
+        try {
+            const bytes = buildEscPosBytes(currentTicketData);
+            await directUsbPrinter.device.transferOut(directUsbPrinter.endpointNumber, bytes);
+            showToast('Ticket impreso directo por USB', 'success');
+            closeTicketPrintModal();
+            return;
+        } catch (err) {
+            console.error('Error imprimiendo por USB directo:', err);
+            directUsbPrinter = null;
+            updatePrinterStatusUI();
+            showToast('Se desconectó la impresora USB. Reconecta o usa impresora del sistema.', 'error');
+            return;
+        }
+    }
+
+    // 2. Impresión directa por puerto Serial / COM / Bluetooth - Sin ventana de Guardar como PDF
+    if (directSerialPort && directSerialPort.writable) {
+        let writer = null;
+        try {
+            const bytes = buildEscPosBytes(currentTicketData);
+            writer = directSerialPort.writable.getWriter();
+            await writer.write(bytes);
+            writer.releaseLock();
+            showToast('Ticket impreso directo por puerto COM/BT', 'success');
+            closeTicketPrintModal();
+            return;
+        } catch (err) {
+            if (writer) {
+                try { writer.releaseLock(); } catch (e) {}
+            }
+            console.error('Error imprimiendo por Serial/COM:', err);
+            directSerialPort = null;
+            updatePrinterStatusUI();
+            showToast('Se desconectó el puerto COM/BT. Reconecta o usa impresora del sistema.', 'error');
+            return;
+        }
+    }
+
+    // 3. Impresión directa en Android con RawBT - Sin ventana de Guardar como PDF
+    if (rawBtEnabled) {
+        try {
+            const bytes = buildEscPosBytes(currentTicketData);
+            const b64 = uint8ToBase64(bytes);
+            window.location.href = `rawbt:base64,${b64}`;
+            showToast('Ticket enviado directo a impresora RawBT', 'success');
+            closeTicketPrintModal();
+            return;
+        } catch (err) {
+            console.error('Error enviando a RawBT:', err);
+            showToast('No se pudo abrir RawBT. Verifica que la app esté instalada.', 'error');
+            return;
+        }
+    }
+
+    // 4. Impresión por spooler del sistema (Windows/Mac) en iframe térmico dedicado
+    printViaCleanIframe();
 }
 
 // ================= PESTAÑA 2: CARTA / MENÚ =================

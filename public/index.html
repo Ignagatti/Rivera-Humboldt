@@ -59,7 +59,21 @@
         }
 
         /* Estilos exclusivos para impresión de comanda térmica (80mm) */
+        @page {
+            size: 80mm auto;
+            margin: 0mm;
+        }
+
         @media print {
+            html,
+            body {
+                height: auto !important;
+                overflow: visible !important;
+                background: #ffffff !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
             body * {
                 visibility: hidden !important;
             }
@@ -74,7 +88,9 @@
                 left: 0 !important;
                 top: 0 !important;
                 width: 80mm !important;
-                padding: 4mm !important;
+                max-height: none !important;
+                overflow: visible !important;
+                padding: 3mm !important;
                 background: #ffffff !important;
                 color: #000000 !important;
                 box-shadow: none !important;
@@ -1588,26 +1604,59 @@
                 </button>
             </div>
 
+            <!-- Panel de Impresión Directa (Sin diálogo Guardar como PDF) -->
+            <div class="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 space-y-2 no-print">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center space-x-1.5 min-w-0">
+                        <span id="printer-status-dot" class="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+                        <span id="printer-status-text" class="text-[11px] font-semibold text-slate-700 truncate">Impresora del sistema</span>
+                    </div>
+                    <div class="flex items-center space-x-1 shrink-0">
+                        <button type="button" onclick="setPaperWidth(80)" id="btn-paper-80"
+                            class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#2563eb] text-white cursor-pointer">80mm</button>
+                        <button type="button" onclick="setPaperWidth(58)" id="btn-paper-58"
+                            class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-white text-slate-600 border border-slate-200 cursor-pointer">58mm</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button type="button" onclick="connectDirectUsbPrinter()" id="btn-connect-usb"
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar impresora térmica por cable USB directo (sin ventana Guardar como PDF)">
+                        <i class="fa-brands fa-usb"></i>
+                        <span>USB Directo</span>
+                    </button>
+                    <button type="button" onclick="connectDirectSerialPrinter()" id="btn-connect-serial"
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar impresora térmica por puerto COM o Bluetooth Serial (sin ventana Guardar como PDF)">
+                        <i class="fa-solid fa-plug"></i>
+                        <span>COM / BT</span>
+                    </button>
+                    <button type="button" onclick="toggleRawBtMode()" id="btn-toggle-rawbt"
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Impresión directa en Android con la app RawBT (sin Guardar como PDF)">
+                        <i class="fa-solid fa-mobile-screen"></i>
+                        <span>RawBT</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- Área Imprimible -->
             <div id="printable-ticket-area"
-                class="bg-amber-50/40 border border-dashed border-slate-300 rounded-xl p-4 font-mono text-slate-900 text-xs space-y-2.5 max-h-[60vh] overflow-y-auto">
+                class="bg-amber-50/40 border border-dashed border-slate-300 rounded-xl p-4 font-mono text-slate-900 text-xs space-y-2.5 max-h-[52vh] overflow-y-auto">
                 <!-- Generado dinámicamente -->
             </div>
 
             <div class="flex space-x-2 pt-1 no-print">
                 <button onclick="closeTicketPrintModal()"
-                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer">
                     Cerrar
                 </button>
                 <button onclick="copyTicketText()"
-                    class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2.5 rounded-xl text-xs transition-all border border-slate-300 flex items-center justify-center space-x-1" title="Copiar resumen para WhatsApp">
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2.5 rounded-xl text-xs transition-all border border-slate-300 flex items-center justify-center space-x-1 cursor-pointer" title="Copiar resumen para WhatsApp">
                     <i class="fa-solid fa-copy"></i>
                     <span>Copiar</span>
                 </button>
-                <button onclick="triggerBrowserPrint()"
-                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5">
+                <button onclick="triggerBrowserPrint()" id="btn-execute-print"
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
                     <i class="fa-solid fa-print"></i>
-                    <span>Imprimir</span>
+                    <span id="btn-execute-print-label">Imprimir</span>
                 </button>
             </div>
         </div>
