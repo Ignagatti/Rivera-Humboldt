@@ -405,7 +405,14 @@ function handleRealtimeMessage(msg) {
 
         case 'ORDER_PRINTED':
             const pOrder = kitchenOrders.find(o => o.id === msg.id);
-            if (pOrder) pOrder.printed = true;
+            if (pOrder) {
+                pOrder.printed = true;
+                if (Array.isArray(msg.items)) {
+                    pOrder.items = msg.items;
+                } else if (Array.isArray(pOrder.items)) {
+                    pOrder.items.forEach(it => it.printed = true);
+                }
+            }
             saveLocalState();
             if (activeAdminTab === 'kitchen') renderKitchenOrders();
             break;
@@ -2295,13 +2302,19 @@ async function sendOrderToKitchen() {
     saveCurrentTableState();
 
     if (existingCmd) {
-        // Unificar en la comanda activa existente
-        const formattedNew = newItemsToSend.map(it => ({ ...it, status: 'pending', sentAt: timeStr, isAddon: true }));
-        existingCmd.items = [...(existingCmd.items || []), ...formattedNew];
+        // Unificar en la comanda activa existente preservando la bandera printed de los ítems previos
+        const prevItems = (existingCmd.items || []).map(it => ({
+            ...it,
+            printed: typeof it.printed === 'boolean' ? it.printed : Boolean(existingCmd.printed)
+        }));
+        const formattedNew = newItemsToSend.map(it => ({ ...it, status: 'pending', printed: false, sentAt: timeStr, isAddon: true }));
+        existingCmd.items = [...prevItems, ...formattedNew];
         existingCmd.total = existingCmd.items.reduce((acc, i) => acc + (i.price * i.qty), 0);
         existingCmd.status = 'pending';
         existingCmd.time = timeStr;
-        existingCmd.waiterName = waiter;
+        if (!existingCmd.waiterName || !waiter.toLowerCase().includes('encargado')) {
+            existingCmd.waiterName = waiter;
+        }
         existingCmd.printed = false;
         if (tableOrder.note) existingCmd.note = tableOrder.note;
     } else {
@@ -2312,7 +2325,7 @@ async function sendOrderToKitchen() {
             time: timeStr,
             status: "pending",
             printed: false,
-            items: newItemsToSend.map(it => ({ ...it, status: 'pending', sentAt: timeStr })),
+            items: newItemsToSend.map(it => ({ ...it, status: 'pending', printed: false, sentAt: timeStr })),
             total: roundTotal,
             note: tableOrder.note || ""
         };
@@ -2759,6 +2772,14 @@ function renderKitchenOrders() {
         const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
         const pendingQty = pendingItems.reduce((acc, i) => acc + (Number(i.qty) || 1), 0);
         const deliveredQty = deliveredItems.reduce((acc, i) => acc + (Number(i.qty) || 1), 0);
+        const unprintedPending = pendingItems.filter(i => typeof i.printed === 'boolean' ? !i.printed : !cmd.printed);
+        const hasAlreadyPrintedItems = (cmd.items || []).some(i => typeof i.printed === 'boolean' ? i.printed : Boolean(cmd.printed));
+        const printBtnLabel = unprintedPending.length > 0
+            ? (hasAlreadyPrintedItems ? `Imprimir Nuevos (${unprintedPending.length})` : 'Imprimir Comanda')
+            : 'Reimprimir Comanda';
+        const printBtnClass = (unprintedPending.length > 0 && hasAlreadyPrintedItems)
+            ? 'text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded-lg text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-all'
+            : 'text-slate-600 hover:text-slate-900 text-[11px] font-semibold flex items-center space-x-1 cursor-pointer';
 
         let statusBadge = "";
         let cardBorder = "border-slate-200 bg-white";
@@ -2895,9 +2916,9 @@ function renderKitchenOrders() {
 
                     <div class="pt-1 flex items-center justify-between border-t border-slate-50 gap-2">
                         <div class="flex items-center space-x-2">
-                            <button onclick="openKitchenTicketPrint('${cmd.id}')" class="text-slate-500 hover:text-slate-800 text-[11px] font-semibold flex items-center space-x-1 cursor-pointer" title="Imprimir comanda para cocina">
+                            <button onclick="openKitchenTicketPrint('${cmd.id}')" class="${printBtnClass}" title="Imprimir comanda para cocina (solo platos nuevos sin imprimir)">
                                 <i class="fa-solid fa-print"></i>
-                                <span>${cmd.printed ? 'Comanda (Impresa)' : 'Imprimir Comanda'}</span>
+                                <span>${printBtnLabel}</span>
                             </button>
                             <button onclick="openTableBillTicketPrint('${cmd.table}', '${(cmd.waiterName || '').replace(/'/g, "\\'")}')" class="text-[#2563eb] hover:text-blue-800 text-[11px] font-bold flex items-center space-x-1 cursor-pointer bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg border border-blue-200 transition-all" title="Imprimir ticket pre-cuenta para que el mozo cobre en la mesa">
                                 <i class="fa-solid fa-receipt"></i>
@@ -3134,21 +3155,38 @@ async function saveTicketConfig() {
     }
 }
 
+function markKitchenOrderPrinted(cmdId) {
+    const cmd = kitchenOrders.find(o => o.id === cmdId);
+    if (cmd) {
+        cmd.printed = true;
+        if (Array.isArray(cmd.items)) {
+            cmd.items.forEach(it => it.printed = true);
+        }
+        saveLocalState();
+        if (activeAdminTab === 'kitchen') {
+            renderKitchenOrders();
+        }
+    }
+    fetch(`/api/orders/${cmdId}/print`, { method: 'PUT' }).catch(e => console.warn(e));
+}
+
 function openKitchenTicketPrint(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd) return;
-
-    cmd.printed = true;
-    saveLocalState();
-
-    fetch(`/api/orders/${cmdId}/print`, { method: 'PUT' }).catch(e => console.warn(e));
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'RIVERA';
 
     const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
-    const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
+    const unprintedPending = pendingItems.filter(i => typeof i.printed === 'boolean' ? !i.printed : !cmd.printed);
+
+    // Imprimir SOLO los productos nuevos que todavía no salieron en un ticket anterior.
+    // Si ya se imprimió todo, queda en modo Reimpresión de los pendientes actuales.
+    const isReprint = unprintedPending.length === 0;
+    const itemsToPrint = unprintedPending.length > 0
+        ? unprintedPending
+        : (pendingItems.length > 0 ? pendingItems : (cmd.items || []));
 
     currentTicketData = {
         type: 'kitchen',
@@ -3158,21 +3196,25 @@ function openKitchenTicketPrint(cmdId) {
         dateStr,
         time: cmd.time,
         waiter: cmd.waiterName,
-        pendingItems,
-        deliveredItems,
+        itemsToPrint,
+        isReprint,
         note: cmd.note || ''
     };
 
+    const subtitleLabel = isReprint ? 'REIMPRESIÓN - COMANDA' : 'COMANDA DE COCINA';
+
     const modalTitle = document.getElementById('ticket-modal-title');
     const modalSubtitle = document.getElementById('ticket-modal-subtitle');
-    if (modalTitle) modalTitle.innerText = "Comanda de Cocina (3nStar 80mm)";
-    if (modalSubtitle) modalSubtitle.innerText = `Comanda ${cmd.id} - ${cmd.table}`;
+    if (modalTitle) modalTitle.innerText = isReprint ? "Reimprimir Comanda (Cocina)" : "Comanda de Cocina (3nStar 80mm)";
+    if (modalSubtitle) modalSubtitle.innerText = isReprint
+        ? `${cmd.table} - Ya impresa anteriormente`
+        : `${cmd.table} - ${itemsToPrint.length} producto${itemsToPrint.length === 1 ? '' : 's'} nuevo${itemsToPrint.length === 1 ? '' : 's'}`;
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
         <div class="text-center border-b-2 border-black pb-2 mb-2">
             <h2 class="font-black text-2xl uppercase tracking-wider text-black leading-none">${escapeHtmlSafe(businessName)}</h2>
-            <p class="text-xs font-extrabold uppercase tracking-widest text-black mt-1">COMANDA DE COCINA</p>
+            <p class="text-xs font-extrabold uppercase tracking-widest text-black mt-1">${subtitleLabel}</p>
         </div>
 
         <div class="text-center border-y-2 border-black py-1.5 my-2 bg-slate-100">
@@ -3188,37 +3230,21 @@ function openKitchenTicketPrint(cmdId) {
             <div>MOZO: ${escapeHtmlSafe(cmd.waiterName)}</div>
         </div>
 
-        ${pendingItems.length > 0 ? `
+        ${itemsToPrint.length > 0 ? `
             <div class="border-b-2 border-black pb-2 mb-2">
                 <div class="text-center font-black text-sm uppercase tracking-wide text-black border-b border-black pb-1 mb-2">
                     POR PREPARAR
                 </div>
                 <div class="space-y-2.5">
-                    ${pendingItems.map(i => `
+                    ${itemsToPrint.map(i => `
                         <div class="border-b border-dashed border-black pb-2 last:border-b-0 last:pb-0">
                             <div class="flex items-start gap-2 text-black">
                                 <span class="font-black text-lg leading-none border-2 border-black px-1.5 py-0.5 shrink-0">${i.qty}x</span>
                                 <div class="flex-1 min-w-0">
                                     <div class="font-black text-base leading-tight break-words">${escapeHtmlSafe(i.name)}</div>
-                                    ${i.isAddon ? '<div class="text-xs font-black uppercase mt-0.5">*** AGREGADO ***</div>' : ''}
                                     ${i.note ? `<div class="text-xs font-bold mt-0.5">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
                                 </div>
                             </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        ` : ''}
-
-        ${deliveredItems.length > 0 ? `
-            <div class="border-b-2 border-dashed border-black pb-2 mb-2 text-black">
-                <div class="font-bold text-[11px] uppercase mb-1">
-                    [ YA ENTREGADOS ANTERIORMENTE ]
-                </div>
-                <div class="space-y-1">
-                    ${deliveredItems.map(i => `
-                        <div class="text-xs font-semibold">
-                            <span>[OK] ${i.qty}x ${escapeHtmlSafe(i.name)}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -3234,13 +3260,12 @@ function openKitchenTicketPrint(cmdId) {
     `;
 
     currentTicketRawText =
-        `*COMANDA DE COCINA - ${businessName.toUpperCase()}*\n` +
+        `*${subtitleLabel} - ${businessName.toUpperCase()}*\n` +
         `Mesa: ${cmd.table} | Comanda: ${cmd.id}\n` +
         `Fecha: ${dateStr} | Hora: ${cmd.time} hs\n` +
         `Mozo: ${cmd.waiterName}\n` +
         `--------------------------------\n` +
-        (pendingItems.length > 0 ? `*POR PREPARAR:*\n` + pendingItems.map(i => `- [${i.qty}x] ${i.name}${i.isAddon ? ' (AGREGADO)' : ''}${i.note ? ` | OBS: ${i.note}` : ''}`).join('\n') + '\n' : '') +
-        (deliveredItems.length > 0 ? `*YA ENTREGADOS:*\n` + deliveredItems.map(i => `- [OK] ${i.qty}x ${i.name}`).join('\n') + '\n' : '') +
+        itemsToPrint.map(i => `- [${i.qty}x] ${i.name}${i.note ? ` | OBS: ${i.note}` : ''}`).join('\n') + '\n' +
         (cmd.note ? `*OBSERVACIONES:* ${cmd.note}\n` : '');
 
     updatePrinterStatusUI();
@@ -3902,13 +3927,16 @@ function buildEscPosBytes(data) {
     const bizNameUpper = String((data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'RIVERA').toUpperCase();
 
     if (data.type === 'kitchen') {
+        const kitchenItems = Array.isArray(data.itemsToPrint) ? data.itemsToPrint : (data.pendingItems || []);
+        const kitchenSubtitle = data.isReprint ? 'REIMPRESIÓN - COMANDA' : 'COMANDA DE COCINA';
+
         // 1. ENCABEZADO DEL ESTABLECIMIENTO (3x ancho x 2x alto en 80mm si entra, si no 2x2)
         pushBytes(ALIGN_CENTER);
         pushBytes(BOLD_ON);
         pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
         pushLine(bizNameUpper);
         pushBytes(SIZE_1X2);
-        pushLine('COMANDA DE COCINA');
+        pushLine(kitchenSubtitle);
         pushBytes(SIZE_1X);
         pushLine(sepEq);
 
@@ -3944,8 +3972,8 @@ function buildEscPosBytes(data) {
         pushBytes(SIZE_1X);
         pushLine(sepEq);
 
-        // 4. PRODUCTOS POR PREPARAR (2x2 NEGRITA, SIN PRECIOS)
-        if (data.pendingItems && data.pendingItems.length > 0) {
+        // 4. PRODUCTOS POR PREPARAR (2x2 NEGRITA, SOLO ÍTEMS NUEVOS SIN PRECIOS NI REPETIDOS)
+        if (kitchenItems.length > 0) {
             pushBytes(ALIGN_CENTER);
             pushBytes(BOLD_ON);
             pushBytes(SIZE_2X2);
@@ -3954,7 +3982,7 @@ function buildEscPosBytes(data) {
             pushLine(sepDash);
 
             pushBytes(ALIGN_LEFT);
-            data.pendingItems.forEach((i, idx) => {
+            kitchenItems.forEach((i, idx) => {
                 const qtyTag = `[${i.qty}x] `;
                 const indent = ' '.repeat(qtyTag.length);
                 const availForName = Math.max(8, cols2x - qtyTag.length);
@@ -3967,10 +3995,6 @@ function buildEscPosBytes(data) {
                     pushLine(indent + wrappedName[k]);
                 }
 
-                if (i.isAddon) {
-                    pushBytes(SIZE_1X2);
-                    pushLine('  *** AGREGADO ***');
-                }
                 if (i.note) {
                     pushBytes(SIZE_1X2);
                     const noteLines = wrapTextWords(`OBS: ${i.note}`, cols1x - 2);
@@ -3978,7 +4002,7 @@ function buildEscPosBytes(data) {
                 }
 
                 pushBytes(SIZE_1X);
-                if (idx < data.pendingItems.length - 1) {
+                if (idx < kitchenItems.length - 1) {
                     feedDots(10);
                     pushLine(sepDash);
                     feedDots(10);
@@ -3990,21 +4014,7 @@ function buildEscPosBytes(data) {
             pushLine(sepEq);
         }
 
-        // 5. YA ENTREGADOS ANTERIORMENTE (SIN PRECIOS)
-        if (data.deliveredItems && data.deliveredItems.length > 0) {
-            pushBytes(ALIGN_LEFT);
-            pushBytes(BOLD_ON);
-            pushBytes(SIZE_1X);
-            pushLine('[ YA ENTREGADOS ANTERIORMENTE ]');
-            pushBytes(BOLD_OFF);
-            data.deliveredItems.forEach(i => {
-                const lines = wrapTextWords(`[OK] ${i.qty}x ${i.name}`, cols1x);
-                lines.forEach(l => pushLine(l));
-            });
-            pushLine(sepDash);
-        }
-
-        // 6. OBSERVACIONES E INDICACIONES ESPECIALES (Destacadas en 2x2 negrita)
+        // 5. OBSERVACIONES E INDICACIONES ESPECIALES (Destacadas en 2x2 negrita)
         if (data.note) {
             feedDots(8);
             pushBytes(ALIGN_LEFT);
@@ -4141,10 +4151,12 @@ function buildThermalPrintHtml(data) {
         const ticketArea = document.getElementById('printable-ticket-area');
         bodyContent = ticketArea ? ticketArea.innerHTML : `<pre>${escapeHtmlSafe(currentTicketRawText)}</pre>`;
     } else if (data.type === 'kitchen') {
+        const kitchenItems = Array.isArray(data.itemsToPrint) ? data.itemsToPrint : (data.pendingItems || []);
+        const kitchenSubtitle = data.isReprint ? 'REIMPRESIÓN - COMANDA' : 'COMANDA DE COCINA';
         bodyContent = `
             <div class="header-block">
                 <div class="brand-title">${escapeHtmlSafe(bizName)}</div>
-                <div class="doc-subtitle">COMANDA DE COCINA</div>
+                <div class="doc-subtitle">${kitchenSubtitle}</div>
             </div>
 
             <div class="table-banner">
@@ -4162,30 +4174,18 @@ function buildThermalPrintHtml(data) {
                 </div>
             </div>
 
-            ${data.pendingItems && data.pendingItems.length > 0 ? `
+            ${kitchenItems.length > 0 ? `
                 <div class="section-title">POR PREPARAR</div>
                 <div class="items-list">
-                    ${data.pendingItems.map(i => `
+                    ${kitchenItems.map(i => `
                         <div class="kitchen-item">
                             <div class="kitchen-item-row">
                                 <span class="qty-box">${i.qty}x</span>
                                 <div class="item-main">
                                     <div class="item-name">${escapeHtmlSafe(i.name)}</div>
-                                    ${i.isAddon ? '<div class="addon-tag">*** AGREGADO ***</div>' : ''}
                                     ${i.note ? `<div class="item-note">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
                                 </div>
                             </div>
-                        </div>
-                    `).join('')}
-                </div>
-            ` : ''}
-
-            ${data.deliveredItems && data.deliveredItems.length > 0 ? `
-                <div class="delivered-section">
-                    <div class="delivered-title">[ YA ENTREGADOS ANTERIORMENTE ]</div>
-                    ${data.deliveredItems.map(i => `
-                        <div class="delivered-row">
-                            <span>[OK] ${i.qty}x ${escapeHtmlSafe(i.name)}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -4585,6 +4585,12 @@ function printViaCleanIframe() {
 }
 
 async function triggerBrowserPrint() {
+    const confirmKitchenPrinted = () => {
+        if (currentTicketData && currentTicketData.type === 'kitchen' && currentTicketData.id) {
+            markKitchenOrderPrinted(currentTicketData.id);
+        }
+    };
+
     // 0. Impresión RAW ESC/POS directa por Windows (POS-80C / 3nStar RPT004) - Sin ventana de Guardar como PDF
     if (winPrintEndpoint && selectedWinPrinter) {
         try {
@@ -4602,6 +4608,7 @@ async function triggerBrowserPrint() {
             if (!res.ok || !result.success) {
                 throw new Error((result && result.error) || 'Error enviando ticket a Windows');
             }
+            confirmKitchenPrinted();
             showToast(`Ticket impreso directo en ${selectedWinPrinter}`, 'success');
             closeTicketPrintModal();
             return;
@@ -4617,6 +4624,7 @@ async function triggerBrowserPrint() {
         try {
             const bytes = buildEscPosBytes(currentTicketData);
             await directUsbPrinter.device.transferOut(directUsbPrinter.endpointNumber, bytes);
+            confirmKitchenPrinted();
             showToast('Ticket impreso directo por USB', 'success');
             closeTicketPrintModal();
             return;
@@ -4637,6 +4645,7 @@ async function triggerBrowserPrint() {
             writer = directSerialPort.writable.getWriter();
             await writer.write(bytes);
             writer.releaseLock();
+            confirmKitchenPrinted();
             showToast('Ticket impreso directo por puerto COM/BT', 'success');
             closeTicketPrintModal();
             return;
@@ -4657,6 +4666,7 @@ async function triggerBrowserPrint() {
         try {
             const bytes = buildEscPosBytes(currentTicketData);
             const b64 = uint8ToBase64(bytes);
+            confirmKitchenPrinted();
             window.location.href = `rawbt:base64,${b64}`;
             showToast('Ticket enviado directo a impresora RawBT', 'success');
             closeTicketPrintModal();
@@ -4669,6 +4679,7 @@ async function triggerBrowserPrint() {
     }
 
     // 4. Impresión por spooler del sistema (Windows/Mac) en iframe térmico dedicado
+    confirmKitchenPrinted();
     printViaCleanIframe();
 }
 

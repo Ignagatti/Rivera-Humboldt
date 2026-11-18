@@ -335,7 +335,10 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
 
     if (activeRes.rows.length > 0) {
       const existing = activeRes.rows[0];
-      const existingItems = Array.isArray(existing.items) ? existing.items : [];
+      const existingItems = (Array.isArray(existing.items) ? existing.items : []).map(it => ({
+        ...it,
+        printed: typeof it.printed === 'boolean' ? it.printed : Boolean(existing.printed)
+      }));
 
       const newItemsFormatted = (items || []).map(it => ({
         id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -344,13 +347,14 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
         price: Number(it.price),
         qty: Number(it.qty),
         status: 'pending',
+        printed: false,
         sentAt: time,
         isAddon: true,
         isPizzaLibre: it.isPizzaLibre || false,
         libreRound: it.libreRound || null
       }));
 
-      // Mantener los existentes (con su estado actual) y agregar los nuevos como 'pending'
+      // Mantener los existentes (con su estado actual y bandera printed) y agregar los nuevos con printed: false
       const mergedItems = [...existingItems, ...newItemsFormatted];
       const mergedTotal = mergedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
       const mergedNote = note
@@ -395,6 +399,7 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
         price: Number(it.price),
         qty: Number(it.qty),
         status: 'pending',
+        printed: false,
         sentAt: time,
         isPizzaLibre: it.isPizzaLibre || false,
         libreRound: it.libreRound || null
@@ -489,19 +494,34 @@ app.put('/api/orders/:id/status', async (req, res) => {
   }
 });
 
-// 5. Marcar comanda como impresa en ticket térmico
+// 5. Marcar comanda e ítems como impresos en ticket térmico (evita reimpresión duplicada)
 app.put('/api/orders/:id/print', async (req, res) => {
   const { id } = req.params;
 
   try {
-    await pool.query("UPDATE pos_kitchen_orders SET printed = TRUE WHERE id = $1", [id]);
+    const existingRes = await pool.query("SELECT items FROM pos_kitchen_orders WHERE id = $1", [id]);
+    let updatedItems = null;
+
+    if (existingRes.rows.length > 0 && Array.isArray(existingRes.rows[0].items)) {
+      updatedItems = existingRes.rows[0].items.map(it => ({
+        ...it,
+        printed: true
+      }));
+      await pool.query(
+        "UPDATE pos_kitchen_orders SET printed = TRUE, items = $1::jsonb WHERE id = $2",
+        [JSON.stringify(updatedItems), id]
+      );
+    } else {
+      await pool.query("UPDATE pos_kitchen_orders SET printed = TRUE WHERE id = $1", [id]);
+    }
 
     broadcast({
       type: 'ORDER_PRINTED',
-      id
+      id,
+      items: updatedItems
     });
 
-    res.json({ success: true });
+    res.json({ success: true, items: updatedItems });
   } catch (err) {
     console.error('Error al marcar comanda como impresa:', err);
     res.status(500).json({ success: false, error: err.message });
