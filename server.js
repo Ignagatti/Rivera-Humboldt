@@ -57,6 +57,18 @@ app.get('/api/state', async (req, res) => {
     const tipsRes = await pool.query("SELECT value FROM pos_config WHERE key = 'general_tips_pool'");
     const generalTipsPool = tipsRes.rows.length > 0 ? Number(tipsRes.rows[0].value) : 0;
 
+    // Configuración de Ticket (Nombre, Alias, Mensaje, Propina sugerida)
+    const ticketCfgRes = await pool.query("SELECT value FROM pos_config WHERE key = 'ticket_config'");
+    const defaultTicketConfig = {
+      businessName: 'RIVERA',
+      alias: '',
+      footerMessage: '¡Muchas gracias por elegir Rivera!',
+      showSuggestedTip: true
+    };
+    const ticketConfig = (ticketCfgRes.rows.length > 0 && ticketCfgRes.rows[0].value && typeof ticketCfgRes.rows[0].value === 'object')
+      ? { ...defaultTicketConfig, ...ticketCfgRes.rows[0].value }
+      : defaultTicketConfig;
+
     // Personal
     const staffRes = await pool.query("SELECT id, name, role FROM pos_staff ORDER BY created_at ASC");
     const staffList = staffRes.rows;
@@ -182,6 +194,7 @@ app.get('/api/state', async (req, res) => {
       data: {
         staffList,
         generalTipsPool,
+        ticketConfig,
         menuData,
         availableTables,
         ordersByTable,
@@ -199,6 +212,12 @@ app.get('/api/state', async (req, res) => {
           { id: 'admin_perello', name: 'Perello (Encargado)', role: 'Cocina / Admin' }
         ],
         generalTipsPool: 0,
+        ticketConfig: {
+          businessName: 'RIVERA',
+          alias: '',
+          footerMessage: '¡Muchas gracias por elegir Rivera!',
+          showSuggestedTip: true
+        },
         menuData: {
           pizzas: {
             id: 'pizzas',
@@ -338,6 +357,12 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
         ? (existing.note ? `${existing.note} | ${note}` : note)
         : (existing.note || '');
 
+      // Conservar el mozo original de la mesa si un encargado agrega un plato adicional
+      const isIncomingEncargado = waiterName && String(waiterName).toLowerCase().includes('encargado');
+      const resolvedWaiterName = (existing.waiter_name && isIncomingEncargado)
+        ? existing.waiter_name
+        : (waiterName || existing.waiter_name);
+
       await pool.query(`
         UPDATE pos_kitchen_orders
         SET waiter_name = $1,
@@ -348,12 +373,12 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
             total = $4,
             note = $5
         WHERE id = $6
-      `, [waiterName || existing.waiter_name, time, JSON.stringify(mergedItems), mergedTotal, mergedNote, existing.id]);
+      `, [resolvedWaiterName, time, JSON.stringify(mergedItems), mergedTotal, mergedNote, existing.id]);
 
       finalOrder = {
         id: existing.id,
         table,
-        waiterName: waiterName || existing.waiter_name,
+        waiterName: resolvedWaiterName,
         time,
         status: 'pending',
         printed: false,
@@ -794,6 +819,35 @@ app.put('/api/auth/admin-password', async (req, res) => {
     res.json({ success: true, message: 'Contraseña de administrador actualizada con éxito.' });
   } catch (err) {
     console.error('Error al cambiar contraseña de admin:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ================= CONFIGURACIÓN DE TICKET (ALIAS, MENSAJE, PROPINA) =================
+app.put('/api/config/ticket', async (req, res) => {
+  const { businessName, alias, footerMessage, showSuggestedTip } = req.body || {};
+  const cleanConfig = {
+    businessName: String(businessName || 'RIVERA').trim() || 'RIVERA',
+    alias: String(alias || '').trim(),
+    footerMessage: String(footerMessage || '').trim(),
+    showSuggestedTip: Boolean(showSuggestedTip)
+  };
+
+  try {
+    await pool.query(`
+      INSERT INTO pos_config (key, value)
+      VALUES ('ticket_config', $1::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `, [JSON.stringify(cleanConfig)]);
+
+    broadcast({
+      type: 'TICKET_CONFIG_UPDATED',
+      ticketConfig: cleanConfig
+    });
+
+    res.json({ success: true, ticketConfig: cleanConfig });
+  } catch (err) {
+    console.error('Error guardando configuración de ticket:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

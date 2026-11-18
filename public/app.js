@@ -197,6 +197,10 @@ async function fetchServerState(silent = false) {
             const d = data.data;
             if (Array.isArray(d.staffList) && d.staffList.length > 0) staffList = d.staffList;
             if (typeof d.generalTipsPool === 'number') generalTipsPool = d.generalTipsPool;
+            if (d.ticketConfig && typeof d.ticketConfig === 'object') {
+                ticketConfig = { ...ticketConfig, ...d.ticketConfig };
+                try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) {}
+            }
             if (d.menuData && Object.keys(d.menuData).length > 0) menuData = d.menuData;
             if (Array.isArray(d.availableTables) && d.availableTables.length > 0) availableTables = d.availableTables;
             if (d.ordersByTable) ordersByTable = d.ordersByTable;
@@ -404,6 +408,13 @@ function handleRealtimeMessage(msg) {
             if (pOrder) pOrder.printed = true;
             saveLocalState();
             if (activeAdminTab === 'kitchen') renderKitchenOrders();
+            break;
+
+        case 'TICKET_CONFIG_UPDATED':
+            if (msg.ticketConfig && typeof msg.ticketConfig === 'object') {
+                ticketConfig = { ...ticketConfig, ...msg.ticketConfig };
+                try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) {}
+            }
             break;
 
         case 'PAYMENT_COMPLETED':
@@ -2888,7 +2899,7 @@ function renderKitchenOrders() {
                                 <i class="fa-solid fa-print"></i>
                                 <span>${cmd.printed ? 'Comanda (Impresa)' : 'Imprimir Comanda'}</span>
                             </button>
-                            <button onclick="openTableBillTicketPrint('${cmd.table}')" class="text-[#2563eb] hover:text-blue-800 text-[11px] font-bold flex items-center space-x-1 cursor-pointer bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg border border-blue-200 transition-all" title="Imprimir ticket pre-cuenta para que el mozo cobre en la mesa">
+                            <button onclick="openTableBillTicketPrint('${cmd.table}', '${(cmd.waiterName || '').replace(/'/g, "\\'")}')" class="text-[#2563eb] hover:text-blue-800 text-[11px] font-bold flex items-center space-x-1 cursor-pointer bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg border border-blue-200 transition-all" title="Imprimir ticket pre-cuenta para que el mozo cobre en la mesa">
                                 <i class="fa-solid fa-receipt"></i>
                                 <span>Ticket Mesa (Cobrar)</span>
                             </button>
@@ -3044,6 +3055,84 @@ let printerPaperWidth = Number(localStorage.getItem('rivera_paper_width')) === 5
 let winPrintEndpoint = null; // { listUrl, printUrl }
 let winPrintersList = [];
 let selectedWinPrinter = localStorage.getItem('rivera_win_printer') || '';
+let ticketConfig = (() => {
+    const defaults = {
+        businessName: 'RIVERA',
+        alias: '',
+        footerMessage: '¡Muchas gracias por elegir Rivera!',
+        showSuggestedTip: true
+    };
+    try {
+        const saved = JSON.parse(localStorage.getItem('rivera_ticket_config') || 'null');
+        if (saved && typeof saved === 'object') return { ...defaults, ...saved };
+    } catch (_) {}
+    return defaults;
+})();
+
+function openTicketConfigModal() {
+    const bizInput = document.getElementById('cfg-ticket-business');
+    const aliasInput = document.getElementById('cfg-ticket-alias');
+    const footerInput = document.getElementById('cfg-ticket-footer');
+    const tipToggle = document.getElementById('cfg-ticket-tip-toggle');
+
+    if (bizInput) bizInput.value = ticketConfig.businessName || 'RIVERA';
+    if (aliasInput) aliasInput.value = ticketConfig.alias || '';
+    if (footerInput) footerInput.value = ticketConfig.footerMessage || '';
+    if (tipToggle) tipToggle.checked = Boolean(ticketConfig.showSuggestedTip);
+
+    document.getElementById('ticket-config-modal').classList.remove('hidden');
+}
+
+function closeTicketConfigModal() {
+    document.getElementById('ticket-config-modal').classList.add('hidden');
+}
+
+async function saveTicketConfig() {
+    const bizInput = document.getElementById('cfg-ticket-business');
+    const aliasInput = document.getElementById('cfg-ticket-alias');
+    const footerInput = document.getElementById('cfg-ticket-footer');
+    const tipToggle = document.getElementById('cfg-ticket-tip-toggle');
+
+    const newConfig = {
+        businessName: (bizInput ? bizInput.value.trim() : '') || 'RIVERA',
+        alias: aliasInput ? aliasInput.value.trim() : '',
+        footerMessage: footerInput ? footerInput.value.trim() : '',
+        showSuggestedTip: tipToggle ? Boolean(tipToggle.checked) : true
+    };
+
+    ticketConfig = newConfig;
+    try {
+        localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig));
+    } catch (_) {}
+
+    closeTicketConfigModal();
+
+    // Si el modal de ticket está abierto, actualizar la vista previa inmediatamente
+    const ticketModal = document.getElementById('ticket-print-modal');
+    if (ticketModal && !ticketModal.classList.contains('hidden') && currentTicketData) {
+        if (currentTicketData.type === 'kitchen' && currentTicketData.id) {
+            openKitchenTicketPrint(currentTicketData.id);
+        } else if (currentTicketData.type === 'bill' && currentTicketData.table) {
+            openTableBillTicketPrint(currentTicketData.table, currentTicketData.waiter);
+        }
+    }
+
+    try {
+        const res = await fetch('/api/config/ticket', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ticketConfig)
+        });
+        if (res.ok) {
+            showToast('Configuración de ticket guardada en la base de datos', 'success');
+        } else {
+            showToast('Configuración guardada localmente (sincronización pendiente)', 'info');
+        }
+    } catch (err) {
+        console.warn('Error guardando configuración de ticket:', err);
+        showToast('Configuración guardada localmente', 'info');
+    }
+}
 
 function openKitchenTicketPrint(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
@@ -3056,12 +3145,14 @@ function openKitchenTicketPrint(cmdId) {
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'RIVERA';
 
     const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
     const deliveredItems = (cmd.items || []).filter(i => (i.status || cmd.status) === 'delivered');
 
     currentTicketData = {
         type: 'kitchen',
+        businessName,
         id: cmd.id,
         table: cmd.table,
         dateStr,
@@ -3069,8 +3160,7 @@ function openKitchenTicketPrint(cmdId) {
         waiter: cmd.waiterName,
         pendingItems,
         deliveredItems,
-        note: cmd.note || '',
-        total: cmd.total
+        note: cmd.note || ''
     };
 
     const modalTitle = document.getElementById('ticket-modal-title');
@@ -3081,13 +3171,13 @@ function openKitchenTicketPrint(cmdId) {
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
         <div class="text-center border-b-2 border-black pb-2 mb-2">
-            <h2 class="font-black text-2xl uppercase tracking-wider text-black leading-none">RIVERA</h2>
+            <h2 class="font-black text-2xl uppercase tracking-wider text-black leading-none">${escapeHtmlSafe(businessName)}</h2>
             <p class="text-xs font-extrabold uppercase tracking-widest text-black mt-1">COMANDA DE COCINA</p>
         </div>
 
         <div class="text-center border-y-2 border-black py-1.5 my-2 bg-slate-100">
-            <div class="text-2xl font-black uppercase text-black leading-tight">${cmd.table}</div>
-            <div class="text-xs font-bold text-black">COMANDA: ${cmd.id}</div>
+            <div class="text-2xl font-black uppercase text-black leading-tight">${escapeHtmlSafe(cmd.table)}</div>
+            <div class="text-xs font-bold text-black">COMANDA: ${escapeHtmlSafe(cmd.id)}</div>
         </div>
 
         <div class="border-b-2 border-dashed border-black pb-2 mb-2 space-y-0.5 text-xs font-bold text-black">
@@ -3095,7 +3185,7 @@ function openKitchenTicketPrint(cmdId) {
                 <span>FECHA: ${dateStr}</span>
                 <span>HORA: ${cmd.time} hs</span>
             </div>
-            <div>MOZO: ${cmd.waiterName}</div>
+            <div>MOZO: ${escapeHtmlSafe(cmd.waiterName)}</div>
         </div>
 
         ${pendingItems.length > 0 ? `
@@ -3109,9 +3199,9 @@ function openKitchenTicketPrint(cmdId) {
                             <div class="flex items-start gap-2 text-black">
                                 <span class="font-black text-lg leading-none border-2 border-black px-1.5 py-0.5 shrink-0">${i.qty}x</span>
                                 <div class="flex-1 min-w-0">
-                                    <div class="font-black text-base leading-tight break-words">${i.name}</div>
+                                    <div class="font-black text-base leading-tight break-words">${escapeHtmlSafe(i.name)}</div>
                                     ${i.isAddon ? '<div class="text-xs font-black uppercase mt-0.5">*** AGREGADO ***</div>' : ''}
-                                    ${i.note ? `<div class="text-xs font-bold mt-0.5">OBS: ${i.note}</div>` : ''}
+                                    ${i.note ? `<div class="text-xs font-bold mt-0.5">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
                                 </div>
                             </div>
                         </div>
@@ -3127,9 +3217,8 @@ function openKitchenTicketPrint(cmdId) {
                 </div>
                 <div class="space-y-1">
                     ${deliveredItems.map(i => `
-                        <div class="flex justify-between items-start text-xs font-semibold">
-                            <span>[OK] ${i.qty}x ${i.name}</span>
-                            <span>$${(i.price * i.qty).toLocaleString('es-AR')}</span>
+                        <div class="text-xs font-semibold">
+                            <span>[OK] ${i.qty}x ${escapeHtmlSafe(i.name)}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -3139,33 +3228,26 @@ function openKitchenTicketPrint(cmdId) {
         ${cmd.note ? `
             <div class="border-2 border-black p-2 my-2 text-black">
                 <div class="font-black text-xs uppercase border-b border-black pb-0.5 mb-1">OBSERVACIONES:</div>
-                <p class="text-sm font-black leading-snug break-words">${cmd.note}</p>
+                <p class="text-sm font-black leading-snug break-words">${escapeHtmlSafe(cmd.note)}</p>
             </div>
         ` : ''}
-
-        <div class="pt-2 border-t-2 border-black flex justify-between items-center text-lg font-black text-black">
-            <span>TOTAL MESA:</span>
-            <span>$${cmd.total.toLocaleString('es-AR')}</span>
-        </div>
     `;
 
     currentTicketRawText =
-        `*COMANDA DE COCINA - RIVERA*\n` +
+        `*COMANDA DE COCINA - ${businessName.toUpperCase()}*\n` +
         `Mesa: ${cmd.table} | Comanda: ${cmd.id}\n` +
         `Fecha: ${dateStr} | Hora: ${cmd.time} hs\n` +
         `Mozo: ${cmd.waiterName}\n` +
         `--------------------------------\n` +
-        (pendingItems.length > 0 ? `*POR PREPARAR:*\n` + pendingItems.map(i => `- [${i.qty}x] ${i.name}${i.isAddon ? ' (AGREGADO)' : ''}`).join('\n') + '\n' : '') +
+        (pendingItems.length > 0 ? `*POR PREPARAR:*\n` + pendingItems.map(i => `- [${i.qty}x] ${i.name}${i.isAddon ? ' (AGREGADO)' : ''}${i.note ? ` | OBS: ${i.note}` : ''}`).join('\n') + '\n' : '') +
         (deliveredItems.length > 0 ? `*YA ENTREGADOS:*\n` + deliveredItems.map(i => `- [OK] ${i.qty}x ${i.name}`).join('\n') + '\n' : '') +
-        (cmd.note ? `*OBSERVACIONES:* ${cmd.note}\n` : '') +
-        `--------------------------------\n` +
-        `Total Mesa: $${cmd.total.toLocaleString('es-AR')}`;
+        (cmd.note ? `*OBSERVACIONES:* ${cmd.note}\n` : '');
 
     updatePrinterStatusUI();
     document.getElementById('ticket-print-modal').classList.remove('hidden');
 }
 
-function openTableBillTicketPrint(tableName) {
+function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
     const table = tableName || currentTable || activePaymentTable;
     if (!table) {
         showToast('Selecciona una mesa primero', 'info');
@@ -3174,6 +3256,7 @@ function openTableBillTicketPrint(tableName) {
 
     const tableOrder = ordersByTable[table] || { items: [], note: "" };
     const activeCmd = kitchenOrders.find(o => o.table === table && o.status !== 'paid');
+    const anyTableCmd = activeCmd || kitchenOrders.find(o => o.table === table);
 
     let items = [];
     if (tableOrder.items && tableOrder.items.length > 0) {
@@ -3191,16 +3274,30 @@ function openTableBillTicketPrint(tableName) {
     const suggestedTip10 = Math.round(total * 0.10);
     const totalWithTip10 = total + suggestedTip10;
 
-    const waiterName = (activeCmd && activeCmd.waiterName)
-        ? activeCmd.waiterName
-        : (currentUser ? currentUser.name : "Mozo");
+    // Siempre a nombre del mozo asociado a la mesa
+    const waiterName = (explicitWaiterName && String(explicitWaiterName).trim())
+        ? String(explicitWaiterName).trim()
+        : ((anyTableCmd && anyTableCmd.waiterName)
+            ? anyTableCmd.waiterName
+            : ((tableOrder && tableOrder.waiterName)
+                ? tableOrder.waiterName
+                : (currentUser ? currentUser.name : "Mozo")));
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'RIVERA';
+    const alias = (ticketConfig && ticketConfig.alias) ? ticketConfig.alias.trim() : '';
+    const footerMessage = (ticketConfig && ticketConfig.footerMessage) ? ticketConfig.footerMessage.trim() : '';
+    const showSuggestedTip = ticketConfig ? Boolean(ticketConfig.showSuggestedTip) : true;
+
     currentTicketData = {
         type: 'bill',
+        businessName,
+        alias,
+        footerMessage,
+        showSuggestedTip,
         table,
         waiter: waiterName,
         dateStr,
@@ -3213,24 +3310,24 @@ function openTableBillTicketPrint(tableName) {
 
     const modalTitle = document.getElementById('ticket-modal-title');
     const modalSubtitle = document.getElementById('ticket-modal-subtitle');
-    if (modalTitle) modalTitle.innerText = "Ticket Pre-cuenta (3nStar 80mm)";
-    if (modalSubtitle) modalSubtitle.innerText = `Comprobante de consumo para ${table}`;
+    if (modalTitle) modalTitle.innerText = "Ticket Cuenta (3nStar 80mm)";
+    if (modalSubtitle) modalSubtitle.innerText = `${table} - Mozo: ${waiterName}`;
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
         <div class="text-center border-b-2 border-black pb-2 mb-2 text-black">
-            <h2 class="font-black text-2xl uppercase tracking-wider leading-none">RIVERA</h2>
-            <p class="text-xs font-extrabold uppercase mt-1">CONTROL DE MESA / PRE-CUENTA</p>
+            <h2 class="font-black text-2xl uppercase tracking-wider leading-none">${escapeHtmlSafe(businessName)}</h2>
+            <p class="text-xs font-extrabold uppercase mt-1">CONTROL DE MESA / CUENTA</p>
             <p class="text-[10px] font-bold mt-0.5">NO VÁLIDO COMO FACTURA FISCAL</p>
         </div>
 
         <div class="text-center border-b-2 border-black pb-2 mb-2 text-black">
-            <div class="text-xl font-black uppercase">${table}</div>
+            <div class="text-xl font-black uppercase">${escapeHtmlSafe(table)}</div>
             <div class="flex justify-between text-xs font-bold mt-1">
                 <span>FECHA: ${dateStr}</span>
                 <span>HORA: ${timeStr} hs</span>
             </div>
-            <div class="text-left text-xs font-bold">MOZO: ${waiterName}</div>
+            <div class="text-left text-xs font-black mt-0.5">MOZO: ${escapeHtmlSafe(waiterName)}</div>
         </div>
 
         <div class="border-b-2 border-black pb-2 mb-2 text-black">
@@ -3242,10 +3339,10 @@ function openTableBillTicketPrint(tableName) {
                 ${items.map(i => `
                     <div class="border-b border-dashed border-black pb-1.5 last:border-b-0 last:pb-0">
                         <div class="flex justify-between items-start gap-2 text-sm font-extrabold">
-                            <span class="leading-tight break-words"><strong class="font-black">${i.qty}x</strong> ${i.name}</span>
+                            <span class="leading-tight break-words"><strong class="font-black">${i.qty}x</strong> ${escapeHtmlSafe(i.name)}</span>
                             <span class="shrink-0 font-black">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
                         </div>
-                        ${i.note ? `<p class="text-xs font-bold pl-2 mt-0.5">OBS: ${i.note}</p>` : ''}
+                        ${i.note ? `<p class="text-xs font-bold pl-2 mt-0.5">OBS: ${escapeHtmlSafe(i.note)}</p>` : ''}
                     </div>
                 `).join('')}
             </div>
@@ -3253,51 +3350,47 @@ function openTableBillTicketPrint(tableName) {
 
         <div class="border-b-2 border-black pb-2 mb-2 space-y-1 text-black">
             <div class="flex justify-between items-center text-lg font-black">
-                <span>TOTAL CONSUMO:</span>
+                <span>TOTAL:</span>
                 <span>$${total.toLocaleString('es-AR')}</span>
             </div>
-            <div class="flex justify-between items-center text-xs font-bold pt-1">
-                <span>Propina sugerida (10%):</span>
-                <span>$${suggestedTip10.toLocaleString('es-AR')}</span>
-            </div>
-            <div class="flex justify-between items-center text-sm font-black">
-                <span>Total con 10% propina:</span>
-                <span>$${totalWithTip10.toLocaleString('es-AR')}</span>
-            </div>
+            ${showSuggestedTip ? `
+                <div class="flex justify-between items-center text-xs font-bold pt-1">
+                    <span>Propina sugerida (10%):</span>
+                    <span>$${suggestedTip10.toLocaleString('es-AR')}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm font-black">
+                    <span>Total con 10% propina:</span>
+                    <span>$${totalWithTip10.toLocaleString('es-AR')}</span>
+                </div>
+            ` : ''}
         </div>
 
-        <div class="border-b-2 border-dashed border-black pb-2 mb-2 space-y-1.5 text-xs font-bold text-black">
-            <div class="flex justify-between">
-                <span>Propina voluntaria:</span>
-                <span>[ $___________ ]</span>
+        ${alias ? `
+            <div class="border-2 border-black p-2 my-2 text-center text-black">
+                <div class="text-[10px] font-black uppercase tracking-wider">ALIAS TRANSFERENCIA</div>
+                <div class="text-sm font-black break-all mt-0.5">${escapeHtmlSafe(alias)}</div>
             </div>
-            <div class="flex justify-between text-sm font-black">
-                <span>TOTAL A PAGAR:</span>
-                <span>[ $___________ ]</span>
-            </div>
-            <div class="pt-2 text-center text-xs font-bold">
-                Firma: ___________________________
-            </div>
-        </div>
+        ` : ''}
 
-        <div class="pt-1 text-center text-xs font-extrabold text-black space-y-0.5">
-            <p>¡Muchas gracias por elegir Rivera!</p>
-            <p class="text-[11px] font-bold">Esperamos que hayan disfrutado el servicio</p>
-        </div>
+        ${footerMessage ? `
+            <div class="pt-1 text-center text-xs font-extrabold text-black whitespace-pre-line">
+                ${escapeHtmlSafe(footerMessage)}
+            </div>
+        ` : ''}
     `;
 
     currentTicketRawText =
-        `*RIVERA - PRE-CUENTA*\n` +
+        `*${businessName.toUpperCase()} - CUENTA*\n` +
         `Mesa: ${table}\n` +
         `Mozo: ${waiterName}\n` +
         `Fecha: ${dateStr} ${timeStr} hs\n` +
         `--------------------------------\n` +
         items.map(i => `- ${i.qty}x ${i.name} = $${(i.price * i.qty).toLocaleString('es-AR')}${i.note ? ` (${i.note})` : ''}`).join('\n') + '\n' +
         `--------------------------------\n` +
-        `*TOTAL CONSUMO: $${total.toLocaleString('es-AR')}*\n` +
-        `Propina sugerida 10%: $${suggestedTip10.toLocaleString('es-AR')}\n` +
-        `*Total sugerido c/propina: $${totalWithTip10.toLocaleString('es-AR')}*\n\n` +
-        `¡Muchas gracias por su visita!`;
+        `*TOTAL: $${total.toLocaleString('es-AR')}*\n` +
+        (showSuggestedTip ? `Propina sugerida 10%: $${suggestedTip10.toLocaleString('es-AR')}\n*Total con 10% propina: $${totalWithTip10.toLocaleString('es-AR')}*\n` : '') +
+        (alias ? `\nAlias transferencia: ${alias}\n` : '') +
+        (footerMessage ? `\n${footerMessage}` : '');
 
     updatePrinterStatusUI();
     document.getElementById('ticket-print-modal').classList.remove('hidden');
@@ -3806,12 +3899,14 @@ function buildEscPosBytes(data) {
         return new Uint8Array(bytes);
     }
 
+    const bizNameUpper = String((data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'RIVERA').toUpperCase();
+
     if (data.type === 'kitchen') {
-        // 1. ENCABEZADO DEL ESTABLECIMIENTO (3x ancho x 2x alto en 80mm)
+        // 1. ENCABEZADO DEL ESTABLECIMIENTO (3x ancho x 2x alto en 80mm si entra, si no 2x2)
         pushBytes(ALIGN_CENTER);
         pushBytes(BOLD_ON);
-        pushBytes(is80mm ? SIZE_3X2 : SIZE_2X2);
-        pushLine('RIVERA');
+        pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
+        pushLine(bizNameUpper);
         pushBytes(SIZE_1X2);
         pushLine('COMANDA DE COCINA');
         pushBytes(SIZE_1X);
@@ -3849,7 +3944,7 @@ function buildEscPosBytes(data) {
         pushBytes(SIZE_1X);
         pushLine(sepEq);
 
-        // 4. PRODUCTOS POR PREPARAR (2x2 NEGRITA con cantidad diferenciada y espaciado)
+        // 4. PRODUCTOS POR PREPARAR (2x2 NEGRITA, SIN PRECIOS)
         if (data.pendingItems && data.pendingItems.length > 0) {
             pushBytes(ALIGN_CENTER);
             pushBytes(BOLD_ON);
@@ -3895,7 +3990,7 @@ function buildEscPosBytes(data) {
             pushLine(sepEq);
         }
 
-        // 5. YA ENTREGADOS ANTERIORMENTE (sección secundaria clara)
+        // 5. YA ENTREGADOS ANTERIORMENTE (SIN PRECIOS)
         if (data.deliveredItems && data.deliveredItems.length > 0) {
             pushBytes(ALIGN_LEFT);
             pushBytes(BOLD_ON);
@@ -3903,9 +3998,8 @@ function buildEscPosBytes(data) {
             pushLine('[ YA ENTREGADOS ANTERIORMENTE ]');
             pushBytes(BOLD_OFF);
             data.deliveredItems.forEach(i => {
-                const label = `[OK] ${i.qty}x ${i.name}`;
-                const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
-                pushLeftRight(label, sub, cols1x);
+                const lines = wrapTextWords(`[OK] ${i.qty}x ${i.name}`, cols1x);
+                lines.forEach(l => pushLine(l));
             });
             pushLine(sepDash);
         }
@@ -3926,21 +4020,16 @@ function buildEscPosBytes(data) {
             feedDots(8);
         }
 
-        // 7. TOTAL MESA DESTACADO (2x2 NEGRITA)
-        pushBytes(ALIGN_LEFT);
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_2X2);
-        pushLeftRight('TOTAL:', `$${data.total.toLocaleString('es-AR')}`, cols2x);
         pushBytes(SIZE_1X);
         pushBytes(BOLD_OFF);
     } else {
-        // TICKET PRE-CUENTA / MESA (3nStar RPT004 - 72mm / 48 cols)
+        // TICKET CUENTA / PRE-CUENTA (3nStar RPT004 - 72mm / 48 cols - CON PRECIOS, SIN FIRMA)
         pushBytes(ALIGN_CENTER);
         pushBytes(BOLD_ON);
-        pushBytes(is80mm ? SIZE_3X2 : SIZE_2X2);
-        pushLine('RIVERA');
+        pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
+        pushLine(bizNameUpper);
         pushBytes(SIZE_1X2);
-        pushLine('CONTROL DE MESA / PRE-CUENTA');
+        pushLine('CONTROL DE MESA / CUENTA');
         pushBytes(SIZE_1X);
         pushBytes(BOLD_OFF);
         pushLine('NO VÁLIDO COMO FACTURA FISCAL');
@@ -3984,32 +4073,40 @@ function buildEscPosBytes(data) {
         pushBytes(SIZE_2X2);
         pushLeftRight('TOTAL:', `$${data.total.toLocaleString('es-AR')}`, cols2x);
 
-        pushBytes(SIZE_1X2);
-        pushBytes(BOLD_OFF);
-        pushLeftRight('Propina sugerida (10%):', `$${data.suggestedTip10.toLocaleString('es-AR')}`, cols1x);
-        pushBytes(BOLD_ON);
-        pushLeftRight('Total con 10% propina:', `$${data.totalWithTip10.toLocaleString('es-AR')}`, cols1x);
+        if (data.showSuggestedTip) {
+            feedDots(6);
+            pushBytes(SIZE_1X2);
+            pushBytes(BOLD_OFF);
+            pushLeftRight('Propina sugerida (10%):', `$${data.suggestedTip10.toLocaleString('es-AR')}`, cols1x);
+            pushBytes(BOLD_ON);
+            pushLeftRight('Total con 10% propina:', `$${data.totalWithTip10.toLocaleString('es-AR')}`, cols1x);
+        }
 
-        pushBytes(SIZE_1X);
-        pushLine(sepDash);
-        pushBytes(SIZE_1X2);
-        pushBytes(BOLD_OFF);
-        pushLeftRight('Propina voluntaria:', '[ $___________ ]', cols1x);
-        pushBytes(BOLD_ON);
-        pushLeftRight('TOTAL A PAGAR:', '[ $___________ ]', cols1x);
-        pushBytes(SIZE_1X);
-        pushBytes(BOLD_OFF);
-        pushLine('');
-        pushLine('Firma: _________________________________________'.slice(0, cols1x));
-        pushLine(sepDash);
+        if (data.alias && String(data.alias).trim()) {
+            pushBytes(SIZE_1X);
+            pushLine(sepDash);
+            pushBytes(ALIGN_CENTER);
+            pushBytes(BOLD_ON);
+            pushLine('ALIAS TRANSFERENCIA:');
+            pushBytes(SIZE_1X2);
+            const aliasLines = wrapTextWords(String(data.alias).trim(), cols1x);
+            aliasLines.forEach(al => pushLine(al));
+            pushBytes(SIZE_1X);
+        }
 
-        pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_1X2);
-        pushLine('¡Muchas gracias por elegir Rivera!');
-        pushBytes(SIZE_1X);
-        pushBytes(BOLD_OFF);
-        pushLine('Esperamos que hayan disfrutado el servicio');
+        if (data.footerMessage && String(data.footerMessage).trim()) {
+            pushBytes(SIZE_1X);
+            pushLine(sepDash);
+            pushBytes(ALIGN_CENTER);
+            pushBytes(BOLD_ON);
+            pushBytes(SIZE_1X2);
+            const rawLines = String(data.footerMessage).trim().split('\n');
+            rawLines.forEach(rl => {
+                wrapTextWords(rl, cols1x).forEach(wl => pushLine(wl));
+            });
+            pushBytes(SIZE_1X);
+            pushBytes(BOLD_OFF);
+        }
     }
 
     pushBytes(FEED_AND_CUT);
@@ -4037,6 +4134,7 @@ function buildThermalPrintHtml(data) {
     // En modo 58mm -> Ancho imprimible = 48mm (384 dots)
     const is80mm = printerPaperWidth !== 58;
     const printWidthMm = is80mm ? 72 : 48;
+    const bizName = (data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'RIVERA';
 
     let bodyContent = '';
     if (!data) {
@@ -4045,7 +4143,7 @@ function buildThermalPrintHtml(data) {
     } else if (data.type === 'kitchen') {
         bodyContent = `
             <div class="header-block">
-                <div class="brand-title">RIVERA</div>
+                <div class="brand-title">${escapeHtmlSafe(bizName)}</div>
                 <div class="doc-subtitle">COMANDA DE COCINA</div>
             </div>
 
@@ -4088,7 +4186,6 @@ function buildThermalPrintHtml(data) {
                     ${data.deliveredItems.map(i => `
                         <div class="delivered-row">
                             <span>[OK] ${i.qty}x ${escapeHtmlSafe(i.name)}</span>
-                            <span>$${(i.price * i.qty).toLocaleString('es-AR')}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -4100,17 +4197,12 @@ function buildThermalPrintHtml(data) {
                     <div class="obs-text">${escapeHtmlSafe(data.note)}</div>
                 </div>
             ` : ''}
-
-            <div class="total-block">
-                <span>TOTAL MESA:</span>
-                <span>$${data.total.toLocaleString('es-AR')}</span>
-            </div>
         `;
     } else {
         bodyContent = `
             <div class="header-block">
-                <div class="brand-title">RIVERA</div>
-                <div class="doc-subtitle">CONTROL DE MESA / PRE-CUENTA</div>
+                <div class="brand-title">${escapeHtmlSafe(bizName)}</div>
+                <div class="doc-subtitle">CONTROL DE MESA / CUENTA</div>
                 <div class="legal-note">NO VÁLIDO COMO FACTURA FISCAL</div>
             </div>
 
@@ -4150,33 +4242,31 @@ function buildThermalPrintHtml(data) {
                 <span>$${data.total.toLocaleString('es-AR')}</span>
             </div>
 
-            <div class="tips-block">
-                <div class="meta-row">
-                    <span>Propina sugerida (10%):</span>
-                    <span>$${data.suggestedTip10.toLocaleString('es-AR')}</span>
+            ${data.showSuggestedTip ? `
+                <div class="tips-block">
+                    <div class="meta-row">
+                        <span>Propina sugerida (10%):</span>
+                        <span>$${data.suggestedTip10.toLocaleString('es-AR')}</span>
+                    </div>
+                    <div class="meta-row strong-row">
+                        <span>Total con 10% propina:</span>
+                        <span>$${data.totalWithTip10.toLocaleString('es-AR')}</span>
+                    </div>
                 </div>
-                <div class="meta-row strong-row">
-                    <span>Total con 10% propina:</span>
-                    <span>$${data.totalWithTip10.toLocaleString('es-AR')}</span>
-                </div>
-            </div>
+            ` : ''}
 
-            <div class="voluntary-block">
-                <div class="meta-row">
-                    <span>Propina voluntaria:</span>
-                    <span>[ $__________ ]</span>
+            ${data.alias ? `
+                <div class="obs-box" style="text-align:center;">
+                    <div class="obs-label" style="border-bottom:none; margin-bottom:0.5mm; font-size:${is80mm ? '11pt' : '9.5pt'};">ALIAS TRANSFERENCIA</div>
+                    <div class="obs-text" style="font-size:${is80mm ? '14pt' : '11.5pt'}; word-break:break-all;">${escapeHtmlSafe(data.alias)}</div>
                 </div>
-                <div class="meta-row strong-row">
-                    <span>TOTAL A PAGAR:</span>
-                    <span>[ $__________ ]</span>
-                </div>
-                <div class="sign-line">Firma: ___________________________</div>
-            </div>
+            ` : ''}
 
-            <div class="footer-block">
-                <div class="footer-thanks">¡Muchas gracias por elegir Rivera!</div>
-                <div class="footer-sub">Esperamos que hayan disfrutado el servicio</div>
-            </div>
+            ${data.footerMessage ? `
+                <div class="footer-block">
+                    <div class="footer-thanks" style="white-space:pre-line;">${escapeHtmlSafe(data.footerMessage)}</div>
+                </div>
+            ` : ''}
         `;
     }
 
