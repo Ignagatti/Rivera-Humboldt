@@ -65,8 +65,20 @@ async function initDatabase() {
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(150) NOT NULL,
         icon VARCHAR(80) NOT NULL,
-        sort_order INT DEFAULT 0
+        sort_order INT DEFAULT 0,
+        available_days JSONB DEFAULT '[0,1,2,3,4,5,6]'::jsonb,
+        is_active BOOLEAN DEFAULT TRUE
       );
+    `);
+
+    // Migraciones seguras para columnas de disponibilidad por día en bases existentes
+    await client.query(`
+      ALTER TABLE pos_categories
+      ADD COLUMN IF NOT EXISTS available_days JSONB DEFAULT '[0,1,2,3,4,5,6]'::jsonb;
+    `);
+    await client.query(`
+      ALTER TABLE pos_categories
+      ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
     `);
 
     // 4. Platos y Bebidas
@@ -78,8 +90,14 @@ async function initDatabase() {
         price NUMERIC(12, 2) NOT NULL,
         description TEXT DEFAULT '',
         is_available BOOLEAN DEFAULT TRUE,
+        available_days JSONB DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+    `);
+
+    await client.query(`
+      ALTER TABLE pos_menu_items
+      ADD COLUMN IF NOT EXISTS available_days JSONB DEFAULT NULL;
     `);
 
     // 5. Pedidos activos en mesas del salón

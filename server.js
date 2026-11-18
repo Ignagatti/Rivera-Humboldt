@@ -74,22 +74,28 @@ app.get('/api/state', async (req, res) => {
     const staffList = staffRes.rows;
 
     // Categorías y Productos
-    const catRes = await pool.query("SELECT id, name, icon, sort_order FROM pos_categories ORDER BY sort_order ASC, name ASC");
-    const itemRes = await pool.query("SELECT id, category_id, name, price, description, is_available FROM pos_menu_items ORDER BY name ASC");
+    const catRes = await pool.query("SELECT id, name, icon, sort_order, available_days, is_active FROM pos_categories ORDER BY sort_order ASC, name ASC");
+    const itemRes = await pool.query("SELECT id, category_id, name, price, description, is_available, available_days FROM pos_menu_items ORDER BY name ASC");
 
+    const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
     const menuData = {};
     for (const cat of catRes.rows) {
+      const catDays = Array.isArray(cat.available_days) ? cat.available_days.map(Number) : ALL_DAYS;
       menuData[cat.id] = {
         id: cat.id,
         name: cat.name,
         icon: cat.icon,
+        availableDays: catDays,
+        isActive: cat.is_active !== false,
         items: itemRes.rows
           .filter(i => i.category_id === cat.id)
           .map(i => ({
             id: i.id,
             name: i.name,
             price: Number(i.price),
-            desc: i.description || ''
+            desc: i.description || '',
+            isAvailable: i.is_available !== false,
+            availableDays: Array.isArray(i.available_days) ? i.available_days.map(Number) : null
           }))
       };
     }
@@ -100,6 +106,8 @@ app.get('/api/state', async (req, res) => {
         id: 'pizzas',
         name: 'Pizzas',
         icon: 'fa-pizza-slice',
+        availableDays: ALL_DAYS,
+        isActive: true,
         items: []
       };
     }
@@ -690,6 +698,68 @@ app.delete('/api/menu/item/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Error al eliminar plato:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 10b. Disponibilidad por días / estado activo de Categoría (Menú del Día / Parrilla sábados)
+app.put('/api/menu/category/:id/availability', async (req, res) => {
+  const { id } = req.params;
+  const { availableDays, isActive } = req.body || {};
+
+  try {
+    const curRes = await pool.query("SELECT available_days, is_active FROM pos_categories WHERE id = $1", [id]);
+    if (curRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Categoría no encontrada' });
+    }
+
+    const nextDays = Array.isArray(availableDays)
+      ? availableDays.map(Number).filter(d => d >= 0 && d <= 6)
+      : (Array.isArray(curRes.rows[0].available_days) ? curRes.rows[0].available_days : [0, 1, 2, 3, 4, 5, 6]);
+    const nextActive = typeof isActive === 'boolean' ? isActive : (curRes.rows[0].is_active !== false);
+
+    await pool.query(
+      "UPDATE pos_categories SET available_days = $1::jsonb, is_active = $2 WHERE id = $3",
+      [JSON.stringify(nextDays), nextActive, id]
+    );
+
+    broadcast({ type: 'MENU_REFRESH_REQUESTED' });
+    res.json({ success: true, availableDays: nextDays, isActive: nextActive });
+  } catch (err) {
+    console.error('Error actualizando disponibilidad de categoría:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 10c. Disponibilidad por días / estado activo de Plato individual
+app.put('/api/menu/item/:id/availability', async (req, res) => {
+  const { id } = req.params;
+  const { availableDays, isAvailable } = req.body || {};
+
+  try {
+    const curRes = await pool.query("SELECT available_days, is_available FROM pos_menu_items WHERE id = $1", [id]);
+    if (curRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Plato no encontrado' });
+    }
+
+    let nextDays = curRes.rows[0].available_days;
+    if (availableDays === null) {
+      nextDays = null; // Heredar días de la categoría
+    } else if (Array.isArray(availableDays)) {
+      nextDays = availableDays.map(Number).filter(d => d >= 0 && d <= 6);
+    }
+
+    const nextAvailable = typeof isAvailable === 'boolean' ? isAvailable : (curRes.rows[0].is_available !== false);
+
+    await pool.query(
+      "UPDATE pos_menu_items SET available_days = $1::jsonb, is_available = $2 WHERE id = $3",
+      [nextDays === null ? null : JSON.stringify(nextDays), nextAvailable, id]
+    );
+
+    broadcast({ type: 'MENU_REFRESH_REQUESTED' });
+    res.json({ success: true, availableDays: nextDays, isAvailable: nextAvailable });
+  } catch (err) {
+    console.error('Error actualizando disponibilidad de plato:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

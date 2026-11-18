@@ -1030,6 +1030,7 @@ function selectTable(tableName) {
     document.getElementById('waiter-order-view').classList.remove('hidden');
 
     searchQuery = "";
+    showFullMenuOverride = false;
     document.getElementById('menu-search-input').value = "";
     document.getElementById('clear-search-btn').classList.add('hidden');
 
@@ -1054,31 +1055,114 @@ function backToTablesView() {
     updateAdminNavButtons();
 }
 
+// ================= MENÚ DEL DÍA Y DISPONIBILIDAD POR DÍA DE LA SEMANA =================
+
+const WEEK_DAYS_ORDERED = [
+    { id: 1, short: 'L', label: 'Lun' },
+    { id: 2, short: 'M', label: 'Mar' },
+    { id: 3, short: 'X', label: 'Mié' },
+    { id: 4, short: 'J', label: 'Jue' },
+    { id: 5, short: 'V', label: 'Vie' },
+    { id: 6, short: 'S', label: 'Sáb' },
+    { id: 0, short: 'D', label: 'Dom' }
+];
+let showFullMenuOverride = false;
+let expandedAdminItemDaysId = null;
+
+function getTodayDayIndex() {
+    return new Date().getDay(); // 0=Dom .. 6=Sáb
+}
+
+function getTodayDayName() {
+    const today = getTodayDayIndex();
+    const found = WEEK_DAYS_ORDERED.find(d => d.id === today);
+    return found ? found.label : '';
+}
+
+function getCategoryDays(cat) {
+    if (!cat) return [0, 1, 2, 3, 4, 5, 6];
+    return Array.isArray(cat.availableDays) ? cat.availableDays.map(Number) : [0, 1, 2, 3, 4, 5, 6];
+}
+
+function isCategoryAvailableToday(cat) {
+    if (!cat) return false;
+    if (cat.isActive === false) return false;
+    return getCategoryDays(cat).includes(getTodayDayIndex());
+}
+
+function isItemAvailableToday(item, cat) {
+    if (!item) return false;
+    if (item.isAvailable === false) return false;
+    if (Array.isArray(item.availableDays)) {
+        return item.availableDays.map(Number).includes(getTodayDayIndex());
+    }
+    return isCategoryAvailableToday(cat);
+}
+
+function formatDaysSummary(daysArray) {
+    if (!Array.isArray(daysArray) || daysArray.length === 0) return 'Ningún día';
+    if (daysArray.length >= 7) return 'Todos los días';
+    return WEEK_DAYS_ORDERED.filter(d => daysArray.includes(d.id)).map(d => d.label).join(', ');
+}
+
+function hasOffDayMenuContent() {
+    for (const cKey of Object.keys(menuData)) {
+        const cat = menuData[cKey];
+        if (!isCategoryAvailableToday(cat)) return true;
+        if (Array.isArray(cat.items) && cat.items.some(it => !isItemAvailableToday(it, cat))) return true;
+    }
+    return false;
+}
+
+function toggleShowFullMenu() {
+    showFullMenuOverride = !showFullMenuOverride;
+    renderCategoryTabs();
+    renderMenuGrid();
+}
+
 // ================= VISTA B: TOMA DE PEDIDO DENTRO DE LA MESA =================
 
 function renderCategoryTabs() {
     const container = document.getElementById('category-tabs');
     if (!container) return;
 
-    const cats = Object.keys(menuData);
-    if (!cats.includes(activeCategory) && cats.length > 0) {
-        activeCategory = cats[0];
+    const allCats = Object.keys(menuData);
+    const todayCats = allCats.filter(cKey => isCategoryAvailableToday(menuData[cKey]));
+    const visibleCats = (showFullMenuOverride || todayCats.length === 0) ? allCats : todayCats;
+
+    if (!visibleCats.includes(activeCategory) && visibleCats.length > 0) {
+        activeCategory = visibleCats[0];
     }
 
-    container.innerHTML = cats.map(cKey => {
+    const tabsHtml = visibleCats.map(cKey => {
         const cat = menuData[cKey];
         const isActive = activeCategory === cKey;
+        const isOffToday = !isCategoryAvailableToday(cat);
         const btnClass = isActive
             ? 'bg-[#2563eb] text-white shadow-md shadow-blue-500/20'
-            : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200';
+            : (isOffToday
+                ? 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 border-dashed'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200');
 
         return `
-            <button onclick="selectCategory('${cKey}')" class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 ${btnClass}">
+            <button onclick="selectCategory('${cKey}')" class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${btnClass}">
                 <i class="fa-solid ${cat.icon || 'fa-utensils'} text-xs"></i>
                 <span>${cat.name}</span>
+                ${isOffToday ? `<span class="text-[9px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-amber-200/80 text-amber-950'} font-extrabold">Fuera de hoy</span>` : ''}
             </button>
         `;
     }).join('');
+
+    const showToggleBtn = hasOffDayMenuContent() || showFullMenuOverride;
+    const toggleBtnHtml = showToggleBtn ? `
+        <button type="button" onclick="toggleShowFullMenu()"
+            class="px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shrink-0 cursor-pointer ${showFullMenuOverride ? 'bg-slate-800 text-white hover:bg-slate-900' : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'}">
+            <i class="fa-solid ${showFullMenuOverride ? 'fa-calendar-day' : 'fa-layer-group'} text-[11px]"></i>
+            <span>${showFullMenuOverride ? `Solo hoy (${getTodayDayName()})` : 'Ver toda la carta'}</span>
+        </button>
+    ` : '';
+
+    container.innerHTML = tabsHtml + toggleBtnHtml;
 }
 
 function selectCategory(catKey) {
@@ -1808,22 +1892,44 @@ function renderMenuGrid() {
     const isPizzasView = activeCategory === 'pizzas' && searchQuery.length === 0;
 
     if (searchQuery.length > 0) {
+        // El buscador SIEMPRE busca en TODA la carta (incluyendo platos de otros días como excepción)
         Object.keys(menuData).forEach(catKey => {
             const cat = menuData[catKey];
-            cat.items.forEach(item => {
+            (cat.items || []).forEach(item => {
                 const matchName = item.name.toLowerCase().includes(searchQuery);
                 const matchDesc = item.desc && item.desc.toLowerCase().includes(searchQuery);
-                if (matchName || matchDesc) {
-                    itemsToDisplay.push({ ...item, categoryKey: catKey, categoryName: cat.name });
+                const matchCat = cat.name && cat.name.toLowerCase().includes(searchQuery);
+                if (matchName || matchDesc || matchCat) {
+                    itemsToDisplay.push({
+                        ...item,
+                        categoryKey: catKey,
+                        categoryName: cat.name,
+                        isOffToday: !isItemAvailableToday(item, cat)
+                    });
                 }
             });
         });
+        // Mostrar primero los platos de hoy, y debajo los que están "Fuera de hoy"
+        itemsToDisplay.sort((a, b) => Number(a.isOffToday) - Number(b.isOffToday));
     } else {
         const cat = menuData[activeCategory];
         if (cat && Array.isArray(cat.items) && cat.items.length > 0) {
-            itemsToDisplay = cat.items.map(item => ({ ...item, categoryKey: activeCategory, categoryName: cat.name }));
+            const mapped = cat.items.map(item => ({
+                ...item,
+                categoryKey: activeCategory,
+                categoryName: cat.name,
+                isOffToday: !isItemAvailableToday(item, cat)
+            }));
+            itemsToDisplay = showFullMenuOverride
+                ? mapped
+                : mapped.filter(it => !it.isOffToday);
         } else if (activeCategory === 'pizzas') {
-            itemsToDisplay = OFFICIAL_PIZZAS.map(item => ({ ...item, categoryKey: 'pizzas', categoryName: 'Pizzas' }));
+            itemsToDisplay = OFFICIAL_PIZZAS.map(item => ({
+                ...item,
+                categoryKey: 'pizzas',
+                categoryName: 'Pizzas',
+                isOffToday: false
+            }));
         }
 
         // En la categoría de pizzas, 'Pizza libre' siempre se ubica primera en la grilla
@@ -1839,10 +1945,23 @@ function renderMenuGrid() {
     }
 
     if (itemsToDisplay.length === 0) {
-        container.innerHTML = `
+        const modesBarEmpty = document.getElementById('pizza-modes-bar');
+        if (modesBarEmpty) modesBarEmpty.classList.add('hidden');
+        container.innerHTML = searchQuery.length > 0 ? `
             <div class="col-span-full text-center py-12 text-slate-400 space-y-2">
                 <i class="fa-solid fa-magnifying-glass text-2xl"></i>
                 <p class="text-xs">No se encontraron productos para "${searchQuery}".</p>
+            </div>
+        ` : `
+            <div class="col-span-full text-center py-12 text-slate-400 space-y-3">
+                <i class="fa-solid fa-calendar-day text-2xl"></i>
+                <p class="text-xs">No hay platos habilitados hoy (${getTodayDayName()}) en esta categoría.</p>
+                ${!showFullMenuOverride ? `
+                    <button type="button" onclick="toggleShowFullMenu()"
+                        class="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold px-3.5 py-2 rounded-xl text-xs transition-all cursor-pointer">
+                        Ver toda la carta igualmente
+                    </button>
+                ` : ''}
             </div>
         `;
         return;
@@ -1924,13 +2043,16 @@ function renderMenuGrid() {
     }
 
     const cardsHtml = itemsToDisplay.map(item => {
-        const isPizza = item.categoryKey === 'pizzas' || (item.categoryName && item.categoryName.toLowerCase().includes('pizza')) || activeCategory === 'pizzas';
+        const isPizza = item.categoryKey === 'pizzas' || (item.categoryName && item.categoryName.toLowerCase().includes('pizza'));
         const isPizzaLibre = item.id === 'pz_libre' || item.name.toLowerCase().includes('pizza libre');
         const orderItem = currentItems.find(i => i.id === item.id);
         const qty = orderItem ? orderItem.qty : 0;
 
         const isSelectedFlavor = selectedPizzaFlavors.some(f => f.id === item.id);
         let cardBorderClass = "border-slate-200 hover:border-blue-400";
+        if (item.isOffToday) {
+            cardBorderClass = "border-amber-300 border-dashed bg-amber-50/20 hover:border-amber-500";
+        }
         if (isSelectedFlavor) {
             cardBorderClass = "border-2 border-[#2563eb] bg-blue-50/40 shadow-sm";
         }
@@ -2005,9 +2127,13 @@ function renderMenuGrid() {
                         <span class="bg-blue-50 text-[#2563eb] border border-blue-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
                             ${qty} en comanda
                         </span>
+                    ` : (item.isOffToday ? `
+                        <span class="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                            Fuera de hoy
+                        </span>
                     ` : `
                         <span class="text-[10px] text-slate-400">Disponible</span>
-                    `}
+                    `)}
 
                     ${actionButton}
                 </div>
@@ -4741,62 +4867,285 @@ function renderAdminMenuManager() {
         <option value="${cKey}">${menuData[cKey].name}</option>
     `).join('');
 
-    // 2. Lista de categorías existentes con botón para eliminar
+    const todayName = getTodayDayName();
+
+    // 2. Lista de categorías existentes con programación por días y switch Activa/Pausada
     const catList = document.getElementById('admin-categories-list');
     catList.innerHTML = Object.keys(menuData).map(cKey => {
         const cat = menuData[cKey];
-        return `
-            <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                <div class="flex items-center space-x-2">
-                    <i class="fa-solid ${cat.icon || 'fa-utensils'} text-[#2563eb]"></i>
-                    <span class="font-bold text-slate-800">${cat.name}</span>
-                    <span class="text-[10px] text-slate-400">(${cat.items.length} platos)</span>
-                </div>
-                <button onclick="deleteCategory('${cKey}')" class="text-rose-500 hover:text-rose-700 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors" title="Eliminar Categoría">
-                    <i class="fa-solid fa-trash-can text-xs"></i>
+        const catDays = getCategoryDays(cat);
+        const isAllDays = catDays.length >= 7;
+        const isActive = cat.isActive !== false;
+        const visibleToday = isCategoryAvailableToday(cat);
+
+        const dayPillsHtml = WEEK_DAYS_ORDERED.map(d => {
+            const selected = catDays.includes(d.id);
+            return `
+                <button type="button" onclick="toggleCategoryDay('${cKey}', ${d.id})"
+                    class="w-7 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${selected ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-100'}"
+                    title="${d.label}">
+                    ${d.short}
                 </button>
+            `;
+        }).join('');
+
+        return `
+            <div class="p-2.5 rounded-2xl bg-slate-50 border ${visibleToday ? 'border-slate-200' : 'border-amber-300 bg-amber-50/30'} text-xs space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2 min-w-0">
+                        <i class="fa-solid ${cat.icon || 'fa-utensils'} text-[#2563eb] shrink-0"></i>
+                        <span class="font-bold text-slate-800 truncate">${cat.name}</span>
+                        <span class="text-[10px] text-slate-400 shrink-0">(${cat.items.length})</span>
+                    </div>
+                    <div class="flex items-center space-x-1.5 shrink-0">
+                        <button type="button" onclick="toggleCategoryActive('${cKey}')"
+                            class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${isActive ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200' : 'bg-slate-200 text-slate-600 border border-slate-300 hover:bg-slate-300'}"
+                            title="Activar o pausar categoría temporalmente">
+                            ${isActive ? 'Activa' : 'Pausada'}
+                        </button>
+                        <button onclick="deleteCategory('${cKey}')" class="text-rose-500 hover:text-rose-700 p-1.5 min-w-[30px] min-h-[30px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors cursor-pointer" title="Eliminar Categoría">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-200/70">
+                    <div class="flex items-center gap-1 flex-wrap">
+                        <button type="button" onclick="setCategoryAllDays('${cKey}')"
+                            class="px-2 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${isAllDays ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}">
+                            Todos
+                        </button>
+                        ${dayPillsHtml}
+                    </div>
+                    <span class="text-[10px] font-semibold ${visibleToday ? 'text-emerald-700' : 'text-amber-800'}">
+                        ${visibleToday ? `Visible hoy (${todayName})` : `Oculta hoy (${todayName})`}
+                    </span>
+                </div>
             </div>
         `;
     }).join('');
 
-    // 3. Catálogo agrupado por categoría
+    // 3. Catálogo agrupado por categoría con control rápido por plato (Hoy ON/OFF y Días)
     const menuItemsList = document.getElementById('admin-menu-items-list');
     let totalItems = 0;
 
     menuItemsList.innerHTML = Object.keys(menuData).map(cKey => {
         const cat = menuData[cKey];
         totalItems += cat.items.length;
+        const catScheduleLabel = cat.isActive === false ? 'Pausada' : formatDaysSummary(getCategoryDays(cat));
 
         return `
             <div class="space-y-2">
-                <h5 class="font-bold text-xs text-slate-700 flex items-center space-x-1.5 bg-slate-100 p-2 rounded-xl">
-                    <i class="fa-solid ${cat.icon || 'fa-utensils'} text-[#2563eb]"></i>
-                    <span>${cat.name} (${cat.items.length})</span>
+                <h5 class="font-bold text-xs text-slate-700 flex items-center justify-between bg-slate-100 p-2 rounded-xl gap-2">
+                    <span class="flex items-center space-x-1.5 min-w-0">
+                        <i class="fa-solid ${cat.icon || 'fa-utensils'} text-[#2563eb]"></i>
+                        <span class="truncate">${cat.name} (${cat.items.length})</span>
+                    </span>
+                    <span class="text-[10px] font-semibold text-slate-500 shrink-0">${catScheduleLabel}</span>
                 </h5>
                 <div class="space-y-1.5 pl-1">
-                    ${cat.items.map(item => `
-                        <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-white border border-slate-200 text-xs">
-                            <div class="flex-1 min-w-0 pr-2">
-                                <h6 class="font-bold text-slate-800 truncate">${item.name}</h6>
-                                ${item.desc ? `<p class="text-[11px] text-slate-400 truncate">${item.desc}</p>` : ''}
-                            </div>
-                            <div class="flex items-center space-x-2 shrink-0">
-                                <span class="font-bold text-slate-900">$${item.price.toLocaleString()}</span>
-                                <button onclick="openEditMenuItemModal('${cKey}', '${item.id}')" class="text-slate-400 hover:text-blue-600 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-blue-50 transition-colors cursor-pointer" title="Editar precio o datos">
-                                    <i class="fa-solid fa-pen text-xs"></i>
+                    ${cat.items.map(item => {
+                        const isAvail = item.isAvailable !== false;
+                        const hasCustomDays = Array.isArray(item.availableDays);
+                        const itemToday = isItemAvailableToday(item, cat);
+                        const isExpanded = expandedAdminItemDaysId === item.id;
+
+                        let scheduleBadge = '';
+                        if (!isAvail) {
+                            scheduleBadge = '<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 font-bold">Pausado</span>';
+                        } else if (hasCustomDays) {
+                            scheduleBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-blue-50 text-[#2563eb] border border-blue-200 font-bold">${formatDaysSummary(item.availableDays)}</span>`;
+                        }
+
+                        const itemDayPills = isExpanded ? `
+                            <div class="mt-2 pt-2 border-t border-slate-200 flex flex-wrap items-center gap-1">
+                                <button type="button" onclick="setItemInheritCategoryDays('${cKey}', '${item.id}')"
+                                    class="px-2 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${!hasCustomDays ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}">
+                                    Según categoría
                                 </button>
-                                <button onclick="deleteMenuItem('${cKey}', '${item.id}')" class="text-slate-400 hover:text-rose-600 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors cursor-pointer" title="Eliminar">
-                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                <button type="button" onclick="setItemAllDays('${cKey}', '${item.id}')"
+                                    class="px-2 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${(hasCustomDays && item.availableDays.length >= 7) ? 'bg-[#2563eb] text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}">
+                                    Todos
                                 </button>
+                                ${WEEK_DAYS_ORDERED.map(d => {
+                                    const activeDay = hasCustomDays && item.availableDays.includes(d.id);
+                                    return `
+                                        <button type="button" onclick="toggleItemDay('${cKey}', '${item.id}', ${d.id})"
+                                            class="w-7 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${activeDay ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-100'}"
+                                            title="${d.label}">
+                                            ${d.short}
+                                        </button>
+                                    `;
+                                }).join('')}
                             </div>
-                        </div>
-                    `).join('')}
+                        ` : '';
+
+                        return `
+                            <div class="p-2 rounded-xl ${itemToday ? 'bg-slate-50 hover:bg-white border-slate-200' : 'bg-amber-50/30 border-amber-200'} border text-xs">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="flex-1 min-w-0 pr-1">
+                                        <div class="flex items-center gap-1.5 flex-wrap">
+                                            <h6 class="font-bold text-slate-800 truncate">${item.name}</h6>
+                                            ${scheduleBadge}
+                                        </div>
+                                        ${item.desc ? `<p class="text-[11px] text-slate-400 truncate">${item.desc}</p>` : ''}
+                                    </div>
+                                    <div class="flex items-center space-x-1 shrink-0">
+                                        <span class="font-bold text-slate-900 mr-1">$${item.price.toLocaleString()}</span>
+                                        <button type="button" onclick="toggleItemAvailableToday('${cKey}', '${item.id}')"
+                                            class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${isAvail ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200' : 'bg-slate-200 text-slate-600 border border-slate-300 hover:bg-slate-300'}"
+                                            title="Activar o pausar este plato">
+                                            ${isAvail ? 'Sí' : 'No'}
+                                        </button>
+                                        <button type="button" onclick="toggleItemDaysEditor('${item.id}')"
+                                            class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${hasCustomDays || isExpanded ? 'bg-blue-100 text-[#2563eb] border border-blue-300' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}"
+                                            title="Elegir días específicos para este plato">
+                                            Días
+                                        </button>
+                                        <button onclick="openEditMenuItemModal('${cKey}', '${item.id}')" class="text-slate-400 hover:text-blue-600 p-1.5 min-w-[30px] min-h-[30px] flex items-center justify-center rounded-xl hover:bg-blue-50 transition-colors cursor-pointer" title="Editar precio o datos">
+                                            <i class="fa-solid fa-pen text-xs"></i>
+                                        </button>
+                                        <button onclick="deleteMenuItem('${cKey}', '${item.id}')" class="text-slate-400 hover:text-rose-600 p-1.5 min-w-[30px] min-h-[30px] flex items-center justify-center rounded-xl hover:bg-rose-50 transition-colors cursor-pointer" title="Eliminar">
+                                            <i class="fa-solid fa-trash-can text-xs"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                ${itemDayPills}
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
             </div>
         `;
     }).join('');
 
     document.getElementById('admin-total-products-badge').innerText = `${totalItems} ítems`;
+}
+
+async function saveCategoryAvailabilityToServer(cKey) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    renderAdminMenuManager();
+    renderCategoryTabs();
+    renderMenuGrid();
+
+    try {
+        await fetch(`/api/menu/category/${encodeURIComponent(cKey)}/availability`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                availableDays: getCategoryDays(cat),
+                isActive: cat.isActive !== false
+            })
+        });
+    } catch (e) {
+        console.warn('Error guardando disponibilidad de categoría:', e);
+    }
+}
+
+async function toggleCategoryActive(cKey) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    cat.isActive = cat.isActive === false ? true : false;
+    await saveCategoryAvailabilityToServer(cKey);
+    showToast(`${cat.name}: ${cat.isActive ? 'Activada' : 'Pausada'}`, 'info');
+}
+
+async function setCategoryAllDays(cKey) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    cat.availableDays = [0, 1, 2, 3, 4, 5, 6];
+    cat.isActive = true;
+    await saveCategoryAvailabilityToServer(cKey);
+    showToast(`${cat.name}: disponible todos los días`, 'success');
+}
+
+async function toggleCategoryDay(cKey, dayId) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    const current = getCategoryDays(cat);
+    const exists = current.includes(dayId);
+    let next;
+    if (exists) {
+        next = current.filter(d => d !== dayId);
+    } else {
+        next = [...current, dayId].sort((a, b) => a - b);
+    }
+    cat.availableDays = next;
+    await saveCategoryAvailabilityToServer(cKey);
+}
+
+function toggleItemDaysEditor(itemId) {
+    expandedAdminItemDaysId = (expandedAdminItemDaysId === itemId) ? null : itemId;
+    renderAdminMenuManager();
+}
+
+async function saveItemAvailabilityToServer(cKey, itemId) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    const item = cat.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    renderAdminMenuManager();
+    renderCategoryTabs();
+    renderMenuGrid();
+
+    try {
+        await fetch(`/api/menu/item/${encodeURIComponent(itemId)}/availability`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                availableDays: Array.isArray(item.availableDays) ? item.availableDays : null,
+                isAvailable: item.isAvailable !== false
+            })
+        });
+    } catch (e) {
+        console.warn('Error guardando disponibilidad de plato:', e);
+    }
+}
+
+async function toggleItemAvailableToday(cKey, itemId) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    const item = cat.items.find(i => i.id === itemId);
+    if (!item) return;
+    item.isAvailable = item.isAvailable === false ? true : false;
+    await saveItemAvailabilityToServer(cKey, itemId);
+    showToast(`${item.name}: ${item.isAvailable ? 'Disponible' : 'Pausado'}`, 'info');
+}
+
+async function setItemInheritCategoryDays(cKey, itemId) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    const item = cat.items.find(i => i.id === itemId);
+    if (!item) return;
+    item.availableDays = null;
+    await saveItemAvailabilityToServer(cKey, itemId);
+    showToast(`${item.name}: usa los días de ${cat.name}`, 'info');
+}
+
+async function setItemAllDays(cKey, itemId) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    const item = cat.items.find(i => i.id === itemId);
+    if (!item) return;
+    item.availableDays = [0, 1, 2, 3, 4, 5, 6];
+    item.isAvailable = true;
+    await saveItemAvailabilityToServer(cKey, itemId);
+}
+
+async function toggleItemDay(cKey, itemId, dayId) {
+    const cat = menuData[cKey];
+    if (!cat) return;
+    const item = cat.items.find(i => i.id === itemId);
+    if (!item) return;
+    // Si heredaba de categoría, partir del día tocado para elegir rápido (ej: tocar S -> solo Sábado)
+    const current = Array.isArray(item.availableDays) ? item.availableDays.map(Number) : [];
+    const exists = current.includes(dayId);
+    item.availableDays = exists
+        ? current.filter(d => d !== dayId)
+        : [...current, dayId].sort((a, b) => a - b);
+    await saveItemAvailabilityToServer(cKey, itemId);
 }
 
 async function createNewCategory() {
@@ -4819,6 +5168,8 @@ async function createNewCategory() {
         id: catKey,
         name: name,
         icon: icon,
+        availableDays: [0, 1, 2, 3, 4, 5, 6],
+        isActive: true,
         items: []
     };
 
@@ -4881,7 +5232,9 @@ async function addNewMenuItem() {
         id: newItemId,
         name: name,
         price: price,
-        desc: desc
+        desc: desc,
+        isAvailable: true,
+        availableDays: null
     };
 
     if (menuData[catKey]) {
