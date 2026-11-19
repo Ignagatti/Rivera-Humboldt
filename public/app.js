@@ -4213,6 +4213,66 @@ function buildEscPosBytes(data) {
 
         pushBytes(SIZE_1X);
         pushBytes(BOLD_OFF);
+    } else if (data.type === 'closure') {
+        // 1. ENCABEZADO
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
+        pushLine(bizNameUpper);
+        pushBytes(SIZE_1X2);
+        pushLine('CIERRE DE TURNO / AUDITORIA');
+        pushBytes(SIZE_1X);
+        pushLine(sepEq);
+
+        // 2. FECHA Y HORA
+        pushBytes(ALIGN_LEFT);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_1X2);
+        pushLeftRight(`FECHA: ${data.dateStr}`, `HORA: ${data.time}`, cols1x);
+        pushBytes(SIZE_1X);
+        pushLine(sepDash);
+
+        // 3. BALANCE ECONOMICO
+        pushBytes(BOLD_ON);
+        pushLeftRight('FACTURACION TOTAL:', `$${data.totalSales.toLocaleString('es-AR')}`, cols1x);
+        pushBytes(BOLD_OFF);
+        pushLeftRight('  Efectivo en caja:', `$${data.cashSales.toLocaleString('es-AR')}`, cols1x);
+        pushLeftRight('  Transferencias:', `$${data.transferSales.toLocaleString('es-AR')}`, cols1x);
+        pushLeftRight('  Pozo de propinas:', `$${data.tipsPool.toLocaleString('es-AR')}`, cols1x);
+        pushLeftRight('  Mesas cobradas:', `${data.ordersCount}`, cols1x);
+        pushLine(sepEq);
+
+        // 4. AUDITORIA DE PIZZAS Y PIZZA LIBRE
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushBytes(SIZE_1X2);
+        pushLine('AUDITORIA DE PIZZAS');
+        pushBytes(SIZE_1X);
+        pushBytes(ALIGN_LEFT);
+        pushLeftRight('Pizza Libre (Personas):', `${data.librePersons} comensales`, cols1x);
+        pushLeftRight('Pizzas a la Carta:', `${data.traditionalPizzas} unidades`, cols1x);
+        pushLeftRight('Total Pizzas Despachadas:', `${data.totalPizzas} unidades`, cols1x);
+        pushLine(sepDash);
+
+        // 5. TOP GUSTOS DE PIZZA
+        if (Array.isArray(data.topFlavors) && data.topFlavors.length > 0) {
+            pushBytes(ALIGN_CENTER);
+            pushBytes(BOLD_ON);
+            pushBytes(SIZE_1X2);
+            pushLine('TOP GUSTOS DE PIZZA');
+            pushBytes(SIZE_1X);
+            pushBytes(ALIGN_LEFT);
+            data.topFlavors.slice(0, 5).forEach((f, idx) => {
+                pushLeftRight(`${idx + 1}. ${f.name}`, `${f.pizzaEquiv} piz. (${f.orders} ped.)`, cols1x);
+            });
+            pushLine(sepDash);
+        }
+
+        // 6. PIE
+        pushBytes(ALIGN_CENTER);
+        pushBytes(BOLD_ON);
+        pushLine('RIVERA POS - AUDITORIA');
+        pushBytes(BOLD_OFF);
     } else {
         // TICKET CUENTA / PRE-CUENTA (3nStar RPT004 - 72mm / 48 cols - CON PRECIOS, SIN FIRMA)
         pushBytes(ALIGN_CENTER);
@@ -4373,6 +4433,77 @@ function buildThermalPrintHtml(data) {
                     <div class="obs-text">${escapeHtmlSafe(data.note)}</div>
                 </div>
             ` : ''}
+        `;
+    } else if (data.type === 'closure') {
+        const topFlavorsHtml = (Array.isArray(data.topFlavors) && data.topFlavors.length > 0)
+            ? data.topFlavors.slice(0, 5).map((f, idx) => `
+                <div class="meta-row">
+                    <span>${idx + 1}. ${escapeHtmlSafe(f.name)}</span>
+                    <strong style="text-align:right;">${f.pizzaEquiv} piz. (${f.orders} ped.)</strong>
+                </div>
+            `).join('')
+            : '<div class="legal-note">Sin pizzas registradas</div>';
+
+        bodyContent = `
+            <div class="header-block">
+                <div class="brand-title">${escapeHtmlSafe(bizName)}</div>
+                <div class="doc-subtitle">CIERRE DE TURNO / AUDITORIA</div>
+            </div>
+
+            <div class="meta-block">
+                <div class="meta-row">
+                    <span>FECHA: ${escapeHtmlSafe(data.dateStr)}</span>
+                    <span>HORA: ${escapeHtmlSafe(data.time)} hs</span>
+                </div>
+            </div>
+
+            <div class="meta-block" style="border-top: 0.5mm dashed #000; padding-top: 1.5mm;">
+                <div class="meta-row strong-row">
+                    <span>FACTURACION TOTAL:</span>
+                    <span>$${data.totalSales.toLocaleString('es-AR')}</span>
+                </div>
+                <div class="meta-row">
+                    <span>Efectivo en caja:</span>
+                    <span>$${data.cashSales.toLocaleString('es-AR')}</span>
+                </div>
+                <div class="meta-row">
+                    <span>Transferencias:</span>
+                    <span>$${data.transferSales.toLocaleString('es-AR')}</span>
+                </div>
+                <div class="meta-row">
+                    <span>Pozo de propinas:</span>
+                    <span>$${data.tipsPool.toLocaleString('es-AR')}</span>
+                </div>
+                <div class="meta-row">
+                    <span>Mesas cobradas:</span>
+                    <span>${data.ordersCount}</span>
+                </div>
+            </div>
+
+            <div class="meta-block" style="border-top: 0.7mm solid #000; padding-top: 1.5mm;">
+                <div class="cmd-id" style="text-align:center; margin-bottom: 1.5mm;">AUDITORIA DE PIZZAS</div>
+                <div class="meta-row strong-row">
+                    <span>Pizza Libre (Personas):</span>
+                    <span>${data.librePersons} comensales</span>
+                </div>
+                <div class="meta-row">
+                    <span>Pizzas a la Carta:</span>
+                    <span>${data.traditionalPizzas} unidades</span>
+                </div>
+                <div class="meta-row strong-row">
+                    <span>Total Pizzas Despachadas:</span>
+                    <span>${data.totalPizzas} unidades</span>
+                </div>
+            </div>
+
+            <div class="meta-block" style="border-top: 0.5mm dashed #000; padding-top: 1.5mm;">
+                <div class="cmd-id" style="text-align:center; margin-bottom: 1.5mm;">TOP GUSTOS DE PIZZA</div>
+                ${topFlavorsHtml}
+            </div>
+
+            <div class="footer-block">
+                <div class="legal-note" style="text-align:center;">Rivera POS - Resumen de Turno</div>
+            </div>
         `;
     } else {
         bodyContent = `
@@ -5357,6 +5488,167 @@ async function saveEditedMenuItem() {
 
 // ================= PESTAÑA 3: REPORTE DE LA NOCHE Y PDF =================
 
+// ================= AUDITORÍA Y ANALÍTICA DE PIZZAS Y GUSTOS =================
+
+function normalizePizzaFlavorName(name) {
+    if (!name) return '';
+    let clean = String(name).trim()
+        .replace(/^Pizza\s+/i, '')
+        .replace(/^\d+\/\d+\s*/, '')
+        .replace(/\(Entera\)/i, '')
+        .replace(/\[.*?\]/g, '')
+        .trim();
+    if (clean.length === 0) return '';
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+function parsePizzaFlavorsFromItem(itemName, itemNote) {
+    const result = [];
+    const name = String(itemName || '').trim();
+    const note = String(itemNote || '').trim();
+    const lowerName = name.toLowerCase();
+
+    // Caso Pizza Libre: detectar si se especificaron gustos en las notas
+    if (lowerName.includes('pizza libre')) {
+        const m = note.match(/Gustos:\s*([^|\]\n]+)/i);
+        if (m) {
+            const parts = m[1].split(/,| y |\+/i).map(s => normalizePizzaFlavorName(s)).filter(Boolean);
+            const frac = parts.length > 0 ? (1 / parts.length) : 0.5;
+            parts.forEach(p => result.push({ flavor: p, fraction: frac, isLibre: true }));
+        }
+        return result;
+    }
+
+    // Separador con barra ' / ' (ej: Pizza: Muzzarella / Roquefort)
+    if (name.includes(' / ')) {
+        const raw = name.replace(/^Pizza:\s*/i, '').replace(/^Pizza\s+/i, '');
+        const parts = raw.split(' / ').map(s => normalizePizzaFlavorName(s)).filter(Boolean);
+        const frac = parts.length > 0 ? (1 / parts.length) : 1;
+        parts.forEach(p => result.push({ flavor: p, fraction: frac, isLibre: false }));
+        return result;
+    }
+
+    // Formato con fracciones '1/2' o '1/3'
+    if (name.includes('1/2') || name.includes('1/3') || /gustos/i.test(name)) {
+        const afterColon = name.includes(':') ? name.split(':')[1] : name;
+        const parts = afterColon.split('+').map(s => normalizePizzaFlavorName(s)).filter(Boolean);
+        const frac = parts.length > 0 ? (1 / parts.length) : (name.includes('1/3') ? (1 / 3) : 0.5);
+        parts.forEach(p => result.push({ flavor: p, fraction: frac, isLibre: false }));
+        return result;
+    }
+
+    // Entera tradicional
+    const single = normalizePizzaFlavorName(name);
+    if (single) {
+        result.push({ flavor: single, fraction: 1.0, isLibre: false });
+    }
+    return result;
+}
+
+function computePizzaAndFlavorStats(payments = paymentHistory) {
+    let librePersonsTotal = 0;
+    let libreTablesCount = 0;
+    let libreRevenue = 0;
+    let libreRoundsCount = 0;
+
+    let traditionalPizzasCount = 0;
+    let traditionalRevenue = 0;
+
+    const flavorStats = {};
+
+    payments.forEach(p => {
+        let pLibrePersons = 0;
+        let pLibreRevenue = 0;
+        let pTableHadLibre = false;
+
+        if (Array.isArray(p.items) && p.items.length > 0) {
+            p.items.forEach(it => {
+                const isLibre = Boolean(
+                    it.isPizzaLibre || 
+                    (it.id && String(it.id).startsWith('pz_libre')) || 
+                    (it.name && /pizza\s*libre/i.test(it.name))
+                );
+
+                if (isLibre) {
+                    pTableHadLibre = true;
+                    libreRoundsCount += 1;
+
+                    if (it.price > 0) {
+                        const persons = it.librePersons || it.qty || 1;
+                        pLibrePersons += persons;
+                        pLibreRevenue += (it.price * (it.qty || persons));
+                    } else if (!pLibrePersons && it.librePersons) {
+                        pLibrePersons = it.librePersons;
+                    }
+
+                    const flavors = parsePizzaFlavorsFromItem(it.name, it.note);
+                    flavors.forEach(f => {
+                        const fname = f.flavor;
+                        if (!flavorStats[fname]) flavorStats[fname] = { orders: 0, pizzaEquiv: 0 };
+                        flavorStats[fname].orders += 1;
+                        flavorStats[fname].pizzaEquiv += f.fraction;
+                    });
+                } else {
+                    const isPizzaItem = Boolean(
+                        it.isPizza || 
+                        (it.id && String(it.id).startsWith('pz_')) || 
+                        (it.name && /pizza/i.test(it.name))
+                    );
+
+                    if (isPizzaItem) {
+                        const qty = it.qty || 1;
+                        traditionalPizzasCount += qty;
+                        traditionalRevenue += (it.price * qty);
+
+                        const flavors = parsePizzaFlavorsFromItem(it.name, it.note);
+                        flavors.forEach(f => {
+                            const fname = f.flavor;
+                            if (!flavorStats[fname]) flavorStats[fname] = { orders: 0, pizzaEquiv: 0 };
+                            flavorStats[fname].orders += qty;
+                            flavorStats[fname].pizzaEquiv += (f.fraction * qty);
+                        });
+                    }
+                }
+            });
+        } else if (p.itemsSummary) {
+            if (/pizza\s*libre/i.test(p.itemsSummary)) {
+                pTableHadLibre = true;
+                const m = p.itemsSummary.match(/(\d+)\s*personas/i) || p.itemsSummary.match(/(\d+)x\s*Pizza libre/i);
+                pLibrePersons = m ? parseInt(m[1], 10) : 1;
+                pLibreRevenue = p.total;
+                libreRoundsCount += 1;
+            }
+        }
+
+        if (pTableHadLibre) {
+            libreTablesCount += 1;
+            librePersonsTotal += (pLibrePersons || 1);
+            libreRevenue += pLibreRevenue;
+        }
+    });
+
+    const totalPizzasDespachadas = traditionalPizzasCount + libreRoundsCount;
+
+    const sortedFlavors = Object.keys(flavorStats)
+        .map(name => ({
+            name,
+            orders: flavorStats[name].orders,
+            pizzaEquiv: Math.round(flavorStats[name].pizzaEquiv * 10) / 10
+        }))
+        .sort((a, b) => (b.pizzaEquiv !== a.pizzaEquiv ? b.pizzaEquiv - a.pizzaEquiv : b.orders - a.orders));
+
+    return {
+        librePersonsTotal,
+        libreTablesCount,
+        libreRevenue,
+        libreRoundsCount,
+        traditionalPizzasCount,
+        traditionalRevenue,
+        totalPizzasDespachadas,
+        sortedFlavors
+    };
+}
+
 function renderNightReportView() {
     const nowStr = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     document.getElementById('report-current-date').innerText = `Resumen: ${nowStr.charAt(0).toUpperCase() + nowStr.slice(1)}`;
@@ -5380,16 +5672,130 @@ function renderNightReportView() {
     document.getElementById('rep-kpi-tip-split').innerText = `$${tipPerWaiter.toLocaleString()} por mozo (${waiterCount})`;
     document.getElementById('rep-kpi-avg').innerText = `$${avgTicket.toLocaleString()}`;
 
-    // 1. Ranking de lo más vendido del día
+    // 1. Estadísticas de Pizzas y Pizza Libre del Turno
+    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+
+    const badgeElem = document.getElementById('rep-pizza-summary-badge');
+    if (badgeElem) {
+        badgeElem.innerText = `${pizzaStats.librePersonsTotal} pers. libre / ${pizzaStats.totalPizzasDespachadas} pizzas`;
+    }
+    const librePersElem = document.getElementById('rep-pizza-libre-persons');
+    if (librePersElem) {
+        librePersElem.innerText = `${pizzaStats.librePersonsTotal}`;
+    }
+    const libreSubElem = document.getElementById('rep-pizza-libre-sub');
+    if (libreSubElem) {
+        libreSubElem.innerText = `${pizzaStats.libreTablesCount} mesa${pizzaStats.libreTablesCount === 1 ? '' : 's'} ($${pizzaStats.libreRevenue.toLocaleString()})`;
+    }
+    const cartaCountElem = document.getElementById('rep-pizza-carta-count');
+    if (cartaCountElem) {
+        cartaCountElem.innerText = `${pizzaStats.traditionalPizzasCount}`;
+    }
+    const cartaSubElem = document.getElementById('rep-pizza-carta-sub');
+    if (cartaSubElem) {
+        cartaSubElem.innerText = `Carta / Tradicional ($${pizzaStats.traditionalRevenue.toLocaleString()})`;
+    }
+    const totalPizzasElem = document.getElementById('rep-pizza-total-count');
+    if (totalPizzasElem) {
+        totalPizzasElem.innerText = `${pizzaStats.totalPizzasDespachadas}`;
+    }
+    const totalPizzasSub = document.getElementById('rep-pizza-total-sub');
+    if (totalPizzasSub) {
+        totalPizzasSub.innerText = `${pizzaStats.traditionalPizzasCount} a la carta + ${pizzaStats.libreRoundsCount} rondas libre`;
+    }
+    const topFlavorElem = document.getElementById('rep-pizza-top-flavor');
+    const topFlavorSub = document.getElementById('rep-pizza-top-flavor-sub');
+    if (topFlavorElem && topFlavorSub) {
+        if (pizzaStats.sortedFlavors.length > 0) {
+            const tf = pizzaStats.sortedFlavors[0];
+            topFlavorElem.innerText = tf.name;
+            topFlavorSub.innerText = `${tf.pizzaEquiv} pizzas (${tf.orders} pedido${tf.orders === 1 ? '' : 's'})`;
+        } else {
+            topFlavorElem.innerText = 'Sin datos';
+            topFlavorSub.innerText = '0 pizzas registradas';
+        }
+    }
+
+    // 2. Ranking de Gustos de Pizza Más Vendidos
+    const flavorsListElem = document.getElementById('rep-top-flavors-list');
+    if (flavorsListElem) {
+        if (pizzaStats.sortedFlavors.length === 0) {
+            flavorsListElem.innerHTML = `<p class="text-xs text-slate-400 py-6 text-center">Sin consumo de pizzas registrado en este turno.</p>`;
+        } else {
+            const maxEquiv = pizzaStats.sortedFlavors[0].pizzaEquiv || 1;
+            flavorsListElem.innerHTML = pizzaStats.sortedFlavors.map((f, idx) => {
+                const pct = Math.round((f.pizzaEquiv / maxEquiv) * 100);
+                return `
+                    <div class="space-y-1 text-xs">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-800 truncate mr-2">
+                                <span class="text-slate-400 font-semibold mr-1">${idx + 1}°.</span> ${f.name}
+                            </span>
+                            <div class="text-right shrink-0">
+                                <strong class="text-slate-900">${f.pizzaEquiv} piz.</strong>
+                                <span class="text-slate-400 text-[10px] ml-1">(${f.orders} ped.)</span>
+                            </div>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-amber-500 h-1.5 rounded-full" style="width: ${pct}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 3. Ranking de lo más vendido del día (con Pizza Libre unificada por persona)
     const productStats = {};
     paymentHistory.forEach(p => {
-        if (Array.isArray(p.items)) {
+        if (Array.isArray(p.items) && p.items.length > 0) {
             p.items.forEach(i => {
-                if (!productStats[i.name]) {
-                    productStats[i.name] = { qty: 0, revenue: 0 };
+                const isLibre = Boolean(
+                    i.isPizzaLibre || 
+                    (i.id && String(i.id).startsWith('pz_libre')) || 
+                    (i.name && /pizza\s*libre/i.test(i.name))
+                );
+
+                if (isLibre) {
+                    if (i.price > 0 || (!i.libreRound || i.libreRound === 1)) {
+                        const libreKey = 'Pizza Libre (por persona)';
+                        if (!productStats[libreKey]) {
+                            productStats[libreKey] = { qty: 0, revenue: 0 };
+                        }
+                        const persons = i.librePersons || i.qty || 1;
+                        productStats[libreKey].qty += persons;
+                        productStats[libreKey].revenue += (i.price * persons);
+                    }
+                } else {
+                    if (!productStats[i.name]) {
+                        productStats[i.name] = { qty: 0, revenue: 0 };
+                    }
+                    productStats[i.name].qty += i.qty;
+                    productStats[i.name].revenue += (i.qty * i.price);
                 }
-                productStats[i.name].qty += i.qty;
-                productStats[i.name].revenue += (i.qty * i.price);
+            });
+        } else if (p.itemsSummary) {
+            const parts = p.itemsSummary.split(',').map(s => s.trim()).filter(Boolean);
+            parts.forEach(part => {
+                const match = part.match(/^(\d+)x\s*(.+)$/);
+                const qty = match ? parseInt(match[1], 10) : 1;
+                const itemName = match ? match[2].trim() : part;
+                if (/pizza\s*libre/i.test(itemName)) {
+                    const personsMatch = itemName.match(/(\d+)\s*personas/i);
+                    const persons = personsMatch ? parseInt(personsMatch[1], 10) : qty;
+                    const libreKey = 'Pizza Libre (por persona)';
+                    if (!productStats[libreKey]) {
+                        productStats[libreKey] = { qty: 0, revenue: 0 };
+                    }
+                    productStats[libreKey].qty += persons;
+                    productStats[libreKey].revenue += (persons * 16000);
+                } else {
+                    if (!productStats[itemName]) {
+                        productStats[itemName] = { qty: 0, revenue: 0 };
+                    }
+                    productStats[itemName].qty += qty;
+                    productStats[itemName].revenue += 0;
+                }
             });
         }
     });
@@ -5409,10 +5815,10 @@ function renderNightReportView() {
             return `
                 <div class="space-y-1 text-xs">
                     <div class="flex justify-between items-center">
-                        <span class="font-bold text-slate-800">
+                        <span class="font-bold text-slate-800 truncate mr-2">
                             <span class="text-slate-400 font-semibold mr-1">${idx + 1}°.</span> ${p.name}
                         </span>
-                        <div class="text-right">
+                        <div class="text-right shrink-0">
                             <strong class="text-slate-900">${p.qty} u.</strong>
                             <span class="text-slate-400 text-[10px] ml-1">($${p.revenue.toLocaleString()})</span>
                         </div>
@@ -5425,7 +5831,7 @@ function renderNightReportView() {
         }).join('');
     }
 
-    // 2. Rendimiento por Mozo
+    // 4. Rendimiento por Mozo
     const waiterStats = {};
     activeWaiters.forEach(w => {
         waiterStats[w.name] = { closed: 0, sales: 0, tips: 0 };
@@ -5521,6 +5927,8 @@ function renderNightReportView() {
                     <span>Digital: <strong>$${r.transferSales.toLocaleString()}</strong></span>
                     <span>Propinas: <strong class="text-[#2563eb]">$${r.tipsPool.toLocaleString()}</strong></span>
                     <span>Mesas: <strong>${r.ordersCount}</strong></span>
+                    ${r.librePersons !== undefined ? `<span>Pizza Libre: <strong class="text-blue-700">${r.librePersons} personas</strong></span>` : ''}
+                    ${r.pizzasCount !== undefined ? `<span>Pizzas: <strong class="text-amber-700">${r.pizzasCount} u.</strong></span>` : ''}
                 </div>
                 ${r.note ? `<p class="text-[11px] text-slate-500 italic mt-1">>> "${r.note}"</p>` : ''}
             </div>
@@ -5547,9 +5955,20 @@ function copyNightReportText() {
     const ordersCount = paymentHistory.length;
     const dateStr = new Date().toLocaleDateString('es-AR');
 
+    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+
     let tablesBreakdown = paymentHistory.map(p => 
         `• ${p.table} (${p.method}): Cobró ${p.waiter} | Total: $${p.total.toLocaleString()} | Pagó: $${(p.paidWith || p.total).toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`
     ).join('\n');
+
+    let topFlavorsText = '';
+    if (pizzaStats.sortedFlavors.length > 0) {
+        topFlavorsText = pizzaStats.sortedFlavors.slice(0, 5).map((f, idx) => 
+            `${idx + 1}. ${f.name}: ${f.pizzaEquiv} pizzas (${f.orders} ped.)`
+        ).join('\n');
+    } else {
+        topFlavorsText = '• Sin consumo de pizzas registrado';
+    }
 
     const text = `*CIERRE NOCTURNO - RIVERA POS*\n` +
         `Fecha: ${dateStr}\n\n` +
@@ -5558,22 +5977,54 @@ function copyNightReportText() {
         `Transferencias: $${totalTransfer.toLocaleString()}\n` +
         `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n` +
         `Mesas Cobradas: ${ordersCount}\n\n` +
+        `*AUDITORÍA DE PIZZAS Y PIZZA LIBRE:*\n` +
+        `• Pizza Libre: ${pizzaStats.librePersonsTotal} personas (en ${pizzaStats.libreTablesCount} mesas)\n` +
+        `• Pizzas a la Carta: ${pizzaStats.traditionalPizzasCount} unidades\n` +
+        `• Total Pizzas Despachadas: ${pizzaStats.totalPizzasDespachadas} elaboradas\n\n` +
+        `*TOP GUSTOS DE PIZZA MÁS VENDIDOS:*\n` +
+        `${topFlavorsText}\n\n` +
         `*RESUMEN DE COBRANZAS DE MESAS:*\n` +
         (tablesBreakdown || 'Sin cobranzas registradas') + '\n\n' +
         `_Generado automáticamente desde Rivera POS_`;
 
     navigator.clipboard.writeText(text).then(() => {
-        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con el detalle de quién cobró cada mesa, total, lo pagado y propina, listo para enviar por WhatsApp.');
+        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con el balance de pizzas, personas de pizza libre, gustos líderes y cobros por mozo, listo para enviar por WhatsApp.');
     }).catch(err => {
         console.error(err);
     });
 }
 
 function downloadNightReportCSV() {
-    let csv = "ID,Mesa,Mozo que Cobro,Hora,Metodo,Total,Pago,Propina,Detalle\n";
+    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+
+    let csv = "ID,Mesa,Mozo que Cobro,Hora,Metodo,Total,Pago,Propina,Personas Libre,Detalle\n";
     paymentHistory.forEach(p => {
         const cleanSummary = (p.itemsSummary || '').replace(/"/g, '""');
-        csv += `"${p.id}","${p.table}","${p.waiter}","${p.time}","${p.method}",${p.total},${p.paidWith || p.total},${p.tip || 0},"${cleanSummary}"\n`;
+        let librePersonsInTable = 0;
+        if (Array.isArray(p.items)) {
+            p.items.forEach(it => {
+                const isLibre = it.isPizzaLibre || (it.name && /pizza\s*libre/i.test(it.name));
+                if (isLibre && it.price > 0) {
+                    librePersonsInTable += (it.librePersons || it.qty || 1);
+                }
+            });
+        }
+        csv += `"${p.id}","${p.table}","${p.waiter}","${p.time}","${p.method}",${p.total},${p.paidWith || p.total},${p.tip || 0},${librePersonsInTable},"${cleanSummary}"\n`;
+    });
+
+    csv += "\n\n--- AUDITORIA DE PIZZAS ---\n";
+    csv += "Concepto,Valor\n";
+    csv += `"Personas en Pizza Libre",${pizzaStats.librePersonsTotal}\n`;
+    csv += `"Mesas con Pizza Libre",${pizzaStats.libreTablesCount}\n`;
+    csv += `"Facturado Pizza Libre",${pizzaStats.libreRevenue}\n`;
+    csv += `"Pizzas a la Carta",${pizzaStats.traditionalPizzasCount}\n`;
+    csv += `"Facturado Pizzas Carta",${pizzaStats.traditionalRevenue}\n`;
+    csv += `"Total Pizzas Despachadas",${pizzaStats.totalPizzasDespachadas}\n`;
+
+    csv += "\n--- RANKING DE GUSTOS DE PIZZA ---\n";
+    csv += "Posicion,Gusto,Pizzas Equivalentes,Pedidos\n";
+    pizzaStats.sortedFlavors.forEach((f, idx) => {
+        csv += `${idx + 1},"${f.name}",${f.pizzaEquiv},${f.orders}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -5584,6 +6035,60 @@ function downloadNightReportCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
+
+async function printNightReportThermal() {
+    const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
+    const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
+    const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
+    const ordersCount = paymentHistory.length;
+    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = new Date().toLocaleDateString('es-AR');
+
+    const closureTicketData = {
+        type: 'closure',
+        dateStr,
+        time: timeStr,
+        totalSales,
+        cashSales: totalCash,
+        transferSales: totalTransfer,
+        tipsPool: generalTipsPool,
+        ordersCount,
+        librePersons: pizzaStats.librePersonsTotal,
+        traditionalPizzas: pizzaStats.traditionalPizzasCount,
+        totalPizzas: pizzaStats.totalPizzasDespachadas,
+        topFlavors: pizzaStats.sortedFlavors,
+        payments: paymentHistory
+    };
+
+    if (winPrintEndpoint && selectedWinPrinter) {
+        try {
+            const bytes = buildEscPosBytes(closureTicketData);
+            const dataBase64 = uint8ToBase64(bytes);
+            const res = await fetchWithTimeout(winPrintEndpoint.printUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    printerName: selectedWinPrinter,
+                    dataBase64
+                })
+            }, 15000);
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                throw new Error((result && result.error) || 'Error imprimiendo cierre');
+            }
+            showToast(`Cierre de turno impreso en ${selectedWinPrinter}`, 'success');
+            return;
+        } catch (err) {
+            console.error('Error imprimiendo cierre en Windows:', err);
+            showToast(`Error imprimiendo cierre: ${err.message}`, 'error');
+            return;
+        }
+    }
+
+    currentTicketData = closureTicketData;
+    triggerBrowserPrint();
 }
 
 function openCloseNightModal() {
@@ -5604,6 +6109,7 @@ async function confirmNightClosure() {
     const note = document.getElementById('close-night-note').value.trim();
     const shouldReset = document.getElementById('reset-after-close-checkbox').checked;
 
+    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
     const reportId = `CIERRE-${Date.now().toString().slice(-4)}`;
     const dateStr = `Hoy • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} hs`;
 
@@ -5615,6 +6121,8 @@ async function confirmNightClosure() {
         transferSales: totalTransfer,
         tipsPool: generalTipsPool,
         ordersCount: paymentHistory.length,
+        librePersons: pizzaStats.librePersonsTotal,
+        pizzasCount: pizzaStats.totalPizzasDespachadas,
         note: note,
         resetShift: shouldReset
     };
