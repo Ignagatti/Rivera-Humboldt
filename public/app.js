@@ -5179,12 +5179,23 @@ async function triggerBrowserPrint() {
 
 // ================= PESTAÑA 2: CARTA / MENÚ =================
 
+let adminFilterCatKey = 'all';
+
+function setAdminFilterCat(cKey) {
+    adminFilterCatKey = cKey || 'all';
+    renderAdminMenuManager();
+}
+
 function renderAdminMenuManager() {
     // 1. Selector de categorías para agregar productos
     const select = document.getElementById('new-item-cat');
+    const prevSelectedCat = select ? select.value : '';
     select.innerHTML = Object.keys(menuData).map(cKey => `
         <option value="${cKey}">${menuData[cKey].name}</option>
     `).join('');
+    if (prevSelectedCat && menuData[prevSelectedCat]) {
+        select.value = prevSelectedCat;
+    }
 
     const todayName = getTodayDayName();
 
@@ -5246,24 +5257,68 @@ function renderAdminMenuManager() {
 
     // 3. Catálogo agrupado por categoría con control rápido por plato (Hoy ON/OFF y Días)
     const menuItemsList = document.getElementById('admin-menu-items-list');
-    let totalItems = 0;
+    const catFilterBar = document.getElementById('admin-items-cat-filter');
+    const adminSearchEl = document.getElementById('admin-items-search');
+    const adminQuery = adminSearchEl ? adminSearchEl.value.trim().toLowerCase() : '';
 
-    menuItemsList.innerHTML = Object.keys(menuData).map(cKey => {
+    let totalItems = 0;
+    const catKeys = Object.keys(menuData);
+    catKeys.forEach(k => {
+        totalItems += (menuData[k] && Array.isArray(menuData[k].items)) ? menuData[k].items.length : 0;
+    });
+
+    if (adminFilterCatKey !== 'all' && !menuData[adminFilterCatKey]) {
+        adminFilterCatKey = 'all';
+    }
+
+    if (catFilterBar) {
+        const allBtn = `
+            <button type="button" onclick="setAdminFilterCat('all')"
+                class="px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all shrink-0 cursor-pointer ${adminFilterCatKey === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                Todas (${totalItems})
+            </button>
+        `;
+        const catBtns = catKeys.map(cKey => {
+            const c = menuData[cKey];
+            const count = Array.isArray(c.items) ? c.items.length : 0;
+            const act = adminFilterCatKey === cKey;
+            return `
+                <button type="button" onclick="setAdminFilterCat('${cKey}')"
+                    class="px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all shrink-0 cursor-pointer ${act ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                    ${c.name} (${count})
+                </button>
+            `;
+        }).join('');
+        catFilterBar.innerHTML = allBtn + catBtns;
+    }
+
+    const keysToRender = adminFilterCatKey === 'all' ? catKeys : [adminFilterCatKey];
+
+    menuItemsList.innerHTML = keysToRender.map(cKey => {
         const cat = menuData[cKey];
-        totalItems += cat.items.length;
+        if (!cat) return '';
         const catScheduleLabel = cat.isActive === false ? 'Pausada' : formatDaysSummary(getCategoryDays(cat));
+        const filteredItems = (cat.items || []).filter(it => {
+            if (!adminQuery) return true;
+            const sub = getEffectiveItemSubcategory(it, cKey).toLowerCase();
+            return it.name.toLowerCase().includes(adminQuery) ||
+                   (it.desc && it.desc.toLowerCase().includes(adminQuery)) ||
+                   sub.includes(adminQuery);
+        });
+
+        if (adminQuery && filteredItems.length === 0) return '';
 
         return `
             <div class="space-y-2">
-                <h5 class="font-bold text-xs text-slate-700 flex items-center justify-between bg-slate-100 p-2 rounded-xl gap-2">
+                <h5 class="font-bold text-xs text-slate-700 flex items-center justify-between bg-slate-100 p-2.5 rounded-xl gap-2">
                     <span class="flex items-center space-x-1.5 min-w-0">
                         <i class="fa-solid ${cat.icon || 'fa-utensils'} text-[#2563eb]"></i>
-                        <span class="truncate">${cat.name} (${cat.items.length})</span>
+                        <span class="truncate">${cat.name} (${filteredItems.length})</span>
                     </span>
                     <span class="text-[10px] font-semibold text-slate-500 shrink-0">${catScheduleLabel}</span>
                 </h5>
-                <div class="space-y-1.5 pl-1">
-                    ${cat.items.map(item => {
+                <div class="space-y-1.5">
+                    ${filteredItems.length === 0 ? `<p class="text-[11px] text-slate-400 py-2 pl-2">Sin productos cargados en esta categoría.</p>` : filteredItems.map(item => {
             const isAvail = item.isAvailable !== false;
             const hasCustomDays = Array.isArray(item.availableDays);
             const itemToday = isItemAvailableToday(item, cat);
@@ -5306,6 +5361,8 @@ function renderAdminMenuManager() {
                                         <div class="flex items-center gap-1.5 flex-wrap">
                                             <h6 class="font-bold text-slate-800 truncate">${item.name}</h6>
                                             ${scheduleBadge}
+                                            ${isPerPersonMenuItem(item, cKey) ? '<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold">Por persona</span>' : ''}
+                                            ${getEffectiveItemSubcategory(item, cKey) ? `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-200/80 text-slate-700 font-semibold">${escapeHtmlSafe(getEffectiveItemSubcategory(item, cKey))}</span>` : ''}
                                         </div>
                                         ${item.desc ? `<p class="text-[11px] text-slate-400 truncate">${item.desc}</p>` : ''}
                                     </div>
@@ -5316,6 +5373,13 @@ function renderAdminMenuManager() {
                                             title="Activar o pausar este plato">
                                             ${isAvail ? 'Sí' : 'No'}
                                         </button>
+                                        ${cKey !== 'pizzas' ? `
+                                        <button type="button" onclick="toggleItemPerPerson('${cKey}', '${item.id}')"
+                                            class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${isPerPersonMenuItem(item, cKey) ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}"
+                                            title="Activar/desactivar selector de cantidad de personas (como Pizza Libre / Parrilla)">
+                                            <i class="fa-solid fa-users text-[9px] mr-0.5"></i>Pers.
+                                        </button>
+                                        ` : ''}
                                         <button type="button" onclick="toggleItemDaysEditor('${item.id}')"
                                             class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${hasCustomDays || isExpanded ? 'bg-blue-100 text-[#2563eb] border border-blue-300' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}"
                                             title="Elegir días específicos para este plato">
