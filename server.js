@@ -60,14 +60,21 @@ app.get('/api/state', async (req, res) => {
     // Configuración de Ticket (Nombre, Alias, Mensaje, Propina sugerida)
     const ticketCfgRes = await pool.query("SELECT value FROM pos_config WHERE key = 'ticket_config'");
     const defaultTicketConfig = {
-      businessName: 'RIVERA',
+      businessName: 'SARMIENTO',
       alias: '',
-      footerMessage: '¡Muchas gracias por elegir Rivera!',
+      footerMessage: '¡Muchas gracias por elegir Sarmiento!',
       showSuggestedTip: true
     };
     const ticketConfig = (ticketCfgRes.rows.length > 0 && ticketCfgRes.rows[0].value && typeof ticketCfgRes.rows[0].value === 'object')
       ? { ...defaultTicketConfig, ...ticketCfgRes.rows[0].value }
       : defaultTicketConfig;
+    // Migración de marca: Rivera -> Sarmiento (solo si quedó el valor por defecto anterior)
+    if (/^rivera$/i.test(String(ticketConfig.businessName || '').trim())) {
+      ticketConfig.businessName = 'SARMIENTO';
+    }
+    if (/elegir Sarmiento/i.test(String(ticketConfig.footerMessage || ''))) {
+      ticketConfig.footerMessage = String(ticketConfig.footerMessage).replace(/elegir Sarmiento/i, 'elegir Sarmiento');
+    }
 
     // Personal
     const staffRes = await pool.query("SELECT id, name, role FROM pos_staff ORDER BY created_at ASC");
@@ -75,7 +82,7 @@ app.get('/api/state', async (req, res) => {
 
     // Categorías y Productos
     const catRes = await pool.query("SELECT id, name, icon, sort_order, available_days, is_active FROM pos_categories ORDER BY sort_order ASC, name ASC");
-    const itemRes = await pool.query("SELECT id, category_id, name, price, description, is_available, available_days FROM pos_menu_items ORDER BY name ASC");
+    const itemRes = await pool.query("SELECT id, category_id, name, price, description, is_available, available_days, subcategory, per_person FROM pos_menu_items ORDER BY name ASC");
 
     const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
     const menuData = {};
@@ -95,7 +102,9 @@ app.get('/api/state', async (req, res) => {
             price: Number(i.price),
             desc: i.description || '',
             isAvailable: i.is_available !== false,
-            availableDays: Array.isArray(i.available_days) ? i.available_days.map(Number) : null
+            availableDays: Array.isArray(i.available_days) ? i.available_days.map(Number) : null,
+            subcategory: i.subcategory || '',
+            perPerson: i.per_person === true
           }))
       };
     }
@@ -221,9 +230,9 @@ app.get('/api/state', async (req, res) => {
         ],
         generalTipsPool: 0,
         ticketConfig: {
-          businessName: 'RIVERA',
+          businessName: 'SARMIENTO',
           alias: '',
-          footerMessage: '¡Muchas gracias por elegir Rivera!',
+          footerMessage: '¡Muchas gracias por elegir Sarmiento!',
           showSuggestedTip: true
         },
         menuData: {
@@ -658,18 +667,20 @@ app.delete('/api/menu/category/:id', async (req, res) => {
 
 // 9. Productos: Agregar
 app.post('/api/menu/item', async (req, res) => {
-  const { id, categoryId, name, price, desc } = req.body;
+  const { id, categoryId, name, price, desc, subcategory, perPerson } = req.body;
   try {
     const itemId = id || `it_${Date.now().toString().slice(-6)}`;
     await pool.query(`
-      INSERT INTO pos_menu_items (id, category_id, name, price, description)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO pos_menu_items (id, category_id, name, price, description, subcategory, per_person)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (id) DO UPDATE SET
         category_id = EXCLUDED.category_id,
         name = EXCLUDED.name,
         price = EXCLUDED.price,
-        description = EXCLUDED.description
-    `, [itemId, categoryId, name, price, desc || '']);
+        description = EXCLUDED.description,
+        subcategory = EXCLUDED.subcategory,
+        per_person = EXCLUDED.per_person
+    `, [itemId, categoryId, name, price, desc || '', String(subcategory || '').trim().slice(0, 80), perPerson === true]);
 
     if (categoryId === 'pizzas') {
       try {
@@ -917,7 +928,7 @@ app.put('/api/auth/admin-password', async (req, res) => {
 app.put('/api/config/ticket', async (req, res) => {
   const { businessName, alias, footerMessage, showSuggestedTip } = req.body || {};
   const cleanConfig = {
-    businessName: String(businessName || 'RIVERA').trim() || 'RIVERA',
+    businessName: String(businessName || 'SARMIENTO').trim() || 'SARMIENTO',
     alias: String(alias || '').trim(),
     footerMessage: String(footerMessage || '').trim(),
     showSuggestedTip: Boolean(showSuggestedTip)
@@ -1007,7 +1018,7 @@ if (!process.env.VERCEL) {
     .then(() => {
       server.listen(PORT, '0.0.0.0', () => {
         console.log(`===============================================`);
-        console.log(` Rivera POS Servidor Activo en puerto ${PORT}`);
+        console.log(` Sarmiento POS Servidor Activo en puerto ${PORT}`);
         console.log(` Web & Mobile: http://localhost:${PORT}`);
         console.log(` WebSocket Real-Time sincronizado en /ws`);
         console.log(`===============================================`);

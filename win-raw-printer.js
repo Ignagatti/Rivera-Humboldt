@@ -32,21 +32,53 @@ function isThermalPrinterName(name = '', driver = '') {
   return keywords.some(k => combined.includes(k));
 }
 
+function queryRegistryPrinters() {
+  return new Promise((resolve) => {
+    const BASE = 'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\';
+    execFile('reg.exe', ['query', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers'], { timeout: 5000, windowsHide: true }, (err, stdout) => {
+      if (err || !stdout) return resolve([]);
+      const keys = stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith(BASE));
+      Promise.all(keys.map(k => new Promise(res => {
+        const name = k.slice(BASE.length);
+        if (!name || name.includes('\\')) return res(null);
+        execFile('reg.exe', ['query', k], { timeout: 4000, windowsHide: true }, (e, out) => {
+          if (e || !out) return res({ Name: name, DriverName: '', PortName: '', PrinterStatus: 'Normal' });
+          const mDrv = out.match(/Printer Driver\s+REG_SZ\s+(.+)/i);
+          const mPort = out.match(/\sPort\s+REG_SZ\s+(.+)/i);
+          res({
+            Name: name,
+            DriverName: mDrv ? mDrv[1].trim() : '',
+            PortName: mPort ? mPort[1].trim() : '',
+            PrinterStatus: 'Normal'
+          });
+        });
+      }))).then(items => resolve(items.filter(Boolean)));
+    });
+  });
+}
+
 async function listWindowsPrinters() {
   if (process.platform !== 'win32') {
     return [];
   }
 
-  const psScript = `
-    $printers = Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus
-    if ($null -eq $printers) { '[]' } else { $printers | ConvertTo-Json -Compress }
-  `;
+  let parsed = await queryRegistryPrinters();
 
-  const raw = await runPowerShell(psScript);
-  if (!raw) return [];
-
-  let parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) parsed = [parsed];
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    const psScript = `
+      $printers = Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus
+      if ($null -eq $printers) { '[]' } else { $printers | ConvertTo-Json -Compress }
+    `;
+    try {
+      const raw = await runPowerShell(psScript);
+      if (raw) {
+        parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) parsed = [parsed];
+      }
+    } catch (_) {
+      parsed = [];
+    }
+  }
 
   const list = parsed
     .filter(p => p && p.Name)

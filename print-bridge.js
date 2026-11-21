@@ -1,6 +1,6 @@
 /**
  * Puente Local de Impresión Térmica Directa (Windows -> 3nStar RPT004 / POS-80C)
- * Escucha en http://127.0.0.1:9100 para que Rivera POS (tanto local como desde Vercel HTTPS)
+ * Escucha en http://127.0.0.1:9100 para que Sarmiento POS (tanto local como desde Vercel HTTPS)
  * pueda enviar comandos ESC/POS RAW directo a la impresora térmica instalada en Windows.
  */
 
@@ -28,7 +28,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/')) {
     res.writeHead(200);
-    res.end(JSON.stringify({ ok: true, service: 'Rivera Print Bridge', port: PORT }));
+    res.end(JSON.stringify({ ok: true, service: 'Sarmiento Print Bridge', port: PORT }));
     return;
   }
 
@@ -81,7 +81,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', async () => {
   console.log('======================================================');
-  console.log('  RIVERA POS - PUENTE DE IMPRESION TERMICA DIRECTA');
+  console.log('  SARMIENTO POS - PUENTE DE IMPRESION TERMICA DIRECTA');
   console.log(`  Activo en: http://127.0.0.1:${PORT}`);
   console.log('======================================================');
   try {

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rivera POS - Toma de Comandas y Gestión</title>
+    <title>Sarmiento POS - Toma de Comandas y Gestión</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -131,7 +131,7 @@
                     <i class="fa-solid fa-shield-halved"></i>
                 </div>
                 <div>
-                    <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Rivera POS</h1>
+                    <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Sarmiento POS</h1>
                     <p class="text-xs text-slate-500 mt-1">Selecciona tu usuario para tomar comandas o administrar el
                         salón</p>
                 </div>
@@ -365,6 +365,8 @@
                     <div id="pizza-modes-bar" class="mb-3 hidden"></div>
                     <!-- Banner de Pizza Libre Activa y Rondas -->
                     <div id="pizza-libre-active-banner" class="mb-3 hidden"></div>
+                    <!-- Barra de Filtro de Subcategorías (Ej. Bebidas: Cervezas, Gaseosas, Vinos, Aguas) -->
+                    <div id="subcategory-filter-bar" class="mb-3 hidden"></div>
                     <div id="menu-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
                         <!-- Generados dinámicamente -->
                     </div>
@@ -617,11 +619,28 @@
                                     <input type="number" inputmode="numeric" id="new-item-price" placeholder="Ej: 8500"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
-                                <div class="sm:col-span-2">
+                                <div>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Subcategoría / Tipo (Ej. Bebidas)</label>
+                                    <input type="text" id="new-item-subcat"
+                                        placeholder="Ej: Cervezas, Gaseosas y Jugos, Vinos..."
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#2563eb]">
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Cervezas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Cervezas</button>
+                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Gaseosas y Jugos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Gaseosas</button>
+                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Aguas y Saborizadas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Aguas</button>
+                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Vinos y Espumantes')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Vinos</button>
+                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Tragos y Aperitivos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Tragos</button>
+                                    </div>
+                                </div>
+                                <div>
                                     <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción / Ingredientes (Opcional)</label>
                                     <input type="text" id="new-item-desc"
-                                        placeholder="Ej: Salsa fileto, jamón natural y queso gratinado con papas fritas"
+                                        placeholder="Ej: Salsa fileto, jamón natural y queso gratinado"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
+                                    <label class="inline-flex items-center space-x-2 mt-1.5 cursor-pointer select-none">
+                                        <input type="checkbox" id="new-item-per-person" class="w-4 h-4 rounded text-[#2563eb] border-slate-300">
+                                        <span class="text-[11px] font-bold text-slate-700">Elegir cantidad de personas al pedir (como Libre / Parrilla)</span>
+                                    </label>
                                 </div>
                                 <div class="flex items-end">
                                     <button onclick="addNewMenuItem()"
@@ -722,58 +741,49 @@
                             </div>
                         </div>
 
-                        <!-- Panel Especial: Balance de Pizzas y Pizza Libre del Turno -->
+                        <!-- Panel Principal: Ventas por Categoría (Toda la Carta) -->
                         <div class="bg-white border border-blue-200/80 rounded-2xl p-3.5 sm:p-4 shadow-sm space-y-3">
                             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
                                 <div class="flex items-center space-x-2.5">
                                     <div class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 font-bold shrink-0">
-                                        <i class="fa-solid fa-pizza-slice text-sm"></i>
+                                        <i class="fa-solid fa-chart-pie text-sm"></i>
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-sm text-slate-900">Auditoría de Pizzas y Pizza Libre</h4>
-                                        <p class="text-[11px] text-slate-500">Personas en libre, pizzas despachadas y gustos líderes</p>
+                                        <h4 class="font-bold text-sm text-slate-900">Ventas por Categoría (Toda la Carta)</h4>
+                                        <p class="text-[11px] text-slate-500">Unidades, personas (pizza libre / parrilla), bebidas por tipo y facturación</p>
                                     </div>
                                 </div>
                                 <div class="flex items-center space-x-2 text-[11px]">
-                                    <span class="px-2.5 py-1 rounded-lg bg-blue-50 text-[#2563eb] font-bold border border-blue-200" id="rep-pizza-summary-badge">
-                                        0 personas libre / 0 pizzas
+                                    <span class="px-2.5 py-1 rounded-lg bg-blue-50 text-[#2563eb] font-bold border border-blue-200" id="rep-cat-summary-badge">
+                                        0 categorías | 0 u.
                                     </span>
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-                                <!-- KPI 1: Pizza Libre por Persona -->
-                                <div class="p-3 rounded-xl bg-blue-50/60 border border-blue-200/70">
-                                    <span class="text-[10px] sm:text-[11px] text-[#2563eb] font-semibold block truncate">Pizza Libre (Personas)</span>
-                                    <span id="rep-pizza-libre-persons" class="text-lg sm:text-2xl font-bold text-blue-900 mt-0.5 block truncate">0</span>
-                                    <span id="rep-pizza-libre-sub" class="text-[10px] text-blue-600 block truncate">0 mesas ($0)</span>
-                                </div>
-
-                                <!-- KPI 2: Pizzas a la Carta -->
-                                <div class="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70">
-                                    <span class="text-[10px] sm:text-[11px] text-amber-700 font-semibold block truncate">Pizzas a la Carta</span>
-                                    <span id="rep-pizza-carta-count" class="text-lg sm:text-2xl font-bold text-amber-900 mt-0.5 block truncate">0</span>
-                                    <span id="rep-pizza-carta-sub" class="text-[10px] text-amber-600 block truncate">Pizzas tradicionales ($0)</span>
-                                </div>
-
-                                <!-- KPI 3: Total Pizzas Elaboradas / Despachadas -->
-                                <div class="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200/70">
-                                    <span class="text-[10px] sm:text-[11px] text-emerald-700 font-semibold block truncate">Total Pizzas Despachadas</span>
-                                    <span id="rep-pizza-total-count" class="text-lg sm:text-2xl font-bold text-emerald-900 mt-0.5 block truncate">0</span>
-                                    <span id="rep-pizza-total-sub" class="text-[10px] text-emerald-600 block truncate">0 a la carta + 0 rondas libre</span>
-                                </div>
-
-                                <!-- KPI 4: Gusto Estrella -->
-                                <div class="p-3 rounded-xl bg-purple-50/60 border border-purple-200/70">
-                                    <span class="text-[10px] sm:text-[11px] text-purple-700 font-semibold block truncate">Gusto Más Pedido</span>
-                                    <span id="rep-pizza-top-flavor" class="text-sm sm:text-base font-bold text-purple-900 mt-1 block truncate">Sin datos</span>
-                                    <span id="rep-pizza-top-flavor-sub" class="text-[10px] text-purple-600 block truncate">0 pizzas equivalentes</span>
-                                </div>
+                            <div id="rep-category-breakdown" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                                <!-- Generado dinámicamente con todas las categorías vendidas y sus subcategorías -->
                             </div>
                         </div>
 
-                        <!-- Ranking de Lo Más Vendido + Gustos de Pizza + Rendimiento por Mozo -->
+                        <!-- Ranking General + Gustos de Pizza + Rendimiento por Mozo -->
                         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
+                            <!-- Ranking General Productos Más Vendidos (Toda la Carta) -->
+                            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+                                    <div class="min-w-0">
+                                        <h4 class="font-bold text-sm text-slate-900 truncate">Ranking: Lo Más Vendido del Día</h4>
+                                        <p class="text-[11px] text-slate-500 truncate">Todo el menú: platos, libres/parrilla por persona y bebidas</p>
+                                    </div>
+                                    <span
+                                        class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 font-bold shrink-0">
+                                        <i class="fa-solid fa-trophy text-xs"></i>
+                                    </span>
+                                </div>
+                                <div id="rep-top-products-list" class="space-y-2 flex-1 max-h-72 overflow-y-auto pr-1">
+                                    <!-- Lista de más vendidos general -->
+                                </div>
+                            </div>
+
                             <!-- Ranking Gustos de Pizza Más Vendidos -->
                             <div class="bg-white border border-amber-200/80 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                                 <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
@@ -788,23 +798,6 @@
                                 </div>
                                 <div id="rep-top-flavors-list" class="space-y-2 flex-1 max-h-72 overflow-y-auto pr-1">
                                     <!-- Lista de gustos de pizza -->
-                                </div>
-                            </div>
-
-                            <!-- Ranking General Productos Más Vendidos -->
-                            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
-                                <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
-                                    <div class="min-w-0">
-                                        <h4 class="font-bold text-sm text-slate-900 truncate">Ranking: Salida General</h4>
-                                        <p class="text-[11px] text-slate-500 truncate">Libres por persona, bebidas y cocina</p>
-                                    </div>
-                                    <span
-                                        class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 font-bold shrink-0">
-                                        <i class="fa-solid fa-trophy text-xs"></i>
-                                    </span>
-                                </div>
-                                <div id="rep-top-products-list" class="space-y-2 flex-1 max-h-72 overflow-y-auto pr-1">
-                                    <!-- Lista de más vendidos general -->
                                 </div>
                             </div>
 
@@ -1486,6 +1479,69 @@
         </div>
     </div>
 
+    <!-- ================= MODAL: PLATO POR CANTIDAD DE PERSONAS (EJ. PARRILLA) ================= -->
+    <div id="per-person-item-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                        <i class="fa-solid fa-users text-xs"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-900" id="per-person-modal-title">Parrilla</h3>
+                        <p class="text-xs text-slate-500" id="per-person-modal-subtitle">Precio por persona</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closePerPersonItemModal()"
+                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <label class="text-xs font-semibold text-slate-700 block">Cantidad de Personas (Comensales)</label>
+                <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-2">
+                    <button type="button" onclick="changePerPersonModalCount(-1)"
+                        class="w-10 h-10 rounded-xl bg-white shadow-sm border border-slate-200 text-slate-700 font-bold text-base flex items-center justify-center hover:bg-slate-100 transition-all cursor-pointer">
+                        <i class="fa-solid fa-minus text-xs"></i>
+                    </button>
+                    <div class="text-center">
+                        <span id="per-person-modal-count" class="text-2xl font-black text-slate-900">1</span>
+                        <span class="text-[10px] text-slate-400 block font-medium">personas</span>
+                    </div>
+                    <button type="button" onclick="changePerPersonModalCount(1)"
+                        class="w-10 h-10 rounded-xl bg-white shadow-sm border border-slate-200 text-[#2563eb] font-bold text-base flex items-center justify-center hover:bg-blue-50 transition-all cursor-pointer">
+                        <i class="fa-solid fa-plus text-xs"></i>
+                    </button>
+                </div>
+
+                <div class="bg-blue-50 p-3 rounded-2xl border border-blue-100 flex justify-between items-center">
+                    <span class="text-xs font-semibold text-slate-600">Total a cobrar:</span>
+                    <span id="per-person-modal-total" class="text-base font-bold text-[#2563eb]">$0</span>
+                </div>
+
+                <div class="space-y-1.5 pt-1">
+                    <label class="text-xs font-semibold text-slate-700 block">Observaciones / Punto de cocción (Opcional)</label>
+                    <textarea id="per-person-modal-note" rows="2" placeholder="Ej: A punto, bien cocido, sin chinchulín..."
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563eb]"></textarea>
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2 border-t border-slate-100">
+                <button type="button" onclick="closePerPersonItemModal()"
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmAddPerPersonItem()"
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5 cursor-pointer">
+                    <i class="fa-solid fa-check"></i>
+                    <span>Agregar a Mesa</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- ================= MODAL: EDITAR PLATO EN CARTA ================= -->
     <div id="admin-edit-item-modal"
         class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
@@ -1521,10 +1577,26 @@
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
                 </div>
                 <div>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Subcategoría / Tipo (Opcional - Ej. Bebidas)</label>
+                    <input type="text" id="edit-item-subcat" placeholder="Ej: Cervezas, Gaseosas y Jugos, Vinos..."
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#2563eb]">
+                    <div class="flex flex-wrap gap-1 mt-1">
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Cervezas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Cervezas</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Gaseosas y Jugos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Gaseosas</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Aguas y Saborizadas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Aguas</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Vinos y Espumantes')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Vinos</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Tragos y Aperitivos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Tragos</button>
+                    </div>
+                </div>
+                <div>
                     <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción / Ingredientes</label>
                     <textarea id="edit-item-desc" rows="2"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]"></textarea>
                 </div>
+                <label class="flex items-center space-x-2 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer select-none">
+                    <input type="checkbox" id="edit-item-per-person" class="w-4 h-4 rounded text-[#2563eb] border-slate-300">
+                    <span class="text-xs font-bold text-amber-950">Elegir cantidad de personas al pedir (ej. Parrilla / Libre)</span>
+                </label>
             </div>
 
             <div class="flex space-x-2 pt-2 border-t border-slate-100">
@@ -1786,19 +1858,19 @@
             <div class="space-y-3">
                 <div>
                     <label class="text-[11px] font-bold text-slate-700 block mb-1">Nombre del Local (Encabezado)</label>
-                    <input type="text" id="cfg-ticket-business" placeholder="Ej: RIVERA"
+                    <input type="text" id="cfg-ticket-business" placeholder="Ej: SARMIENTO"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 focus:outline-none focus:border-[#2563eb]">
                 </div>
 
                 <div>
                     <label class="text-[11px] font-bold text-slate-700 block mb-1">Alias para Transferencia (opcional)</label>
-                    <input type="text" id="cfg-ticket-alias" placeholder="Ej: rivera.humboldt (dejar vacío para ocultar)"
+                    <input type="text" id="cfg-ticket-alias" placeholder="Ej: sarmiento.pos (dejar vacío para ocultar)"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#2563eb]">
                 </div>
 
                 <div>
                     <label class="text-[11px] font-bold text-slate-700 block mb-1">Mensaje al pie del ticket</label>
-                    <textarea id="cfg-ticket-footer" rows="2" placeholder="Ej: ¡Muchas gracias por elegir Rivera!"
+                    <textarea id="cfg-ticket-footer" rows="2" placeholder="Ej: ¡Muchas gracias por elegir Sarmiento!"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#2563eb] resize-none"></textarea>
                 </div>
 

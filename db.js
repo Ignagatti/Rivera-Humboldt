@@ -100,6 +100,16 @@ async function initDatabase() {
       ADD COLUMN IF NOT EXISTS available_days JSONB DEFAULT NULL;
     `);
 
+    // Subcategoría (ej: Cervezas, Gaseosas, Vinos) y cobro por persona (Parrilla libre, etc.)
+    await client.query(`
+      ALTER TABLE pos_menu_items
+      ADD COLUMN IF NOT EXISTS subcategory VARCHAR(80) DEFAULT '';
+    `);
+    await client.query(`
+      ALTER TABLE pos_menu_items
+      ADD COLUMN IF NOT EXISTS per_person BOOLEAN DEFAULT FALSE;
+    `);
+
     // 5. Pedidos activos en mesas del salón
     await client.query(`
       CREATE TABLE IF NOT EXISTS pos_table_orders (
