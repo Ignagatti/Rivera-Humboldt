@@ -1,5 +1,5 @@
 /**
- * Rivera POS - Lógica Completa de la Aplicación
+ * Sarmiento POS - Lógica Completa de la Aplicación
  * Sistema POS Mobile-First con Sincronización en Tiempo Real (Neon PostgreSQL + WebSockets + LocalStorage Fallback)
  */
 
@@ -92,7 +92,7 @@ function unlockMobileAudio() {
             globalAudioContext = new AudioCtxClass();
         }
         if (globalAudioContext.state === 'suspended') {
-            globalAudioContext.resume().catch(() => { });
+            globalAudioContext.resume().catch(() => {});
         }
     } catch (e) {
         console.warn('AudioContext no inicializado:', e);
@@ -124,7 +124,7 @@ async function playWaiterNotificationSound() {
             globalAudioContext = new AudioCtxClass();
         }
         if (globalAudioContext.state === 'suspended') {
-            await globalAudioContext.resume().catch(() => { });
+            await globalAudioContext.resume().catch(() => {});
         }
 
         const ctx = globalAudioContext;
@@ -199,7 +199,7 @@ async function fetchServerState(silent = false) {
             if (typeof d.generalTipsPool === 'number') generalTipsPool = d.generalTipsPool;
             if (d.ticketConfig && typeof d.ticketConfig === 'object') {
                 ticketConfig = { ...ticketConfig, ...d.ticketConfig };
-                try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) { }
+                try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) {}
             }
             if (d.menuData && Object.keys(d.menuData).length > 0) menuData = d.menuData;
             if (Array.isArray(d.availableTables) && d.availableTables.length > 0) availableTables = d.availableTables;
@@ -420,7 +420,7 @@ function handleRealtimeMessage(msg) {
         case 'TICKET_CONFIG_UPDATED':
             if (msg.ticketConfig && typeof msg.ticketConfig === 'object') {
                 ticketConfig = { ...ticketConfig, ...msg.ticketConfig };
-                try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) { }
+                try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) {}
             }
             break;
 
@@ -505,7 +505,7 @@ window.onload = async function () {
             localStorage.removeItem('rivera_admin_pwd');
             localStorage.removeItem('restoflow_admin_pwd');
         }
-    } catch (e) { }
+    } catch (e) {}
 
     waiterNotifications = [];
     updateWaiterNotificationUI();
@@ -830,18 +830,18 @@ function openWaiterNotificationsModal() {
                 
                 <div class="text-xs text-slate-700 space-y-1 bg-white/70 p-2.5 rounded-xl border border-amber-100">
                     ${((o.items || []).filter(i => (i.status || o.status) !== 'delivered')).length > 0 ?
-                ((o.items || []).filter(i => (i.status || o.status) !== 'delivered')).map(i => `
+                        ((o.items || []).filter(i => (i.status || o.status) !== 'delivered')).map(i => `
                             <div class="flex justify-between items-center">
                                 <span><strong class="text-slate-900">${i.qty}x</strong> ${i.name}</span>
                                 <span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">Listo</span>
                             </div>
                         `).join('') :
-                (o.items || []).map(i => `
+                        (o.items || []).map(i => `
                             <div class="flex justify-between items-center">
                                 <span><strong class="text-slate-900">${i.qty}x</strong> ${i.name}</span>
                             </div>
                         `).join('')
-            }
+                    }
                     ${o.note ? `<p class="text-amber-800 font-medium text-[11px] mt-1">>> Nota: ${o.note}</p>` : ''}
                 </div>
 
@@ -1167,6 +1167,7 @@ function renderCategoryTabs() {
 
 function selectCategory(catKey) {
     activeCategory = catKey;
+    activeSubcategory = 'all';
     renderCategoryTabs();
     renderMenuGrid();
 }
@@ -2132,6 +2133,54 @@ function renderMenuGrid() {
         }
     }
 
+    // Barra de Subcategorías (ej. Bebidas: Cervezas, Gaseosas y Jugos, Aguas, Vinos, Tragos)
+    const subcatBar = document.getElementById('subcategory-filter-bar');
+    if (subcatBar) {
+        if (searchQuery.length === 0 && !isPizzasView && itemsToDisplay.length > 0) {
+            const subcatCounts = {};
+            itemsToDisplay.forEach(it => {
+                const sub = getEffectiveItemSubcategory(it, it.categoryKey || activeCategory);
+                it._effectiveSubcat = sub;
+                if (sub) {
+                    subcatCounts[sub] = (subcatCounts[sub] || 0) + 1;
+                }
+            });
+            const subcatKeys = Object.keys(subcatCounts);
+            if (subcatKeys.length > 0) {
+                if (activeSubcategory !== 'all' && !subcatCounts[activeSubcategory]) {
+                    activeSubcategory = 'all';
+                }
+                subcatBar.classList.remove('hidden');
+                const allActive = activeSubcategory === 'all';
+                const allBtn = `
+                    <button type="button" onclick="selectSubcategory('all')"
+                        class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${allActive ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}">
+                        Todas (${itemsToDisplay.length})
+                    </button>
+                `;
+                const pills = subcatKeys.map(sc => {
+                    const isAct = activeSubcategory === sc;
+                    return `
+                        <button type="button" onclick="selectSubcategory('${sc.replace(/'/g, "\\'") }')"
+                            class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${isAct ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}">
+                            ${escapeHtmlSafe(sc)} (${subcatCounts[sc]})
+                        </button>
+                    `;
+                }).join('');
+                subcatBar.innerHTML = `<div class="flex items-center gap-1.5 overflow-x-auto pb-1">${allBtn}${pills}</div>`;
+                if (activeSubcategory !== 'all') {
+                    itemsToDisplay = itemsToDisplay.filter(it => it._effectiveSubcat === activeSubcategory);
+                }
+            } else {
+                subcatBar.classList.add('hidden');
+                subcatBar.innerHTML = '';
+            }
+        } else {
+            subcatBar.classList.add('hidden');
+            subcatBar.innerHTML = '';
+        }
+    }
+
     if (itemsToDisplay.length === 0) {
         const modesBarEmpty = document.getElementById('pizza-modes-bar');
         if (modesBarEmpty) modesBarEmpty.classList.add('hidden');
@@ -2233,8 +2282,10 @@ function renderMenuGrid() {
     const cardsHtml = itemsToDisplay.map(item => {
         const isPizza = item.categoryKey === 'pizzas' || (item.categoryName && item.categoryName.toLowerCase().includes('pizza'));
         const isPizzaLibre = item.id === 'pz_libre' || item.name.toLowerCase().includes('pizza libre');
-        const orderItem = currentItems.find(i => i.id === item.id);
-        const qty = orderItem ? orderItem.qty : 0;
+        const isPerPerson = !isPizza && isPerPersonMenuItem(item, item.categoryKey || activeCategory);
+        const effSubcat = item._effectiveSubcat || getEffectiveItemSubcategory(item, item.categoryKey || activeCategory);
+        const orderMatches = currentItems.filter(i => i.id === item.id || i.menuItemId === item.id);
+        const qty = orderMatches.reduce((acc, i) => acc + (Number(i.qty) || 0), 0);
 
         const isSelectedFlavor = selectedPizzaFlavors.some(f => f.id === item.id);
         let cardBorderClass = "border-slate-200 hover:border-blue-400";
@@ -2288,6 +2339,13 @@ function renderMenuGrid() {
                     </button>
                 `;
             }
+        } else if (isPerPerson) {
+            actionButton = `
+                <button type="button" onclick="openPerPersonItemModal('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
+                    <i class="fa-solid fa-users text-[10px]"></i>
+                    <span>Personas</span>
+                </button>
+            `;
         } else {
             actionButton = `
                 <button type="button" onclick="addToOrder('${item.id}')" class="bg-[#2563eb] hover:bg-blue-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1 cursor-pointer">
@@ -2301,11 +2359,13 @@ function renderMenuGrid() {
             <div onclick="${isPizza ? `onPizzaItemClicked('${item.id}')` : `addToOrder('${item.id}')`}" class="bg-white border ${cardBorderClass} rounded-2xl p-3.5 shadow-sm transition-all flex flex-col justify-between min-h-[128px] cursor-pointer group">
                 <div>
                     <div class="flex items-start justify-between gap-1">
-                        <div class="flex items-center gap-1.5 min-w-0">
+                        <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
                             <h4 class="font-bold text-sm text-slate-800 leading-snug truncate">${item.name}</h4>
                             ${isPizzaLibre ? '<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider shrink-0">Libre</span>' : ''}
+                            ${isPerPerson ? '<span class="bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider shrink-0">Por persona</span>' : ''}
+                            ${effSubcat ? `<span class="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] font-bold px-1.5 py-0.2 rounded-full shrink-0">${escapeHtmlSafe(effSubcat)}</span>` : ''}
                         </div>
-                        <span class="font-bold text-sm text-[#2563eb] shrink-0 ml-1">$${item.price.toLocaleString()}</span>
+                        <span class="font-bold text-sm text-[#2563eb] shrink-0 ml-1">${item.price.toLocaleString()}${(isPizzaLibre || isPerPerson) ? '<span class="text-[9px] font-normal text-slate-400">/pers</span>' : ''}</span>
                     </div>
                     <p class="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-tight min-h-[26px]">${item.desc || ''}</p>
                 </div>
@@ -2346,10 +2406,19 @@ function addToOrder(itemId) {
     const item = findMenuItemById(itemId);
     if (!item) return;
 
+    const loc = findMenuItemLocation(itemId);
+    const catKey = loc ? loc.catKey : (item.categoryKey || activeCategory);
+
     // Si es pizza, derivar a la lógica de selección de pizza
-    const isPizza = item.categoryKey === 'pizzas' || activeCategory === 'pizzas' || (menuData.pizzas && menuData.pizzas.items.some(i => i.id === itemId));
+    const isPizza = catKey === 'pizzas' || (menuData.pizzas && menuData.pizzas.items.some(i => i.id === itemId));
     if (isPizza) {
         onPizzaItemClicked(itemId);
+        return;
+    }
+
+    // Si está configurado por cantidad de personas (ej. Parrilla), abrir selector de comensales
+    if (isPerPersonMenuItem(item, catKey)) {
+        openPerPersonItemModal(itemId);
         return;
     }
 
@@ -2365,6 +2434,9 @@ function addToOrder(itemId) {
     } else {
         tableItems.push({
             id: item.id,
+            menuItemId: item.id,
+            categoryId: catKey,
+            subcategory: getEffectiveItemSubcategory(item, catKey),
             name: item.name,
             qty: 1,
             sentQty: 0,
@@ -3392,15 +3464,15 @@ let winPrintersList = [];
 let selectedWinPrinter = localStorage.getItem('rivera_win_printer') || '';
 let ticketConfig = (() => {
     const defaults = {
-        businessName: 'RIVERA',
+        businessName: 'SARMIENTO',
         alias: '',
-        footerMessage: '¡Muchas gracias por elegir Rivera!',
+        footerMessage: '¡Muchas gracias por elegir Sarmiento!',
         showSuggestedTip: true
     };
     try {
         const saved = JSON.parse(localStorage.getItem('rivera_ticket_config') || 'null');
         if (saved && typeof saved === 'object') return { ...defaults, ...saved };
-    } catch (_) { }
+    } catch (_) {}
     return defaults;
 })();
 
@@ -3410,7 +3482,7 @@ function openTicketConfigModal() {
     const footerInput = document.getElementById('cfg-ticket-footer');
     const tipToggle = document.getElementById('cfg-ticket-tip-toggle');
 
-    if (bizInput) bizInput.value = ticketConfig.businessName || 'RIVERA';
+    if (bizInput) bizInput.value = ticketConfig.businessName || 'SARMIENTO';
     if (aliasInput) aliasInput.value = ticketConfig.alias || '';
     if (footerInput) footerInput.value = ticketConfig.footerMessage || '';
     if (tipToggle) tipToggle.checked = Boolean(ticketConfig.showSuggestedTip);
@@ -3429,7 +3501,7 @@ async function saveTicketConfig() {
     const tipToggle = document.getElementById('cfg-ticket-tip-toggle');
 
     const newConfig = {
-        businessName: (bizInput ? bizInput.value.trim() : '') || 'RIVERA',
+        businessName: (bizInput ? bizInput.value.trim() : '') || 'SARMIENTO',
         alias: aliasInput ? aliasInput.value.trim() : '',
         footerMessage: footerInput ? footerInput.value.trim() : '',
         showSuggestedTip: tipToggle ? Boolean(tipToggle.checked) : true
@@ -3438,7 +3510,7 @@ async function saveTicketConfig() {
     ticketConfig = newConfig;
     try {
         localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig));
-    } catch (_) { }
+    } catch (_) {}
 
     closeTicketConfigModal();
 
@@ -3534,7 +3606,7 @@ function openKitchenTicketPrint(cmdId) {
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'RIVERA';
+    const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'SARMIENTO';
 
     const pendingItems = (cmd.items || []).filter(i => (i.status || cmd.status) !== 'delivered');
     const unprintedPending = pendingItems.filter(i => typeof i.printed === 'boolean' ? !i.printed : !cmd.printed);
@@ -3580,51 +3652,53 @@ function openKitchenTicketPrint(cmdId) {
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
-        <div class="text-center border-b-2 border-black pb-2 mb-2">
-            <h2 class="font-black text-2xl uppercase tracking-wider text-black leading-none">${escapeHtmlSafe(businessName)}</h2>
-            <p class="text-xs font-extrabold uppercase tracking-widest text-black mt-1">${subtitleLabel}</p>
-        </div>
-
-        <div class="text-center border-y-2 border-black py-1.5 my-2 bg-slate-100">
-            <div class="text-2xl font-black uppercase text-black leading-tight">${escapeHtmlSafe(cmd.table)}</div>
-            <div class="text-xs font-bold text-black">COMANDA: ${escapeHtmlSafe(cmd.id)}</div>
-        </div>
-
-        <div class="border-b-2 border-dashed border-black pb-2 mb-2 space-y-0.5 text-xs font-bold text-black">
-            <div class="flex justify-between">
-                <span>FECHA: ${dateStr}</span>
-                <span>HORA: ${cmd.time} hs</span>
+        <div class="font-mono text-black">
+            <div class="text-center border-b border-black pb-2 mb-2">
+                <h2 class="font-bold text-lg uppercase tracking-wider leading-tight">${escapeHtmlSafe(businessName)}</h2>
+                <p class="text-[11px] font-medium uppercase tracking-wide mt-0.5">${subtitleLabel}</p>
             </div>
-            <div>MOZO: ${escapeHtmlSafe(cmd.waiterName)}</div>
-        </div>
 
-        ${itemsToPrint.length > 0 ? `
-            <div class="border-b-2 border-black pb-2 mb-2">
-                <div class="text-center font-black text-sm uppercase tracking-wide text-black border-b border-black pb-1 mb-2">
-                    POR PREPARAR
+            <div class="text-center border-b border-black py-1.5 mb-2">
+                <div class="text-lg font-bold uppercase leading-tight">${escapeHtmlSafe(cmd.table)}</div>
+                <div class="text-[11px] font-normal">COMANDA: ${escapeHtmlSafe(cmd.id)}</div>
+            </div>
+
+            <div class="border-b border-dashed border-black pb-2 mb-2 space-y-0.5 text-[11px] font-normal">
+                <div class="flex justify-between">
+                    <span>FECHA: ${dateStr}</span>
+                    <span>HORA: ${cmd.time} hs</span>
                 </div>
-                <div class="space-y-2.5">
-                    ${itemsToPrint.map(i => `
-                        <div class="border-b border-dashed border-black pb-2 last:border-b-0 last:pb-0">
-                            <div class="flex items-start gap-2 text-black">
-                                <span class="font-black text-lg leading-none border-2 border-black px-1.5 py-0.5 shrink-0">${i.qty}x</span>
-                                <div class="flex-1 min-w-0">
-                                    <div class="font-black text-base leading-tight break-words">${escapeHtmlSafe(i.name)}</div>
-                                    ${i.note ? `<div class="text-xs font-bold mt-0.5">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
+                <div>MOZO: ${escapeHtmlSafe(cmd.waiterName)}</div>
+            </div>
+
+            ${itemsToPrint.length > 0 ? `
+                <div class="border-b border-black pb-2 mb-2">
+                    <div class="text-center font-bold text-xs uppercase tracking-wide border-b border-dashed border-black pb-1 mb-2">
+                        POR PREPARAR
+                    </div>
+                    <div class="space-y-1.5">
+                        ${itemsToPrint.map(i => `
+                            <div class="border-b border-dotted border-slate-400 pb-1.5 last:border-b-0 last:pb-0">
+                                <div class="flex items-start gap-2">
+                                    <span class="font-bold text-sm leading-snug shrink-0">${i.qty}x</span>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-normal text-sm leading-snug break-words">${escapeHtmlSafe(i.name)}</div>
+                                        ${i.note ? `<div class="text-xs font-normal text-slate-800 mt-0.5">OBS: ${escapeHtmlSafe(i.note)}</div>` : ''}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    `).join('')}
+                        `).join('')}
+                    </div>
                 </div>
-            </div>
-        ` : ''}
+            ` : ''}
 
-        ${generalNote ? `
-            <div class="border-2 border-black p-2 my-2 text-black">
-                <div class="font-black text-xs uppercase border-b border-black pb-0.5 mb-1">OBSERVACIONES:</div>
-                <p class="text-sm font-black leading-snug break-words">${escapeHtmlSafe(generalNote)}</p>
-            </div>
-        ` : ''}
+            ${generalNote ? `
+                <div class="border border-black p-2 my-1.5">
+                    <div class="font-bold text-[11px] uppercase border-b border-dashed border-black pb-0.5 mb-1">OBSERVACIONES:</div>
+                    <p class="text-xs font-normal leading-snug break-words">${escapeHtmlSafe(generalNote)}</p>
+                </div>
+            ` : ''}
+        </div>
     `;
 
     currentTicketRawText =
@@ -3637,6 +3711,9 @@ function openKitchenTicketPrint(cmdId) {
         (generalNote ? `*OBSERVACIONES:* ${generalNote}\n` : '');
 
     updatePrinterStatusUI();
+    if (!winPrintEndpoint || !selectedWinPrinter) {
+        discoverWindowsBridge(true);
+    }
     document.getElementById('ticket-print-modal').classList.remove('hidden');
 }
 
@@ -3682,7 +3759,7 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'RIVERA';
+    const businessName = (ticketConfig && ticketConfig.businessName) ? ticketConfig.businessName : 'SARMIENTO';
     const alias = (ticketConfig && ticketConfig.alias) ? ticketConfig.alias.trim() : '';
     const footerMessage = (ticketConfig && ticketConfig.footerMessage) ? ticketConfig.footerMessage.trim() : '';
     const showSuggestedTip = ticketConfig ? Boolean(ticketConfig.showSuggestedTip) : true;
@@ -3710,67 +3787,65 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
 
     const container = document.getElementById('printable-ticket-area');
     container.innerHTML = `
-        <div class="text-center border-b-2 border-black pb-2 mb-2 text-black">
-            <h2 class="font-black text-2xl uppercase tracking-wider leading-none">${escapeHtmlSafe(businessName)}</h2>
-            <p class="text-xs font-extrabold uppercase mt-1">CONTROL DE MESA / CUENTA</p>
-            <p class="text-[10px] font-bold mt-0.5">NO VÁLIDO COMO FACTURA FISCAL</p>
-        </div>
+        <div class="font-mono text-black text-xs">
+            <div class="text-center border-b border-black pb-2 mb-2">
+                <h2 class="font-bold text-lg uppercase tracking-wider leading-tight">${escapeHtmlSafe(businessName)}</h2>
+                <p class="text-[11px] font-medium uppercase mt-0.5">CONTROL DE MESA / CUENTA</p>
+                <p class="text-[10px] font-normal mt-0.5">NO VÁLIDO COMO FACTURA FISCAL</p>
+            </div>
 
-        <div class="text-center border-b-2 border-black pb-2 mb-2 text-black">
-            <div class="text-xl font-black uppercase">${escapeHtmlSafe(table)}</div>
-            <div class="flex justify-between text-xs font-bold mt-1">
-                <span>FECHA: ${dateStr}</span>
-                <span>HORA: ${timeStr} hs</span>
-            </div>
-            <div class="text-left text-xs font-black mt-0.5">MOZO: ${escapeHtmlSafe(waiterName)}</div>
-        </div>
-
-        <div class="border-b-2 border-black pb-2 mb-2 text-black">
-            <div class="flex justify-between font-black text-xs uppercase border-b border-black pb-1 mb-1.5">
-                <span>CANT / PRODUCTO</span>
-                <span>SUBTOTAL</span>
-            </div>
-            <div class="space-y-2">
-                ${items.map(i => `
-                    <div class="border-b border-dashed border-black pb-1.5 last:border-b-0 last:pb-0">
-                        <div class="flex justify-between items-start gap-2 text-sm font-extrabold">
-                            <span class="leading-tight break-words"><strong class="font-black">${i.qty}x</strong> ${escapeHtmlSafe(i.name)}</span>
-                            <span class="shrink-0 font-black">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-
-        <div class="border-b-2 border-black pb-2 mb-2 space-y-1 text-black">
-            <div class="flex justify-between items-center text-lg font-black">
-                <span>TOTAL:</span>
-                <span>$${total.toLocaleString('es-AR')}</span>
-            </div>
-            ${showSuggestedTip ? `
-                <div class="flex justify-between items-center text-xs font-bold pt-1">
-                    <span>Propina sugerida (10%):</span>
-                    <span>$${suggestedTip10.toLocaleString('es-AR')}</span>
+            <div class="text-center border-b border-dashed border-black pb-2 mb-2">
+                <div class="text-base font-bold uppercase">${escapeHtmlSafe(table)}</div>
+                <div class="flex justify-between text-[11px] font-normal mt-1">
+                    <span>FECHA: ${dateStr}</span>
+                    <span>HORA: ${timeStr} hs</span>
                 </div>
-                <div class="flex justify-between items-center text-sm font-black">
-                    <span>Total con 10% propina:</span>
-                    <span>$${totalWithTip10.toLocaleString('es-AR')}</span>
+                <div class="text-left text-[11px] font-normal mt-0.5">MOZO: ${escapeHtmlSafe(waiterName)}</div>
+            </div>
+
+            <div class="border-b border-black pb-2 mb-2">
+                <div class="flex justify-between font-bold text-[11px] uppercase border-b border-dashed border-black pb-1 mb-1.5">
+                    <span>CANT / PRODUCTO</span>
+                    <span>SUBTOTAL</span>
+                </div>
+                <div class="space-y-1.5">
+                    ${items.map(i => `
+                        <div class="flex justify-between items-start gap-2 text-xs font-normal">
+                            <span class="leading-snug break-words"><strong class="font-semibold">${i.qty}x</strong> ${escapeHtmlSafe(i.name)}</span>
+                            <span class="shrink-0 font-normal">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="border-b border-dashed border-black pb-2 mb-2 space-y-1">
+                <div class="flex justify-between items-center text-sm font-bold">
+                    <span>TOTAL:</span>
+                    <span>$${total.toLocaleString('es-AR')}</span>
+                </div>
+                ${showSuggestedTip ? `
+                    <div class="flex justify-between text-[11px] font-normal pt-1 border-t border-dotted border-slate-400">
+                        <span>Propina sugerida (10%):</span>
+                        <span>$${suggestedTip10.toLocaleString('es-AR')}</span>
+                    </div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span>Total con 10% propina:</span>
+                        <span>$${totalWithTip10.toLocaleString('es-AR')}</span>
+                    </div>
+                ` : ''}
+            </div>
+
+            ${alias ? `
+                <div class="text-center border border-dashed border-black p-1.5 my-2">
+                    <div class="text-[10px] font-normal uppercase">ALIAS TRANSFERENCIA</div>
+                    <div class="text-xs font-bold break-all mt-0.5">${escapeHtmlSafe(alias)}</div>
                 </div>
             ` : ''}
+
+            ${footerMessage ? `
+                <div class="text-center pt-1 text-[11px] font-normal whitespace-pre-line">${escapeHtmlSafe(footerMessage)}</div>
+            ` : ''}
         </div>
-
-        ${alias ? `
-            <div class="border-2 border-black p-2 my-2 text-center text-black">
-                <div class="text-[10px] font-black uppercase tracking-wider">ALIAS TRANSFERENCIA</div>
-                <div class="text-sm font-black break-all mt-0.5">${escapeHtmlSafe(alias)}</div>
-            </div>
-        ` : ''}
-
-        ${footerMessage ? `
-            <div class="pt-1 text-center text-xs font-extrabold text-black whitespace-pre-line">
-                ${escapeHtmlSafe(footerMessage)}
-            </div>
-        ` : ''}
     `;
 
     currentTicketRawText =
@@ -3787,6 +3862,9 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
         (footerMessage ? `\n${footerMessage}` : '');
 
     updatePrinterStatusUI();
+    if (!winPrintEndpoint || !selectedWinPrinter) {
+        discoverWindowsBridge(true);
+    }
     document.getElementById('ticket-print-modal').classList.remove('hidden');
 }
 
@@ -3900,7 +3978,7 @@ async function discoverWindowsBridge(silent = true) {
 
     for (const c of candidates) {
         try {
-            const res = await fetchWithTimeout(c.listUrl, { method: 'GET' }, 2000);
+            const res = await fetchWithTimeout(c.listUrl, { method: 'GET' }, 6000);
             if (!res.ok) continue;
             const data = await res.json();
             if (data && data.success && Array.isArray(data.printers) && data.printers.length > 0) {
@@ -3935,16 +4013,8 @@ async function discoverWindowsBridge(silent = true) {
 }
 
 async function connectWindowsBridgePrinter() {
-    if (winPrintEndpoint && selectedWinPrinter) {
-        winPrintEndpoint = null;
-        localStorage.removeItem('rivera_printer_mode');
-        updatePrinterStatusUI();
-        showToast('Impresora directa Windows desvinculada', 'info');
-        return;
-    }
-
     if (directSerialPort) {
-        try { await directSerialPort.close(); } catch (e) { }
+        try { await directSerialPort.close(); } catch (e) {}
         directSerialPort = null;
     }
     rawBtEnabled = false;
@@ -4008,7 +4078,7 @@ async function connectDirectUsbPrinter() {
     if (directUsbPrinter) {
         try {
             await directUsbPrinter.device.close();
-        } catch (e) { }
+        } catch (e) {}
         directUsbPrinter = null;
         localStorage.removeItem('rivera_printer_mode');
         updatePrinterStatusUI();
@@ -4025,7 +4095,7 @@ async function connectDirectUsbPrinter() {
         const device = await navigator.usb.requestDevice({ filters: [] });
         directUsbPrinter = await openUsbDevice(device);
         if (directSerialPort) {
-            try { await directSerialPort.close(); } catch (e) { }
+            try { await directSerialPort.close(); } catch (e) {}
             directSerialPort = null;
         }
         rawBtEnabled = false;
@@ -4044,7 +4114,7 @@ async function connectDirectSerialPrinter() {
     if (directSerialPort) {
         try {
             await directSerialPort.close();
-        } catch (e) { }
+        } catch (e) {}
         directSerialPort = null;
         localStorage.removeItem('rivera_printer_mode');
         updatePrinterStatusUI();
@@ -4066,7 +4136,7 @@ async function connectDirectSerialPrinter() {
         }
         directSerialPort = port;
         if (directUsbPrinter) {
-            try { await directUsbPrinter.device.close(); } catch (e) { }
+            try { await directUsbPrinter.device.close(); } catch (e) {}
             directUsbPrinter = null;
         }
         rawBtEnabled = false;
@@ -4086,11 +4156,11 @@ function toggleRawBtMode() {
     localStorage.setItem('rivera_rawbt_enabled', rawBtEnabled ? '1' : '0');
     if (rawBtEnabled) {
         if (directUsbPrinter) {
-            try { directUsbPrinter.device.close(); } catch (e) { }
+            try { directUsbPrinter.device.close(); } catch (e) {}
             directUsbPrinter = null;
         }
         if (directSerialPort) {
-            try { directSerialPort.close(); } catch (e) { }
+            try { directSerialPort.close(); } catch (e) {}
             directSerialPort = null;
         }
         localStorage.setItem('rivera_printer_mode', 'rawbt');
@@ -4213,16 +4283,13 @@ function wrapTextWords(text, maxCols) {
 }
 
 function buildEscPosBytes(data) {
-    // 3nStar RPT004 (80mm papel / 72mm imprimible / 576 dots -> Font A 12x24 = 48 cols)
-    // En modo 58mm (48mm imprimible / 384 dots -> Font A = 32 cols)
+    // 3nStar RPT004 / POS-80C (80mm papel / 72mm imprimible / 576 dots -> Font A 12x24 = 48 cols)
     const is80mm = printerPaperWidth !== 58;
     const cols1x = is80mm ? 48 : 32;
     const cols2x = is80mm ? 24 : 16;
-    const cols3x = is80mm ? 16 : 10;
 
     const sepDash = '-'.repeat(cols1x);
     const sepEq = '='.repeat(cols1x);
-    const sepStar = '*'.repeat(cols1x);
     const bytes = [];
 
     const pushBytes = (arr) => {
@@ -4235,7 +4302,6 @@ function buildEscPosBytes(data) {
         pushText(text + '\n');
     };
     const feedDots = (dots) => {
-        // ESC J n -> Avance vertical fino en puntos (8 dots = 1mm en RPT004)
         pushBytes([0x1B, 0x4A, Math.max(0, Math.min(255, dots))]);
     };
     const pushLeftRight = (left, right, maxCols = cols1x) => {
@@ -4256,171 +4322,131 @@ function buildEscPosBytes(data) {
         }
     };
 
-    // Comandos ESC/POS nativos para 3nStar RPT004
-    const INIT = [0x1B, 0x40];                                      // Reiniciar impresora
-    const CODEPAGE_PC850 = [0x1B, 0x74, 0x02];                      // Tabla PC850 (acentos y ñ del español)
-    const FONT_A = [0x1B, 0x4D, 0x00];                              // Font A (12x24 dots, más grande y oscura)
-    const LEFT_MARGIN_0 = [0x1D, 0x4C, 0x00, 0x00];                 // Margen izquierdo = 0 puntos
+    // Comandos ESC/POS limpios: trazo normal nítido (BOLD_OFF por defecto) para evitar letra gruesa o empastada
+    const INIT = [0x1B, 0x40];
+    const CODEPAGE_PC850 = [0x1B, 0x74, 0x02];
+    const FONT_A = [0x1B, 0x4D, 0x00];                              // Font A estándar 12x24
+    const LEFT_MARGIN_0 = [0x1D, 0x4C, 0x00, 0x00];
     const PRINT_WIDTH = is80mm
-        ? [0x1D, 0x57, 0x40, 0x02]                                  // 576 dots (72mm exactos de 3nStar RPT004)
-        : [0x1D, 0x57, 0x80, 0x01];                                 // 384 dots (48mm para rollo 58mm)
-    const LINE_SPACING_COMFORT = [0x1B, 0x33, 0x24];                // Interlineado legible (36 dots)
+        ? [0x1D, 0x57, 0x40, 0x02]
+        : [0x1D, 0x57, 0x80, 0x01];
+    const LINE_SPACING_DEFAULT = [0x1B, 0x32];                      // Interlineado natural ESC 2
     const ALIGN_LEFT = [0x1B, 0x61, 0x00];
     const ALIGN_CENTER = [0x1B, 0x61, 0x01];
     const BOLD_ON = [0x1B, 0x45, 0x01];
     const BOLD_OFF = [0x1B, 0x45, 0x00];
-    const SIZE_1X = [0x1D, 0x21, 0x00];                             // 1x ancho, 1x alto (48 cols)
-    const SIZE_1X2 = [0x1D, 0x21, 0x01];                            // 1x ancho, 2x alto (48 cols, doble altura)
-    const SIZE_2X2 = [0x1D, 0x21, 0x11];                            // 2x ancho, 2x alto (24 cols)
-    const SIZE_2X3 = [0x1D, 0x21, 0x12];                            // 2x ancho, 3x alto (24 cols)
-    const SIZE_3X2 = [0x1D, 0x21, 0x21];                            // 3x ancho, 2x alto (16 cols)
-    const SIZE_3X3 = [0x1D, 0x21, 0x22];                            // 3x ancho, 3x alto (16 cols)
-    const FEED_AND_CUT = [0x1B, 0x64, 0x04, 0x1D, 0x56, 0x42, 0x03]; // Avance 4 líneas + corte parcial automático
+    const DOUBLE_STRIKE_OFF = [0x1B, 0x47, 0x00];                   // Desactivar doble pasada para trazo fino y limpio
+    const SIZE_1X = [0x1D, 0x21, 0x00];                             // 1x ancho, 1x alto (48 cols, fino y nítido)
+    const SIZE_1X2 = [0x1D, 0x21, 0x01];                            // 1x ancho, 2x alto (48 cols, alto pero estilizado)
+    const SIZE_2X2 = [0x1D, 0x21, 0x11];                            // 2x ancho, 2x alto (24 cols, solo títulos)
+    const FEED_AND_CUT = [0x1B, 0x64, 0x04, 0x1D, 0x56, 0x42, 0x03];
 
     pushBytes(INIT);
     pushBytes(CODEPAGE_PC850);
     pushBytes(FONT_A);
     pushBytes(LEFT_MARGIN_0);
     pushBytes(PRINT_WIDTH);
-    pushBytes(LINE_SPACING_COMFORT);
+    pushBytes(LINE_SPACING_DEFAULT);
+    pushBytes(DOUBLE_STRIKE_OFF);
+    pushBytes(BOLD_OFF);
 
     if (!data) {
         pushBytes(ALIGN_LEFT);
-        pushBytes(BOLD_ON);
+        pushBytes(SIZE_1X);
         pushLine(currentTicketRawText || '');
-        pushBytes(BOLD_OFF);
         pushBytes(FEED_AND_CUT);
         return new Uint8Array(bytes);
     }
 
-    const bizNameUpper = String((data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'RIVERA').toUpperCase();
+    const bizNameUpper = String((data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'SARMIENTO').toUpperCase();
 
     if (data.type === 'kitchen') {
         const kitchenItems = Array.isArray(data.itemsToPrint) ? data.itemsToPrint : (data.pendingItems || []);
-        const kitchenSubtitle = data.isReprint ? 'REIMPRESIÓN - COMANDA' : 'COMANDA DE COCINA';
+        const kitchenSubtitle = data.isReprint ? 'REIMPRESION - COMANDA' : 'COMANDA DE COCINA';
 
-        // 1. ENCABEZADO DEL ESTABLECIMIENTO (3x ancho x 2x alto en 80mm si entra, si no 2x2)
+        // 1. ENCABEZADO (Trazo limpio sin negrita forzada)
         pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
+        pushBytes(BOLD_OFF);
+        pushBytes(SIZE_1X2);
         pushLine(bizNameUpper);
-        pushBytes(SIZE_1X2);
+        pushBytes(SIZE_1X);
         pushLine(kitchenSubtitle);
-        pushBytes(SIZE_1X);
-        pushLine(sepEq);
+        pushLine(sepDash);
 
-        // 2. NÚMERO DE MESA / PEDIDO DESTACADO (3x3 si entra en 16 cols, si no 2x3)
-        feedDots(8);
+        // 2. MESA Y COMANDA
         pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        const tableUpper = String(data.table || '').toUpperCase();
-        if (tableUpper.length <= cols3x) {
-            pushBytes(SIZE_3X3);
-        } else {
-            pushBytes(SIZE_2X3);
-        }
-        pushLine(tableUpper);
-        feedDots(8);
-        pushBytes(SIZE_1X2);
-        pushLine(`COMANDA: ${data.id}`);
+        pushBytes(SIZE_2X2);
+        pushLine(String(data.table || '').toUpperCase());
         pushBytes(SIZE_1X);
-        pushLine(sepEq);
+        pushLine(`Comanda: ${data.id}`);
+        pushLine(sepDash);
 
-        // 3. FECHA, HORA Y MOZO (1x2 doble altura y negrita para lectura rápida)
+        // 3. FECHA, HORA Y MOZO (Tamaño 1x normal y fino)
         pushBytes(ALIGN_LEFT);
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_1X2);
-        const dateLabel = data.dateStr ? `FECHA: ${data.dateStr}` : '';
-        const timeLabel = `HORA: ${data.time} hs`;
+        pushBytes(SIZE_1X);
+        const dateLabel = data.dateStr ? `Fecha: ${data.dateStr}` : '';
+        const timeLabel = `Hora: ${data.time} hs`;
         if (dateLabel) {
             pushLeftRight(dateLabel, timeLabel, cols1x);
         } else {
             pushLine(timeLabel);
         }
-        pushLine(`MOZO: ${data.waiter}`);
-        pushBytes(SIZE_1X);
-        pushLine(sepEq);
+        pushLine(`Mozo: ${data.waiter}`);
+        pushLine(sepDash);
 
-        // 4. PRODUCTOS POR PREPARAR (2x2 NEGRITA, SOLO ÍTEMS NUEVOS SIN PRECIOS NI REPETIDOS)
+        // 4. PRODUCTOS POR PREPARAR (1x2 estilizado sin ensanchar la letra y sin BOLD_ON grueso)
         if (kitchenItems.length > 0) {
-            pushBytes(ALIGN_CENTER);
-            pushBytes(BOLD_ON);
-            pushBytes(SIZE_2X2);
-            pushLine('POR PREPARAR');
-            pushBytes(SIZE_1X);
-            pushLine(sepDash);
-
             pushBytes(ALIGN_LEFT);
             kitchenItems.forEach((i, idx) => {
-                const qtyTag = `[${i.qty}x] `;
+                const qtyTag = `${i.qty}x `;
                 const indent = ' '.repeat(qtyTag.length);
-                const availForName = Math.max(8, cols2x - qtyTag.length);
+                const availForName = Math.max(12, cols1x - qtyTag.length);
                 const wrappedName = wrapTextWords(i.name, availForName);
 
-                pushBytes(BOLD_ON);
-                pushBytes(SIZE_2X2);
+                pushBytes(BOLD_OFF);
+                pushBytes(SIZE_1X2);
                 pushLine(qtyTag + wrappedName[0]);
                 for (let k = 1; k < wrappedName.length; k++) {
                     pushLine(indent + wrappedName[k]);
                 }
 
                 if (i.note) {
-                    pushBytes(SIZE_1X2);
-                    const noteLines = wrapTextWords(`OBS: ${i.note}`, cols1x - 2);
-                    noteLines.forEach(nl => pushLine('  ' + nl));
+                    pushBytes(SIZE_1X);
+                    const noteLines = wrapTextWords(`OBS: ${i.note}`, cols1x - 3);
+                    noteLines.forEach(nl => pushLine('   ' + nl));
                 }
 
                 pushBytes(SIZE_1X);
                 if (idx < kitchenItems.length - 1) {
-                    feedDots(10);
-                    pushLine(sepDash);
-                    feedDots(10);
-                } else {
-                    feedDots(8);
+                    feedDots(6);
                 }
             });
             pushBytes(SIZE_1X);
-            pushLine(sepEq);
+            pushLine(sepDash);
         }
 
-        // 5. OBSERVACIONES E INDICACIONES ESPECIALES (Destacadas en 2x2 negrita)
+        // 5. OBSERVACIONES GENERALES
         if (data.note) {
-            feedDots(8);
             pushBytes(ALIGN_LEFT);
-            pushBytes(BOLD_ON);
             pushBytes(SIZE_1X);
-            pushLine(sepStar);
-            pushBytes(SIZE_2X2);
             pushLine('OBSERVACIONES:');
-            const obsLines = wrapTextWords(data.note, cols2x);
+            const obsLines = wrapTextWords(data.note, cols1x);
             obsLines.forEach(ol => pushLine(ol));
-            pushBytes(SIZE_1X);
-            pushLine(sepStar);
-            feedDots(8);
+            pushLine(sepDash);
         }
-
-        pushBytes(SIZE_1X);
-        pushBytes(BOLD_OFF);
     } else if (data.type === 'closure') {
-        // 1. ENCABEZADO
         pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
+        pushBytes(BOLD_OFF);
+        pushBytes(SIZE_1X2);
         pushLine(bizNameUpper);
-        pushBytes(SIZE_1X2);
+        pushBytes(SIZE_1X);
         pushLine('CIERRE DE TURNO / AUDITORIA');
-        pushBytes(SIZE_1X);
-        pushLine(sepEq);
-
-        // 2. FECHA Y HORA
-        pushBytes(ALIGN_LEFT);
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_1X2);
-        pushLeftRight(`FECHA: ${data.dateStr}`, `HORA: ${data.time}`, cols1x);
-        pushBytes(SIZE_1X);
         pushLine(sepDash);
 
-        // 3. BALANCE ECONOMICO
+        pushBytes(ALIGN_LEFT);
+        pushLeftRight(`Fecha: ${data.dateStr}`, `Hora: ${data.time}`, cols1x);
+        pushLine(sepDash);
+
         pushBytes(BOLD_ON);
         pushLeftRight('FACTURACION TOTAL:', `$${data.totalSales.toLocaleString('es-AR')}`, cols1x);
         pushBytes(BOLD_OFF);
@@ -4428,27 +4454,33 @@ function buildEscPosBytes(data) {
         pushLeftRight('  Transferencias:', `$${data.transferSales.toLocaleString('es-AR')}`, cols1x);
         pushLeftRight('  Pozo de propinas:', `$${data.tipsPool.toLocaleString('es-AR')}`, cols1x);
         pushLeftRight('  Mesas cobradas:', `${data.ordersCount}`, cols1x);
-        pushLine(sepEq);
-
-        // 4. AUDITORIA DE PIZZAS Y PIZZA LIBRE
-        pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushBytes(SIZE_1X2);
-        pushLine('AUDITORIA DE PIZZAS');
-        pushBytes(SIZE_1X);
-        pushBytes(ALIGN_LEFT);
-        pushLeftRight('Pizza Libre (Personas):', `${data.librePersons} comensales`, cols1x);
-        pushLeftRight('Pizzas a la Carta:', `${data.traditionalPizzas} unidades`, cols1x);
-        pushLeftRight('Total Pizzas Despachadas:', `${data.totalPizzas} unidades`, cols1x);
         pushLine(sepDash);
 
-        // 5. TOP GUSTOS DE PIZZA
+        pushBytes(ALIGN_CENTER);
+        pushLine('VENTAS POR CATEGORIA');
+        pushBytes(ALIGN_LEFT);
+        (data.categories || []).forEach(c => {
+            pushLeftRight(String(c.name).toUpperCase(), `$${Number(c.revenue).toLocaleString('es-AR')}`, cols1x);
+            pushLine(`  ${formatSalesQtyLabel(c.units, c.persons)} (${c.pct}%)`);
+            (c.subList || []).forEach(s => {
+                pushLeftRight(`   - ${s.name}: ${formatSalesQtyLabel(s.units, s.persons)}`, `$${Number(s.revenue).toLocaleString('es-AR')}`, cols1x);
+            });
+        });
+        pushLine(sepDash);
+
+        if (Array.isArray(data.topProducts) && data.topProducts.length > 0) {
+            pushBytes(ALIGN_CENTER);
+            pushLine('LO MAS VENDIDO');
+            pushBytes(ALIGN_LEFT);
+            data.topProducts.forEach((p, idx) => {
+                pushLeftRight(`${idx + 1}. ${p.name}`, `${p.qty} ${p.isPersons ? 'pers.' : 'u.'}`, cols1x);
+            });
+            pushLine(sepDash);
+        }
+
         if (Array.isArray(data.topFlavors) && data.topFlavors.length > 0) {
             pushBytes(ALIGN_CENTER);
-            pushBytes(BOLD_ON);
-            pushBytes(SIZE_1X2);
-            pushLine('TOP GUSTOS DE PIZZA');
-            pushBytes(SIZE_1X);
+            pushLine('GUSTOS DE PIZZA MAS VENDIDOS');
             pushBytes(ALIGN_LEFT);
             data.topFlavors.slice(0, 5).forEach((f, idx) => {
                 pushLeftRight(`${idx + 1}. ${f.name}`, `${f.pizzaEquiv} piz. (${f.orders} ped.)`, cols1x);
@@ -4456,90 +4488,68 @@ function buildEscPosBytes(data) {
             pushLine(sepDash);
         }
 
-        // 6. PIE
         pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushLine('RIVERA POS - AUDITORIA');
-        pushBytes(BOLD_OFF);
+        pushLine('SARMIENTO POS');
     } else {
-        // TICKET CUENTA / PRE-CUENTA (3nStar RPT004 - 72mm / 48 cols - CON PRECIOS, SIN FIRMA)
+        // TICKET CUENTA / PRE-CUENTA (Tipografía clásica fina y prolija de 1x)
         pushBytes(ALIGN_CENTER);
-        pushBytes(BOLD_ON);
-        pushBytes((is80mm && bizNameUpper.length <= cols3x) ? SIZE_3X2 : SIZE_2X2);
-        pushLine(bizNameUpper);
-        pushBytes(SIZE_1X2);
-        pushLine('CONTROL DE MESA / CUENTA');
-        pushBytes(SIZE_1X);
         pushBytes(BOLD_OFF);
-        pushLine('NO VÁLIDO COMO FACTURA FISCAL');
-        pushBytes(BOLD_ON);
-        pushLine(sepEq);
+        pushBytes(SIZE_1X2);
+        pushLine(bizNameUpper);
+        pushBytes(SIZE_1X);
+        pushLine('CONTROL DE MESA / CUENTA');
+        pushLine('NO VALIDO COMO FACTURA FISCAL');
+        pushLine(sepDash);
 
         pushBytes(ALIGN_CENTER);
-        pushBytes(SIZE_2X2);
-        pushLine(String(data.table || '').toUpperCase());
-        pushBytes(SIZE_1X2);
-        pushBytes(ALIGN_LEFT);
-        pushLeftRight(`FECHA: ${data.dateStr}`, `${data.timeStr} hs`, cols1x);
-        pushLine(`MOZO: ${data.waiter}`);
-        pushBytes(SIZE_1X);
-        pushLine(sepEq);
-
         pushBytes(BOLD_ON);
+        pushLine(String(data.table || '').toUpperCase());
+        pushBytes(BOLD_OFF);
+        pushBytes(ALIGN_LEFT);
+        pushLeftRight(`Fecha: ${data.dateStr}`, `${data.timeStr} hs`, cols1x);
+        pushLine(`Mozo: ${data.waiter}`);
+        pushLine(sepDash);
+
         pushLeftRight('CANT / PRODUCTO', 'SUBTOTAL', cols1x);
         pushLine(sepDash);
 
-        (data.items || []).forEach((i, idx) => {
-            pushBytes(BOLD_ON);
-            pushBytes(SIZE_1X2);
-            const label = `[${i.qty}x] ${formatBillItemName(i)}`;
+        (data.items || []).forEach(i => {
+            pushBytes(BOLD_OFF);
+            pushBytes(SIZE_1X);
+            const label = `${i.qty}x ${formatBillItemName(i)}`;
             const sub = `$${(i.price * i.qty).toLocaleString('es-AR')}`;
             pushLeftRight(label, sub, cols1x);
-            if (idx < data.items.length - 1) {
-                feedDots(10);
-            }
         });
 
-        pushBytes(SIZE_1X);
-        pushLine(sepEq);
+        pushLine(sepDash);
 
         pushBytes(BOLD_ON);
-        pushBytes(SIZE_2X2);
-        pushLeftRight('TOTAL:', `$${data.total.toLocaleString('es-AR')}`, cols2x);
+        pushBytes(SIZE_1X2);
+        pushLeftRight('TOTAL:', `$${data.total.toLocaleString('es-AR')}`, cols1x);
+        pushBytes(SIZE_1X);
+        pushBytes(BOLD_OFF);
 
         if (data.showSuggestedTip) {
-            feedDots(6);
-            pushBytes(SIZE_1X2);
-            pushBytes(BOLD_OFF);
+            feedDots(4);
             pushLeftRight('Propina sugerida (10%):', `$${data.suggestedTip10.toLocaleString('es-AR')}`, cols1x);
-            pushBytes(BOLD_ON);
             pushLeftRight('Total con 10% propina:', `$${data.totalWithTip10.toLocaleString('es-AR')}`, cols1x);
         }
 
         if (data.alias && String(data.alias).trim()) {
-            pushBytes(SIZE_1X);
             pushLine(sepDash);
             pushBytes(ALIGN_CENTER);
-            pushBytes(BOLD_ON);
             pushLine('ALIAS TRANSFERENCIA:');
-            pushBytes(SIZE_1X2);
             const aliasLines = wrapTextWords(String(data.alias).trim(), cols1x);
             aliasLines.forEach(al => pushLine(al));
-            pushBytes(SIZE_1X);
         }
 
         if (data.footerMessage && String(data.footerMessage).trim()) {
-            pushBytes(SIZE_1X);
             pushLine(sepDash);
             pushBytes(ALIGN_CENTER);
-            pushBytes(BOLD_ON);
-            pushBytes(SIZE_1X2);
             const rawLines = String(data.footerMessage).trim().split('\n');
             rawLines.forEach(rl => {
                 wrapTextWords(rl, cols1x).forEach(wl => pushLine(wl));
             });
-            pushBytes(SIZE_1X);
-            pushBytes(BOLD_OFF);
         }
     }
 
@@ -4564,11 +4574,9 @@ function escapeHtmlSafe(str) {
 }
 
 function buildThermalPrintHtml(data) {
-    // 3nStar RPT004: Papel 80mm -> Ancho imprimible máximo exacto = 72mm (576 dots)
-    // En modo 58mm -> Ancho imprimible = 48mm (384 dots)
     const is80mm = printerPaperWidth !== 58;
     const printWidthMm = is80mm ? 72 : 48;
-    const bizName = (data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'RIVERA';
+    const bizName = (data && data.businessName) || (ticketConfig && ticketConfig.businessName) || 'SARMIENTO';
 
     let bodyContent = '';
     if (!data) {
@@ -4585,16 +4593,16 @@ function buildThermalPrintHtml(data) {
 
             <div class="table-banner">
                 <div class="table-name">${escapeHtmlSafe(data.table)}</div>
-                <div class="cmd-id">COMANDA: ${escapeHtmlSafe(data.id)}</div>
+                <div class="cmd-id">Comanda: ${escapeHtmlSafe(data.id)}</div>
             </div>
 
             <div class="meta-block">
                 <div class="meta-row">
-                    <span>FECHA: ${escapeHtmlSafe(data.dateStr || '')}</span>
-                    <span>HORA: ${escapeHtmlSafe(data.time)} hs</span>
+                    <span>Fecha: ${escapeHtmlSafe(data.dateStr || '')}</span>
+                    <span>Hora: ${escapeHtmlSafe(data.time)} hs</span>
                 </div>
                 <div class="meta-row">
-                    <span>MOZO: ${escapeHtmlSafe(data.waiter)}</span>
+                    <span>Mozo: ${escapeHtmlSafe(data.waiter)}</span>
                 </div>
             </div>
 
@@ -4627,7 +4635,7 @@ function buildThermalPrintHtml(data) {
             ? data.topFlavors.slice(0, 5).map((f, idx) => `
                 <div class="meta-row">
                     <span>${idx + 1}. ${escapeHtmlSafe(f.name)}</span>
-                    <strong style="text-align:right;">${f.pizzaEquiv} piz. (${f.orders} ped.)</strong>
+                    <span style="text-align:right;">${f.pizzaEquiv} piz. (${f.orders} ped.)</span>
                 </div>
             `).join('')
             : '<div class="legal-note">Sin pizzas registradas</div>';
@@ -4640,12 +4648,12 @@ function buildThermalPrintHtml(data) {
 
             <div class="meta-block">
                 <div class="meta-row">
-                    <span>FECHA: ${escapeHtmlSafe(data.dateStr)}</span>
-                    <span>HORA: ${escapeHtmlSafe(data.time)} hs</span>
+                    <span>Fecha: ${escapeHtmlSafe(data.dateStr)}</span>
+                    <span>Hora: ${escapeHtmlSafe(data.time)} hs</span>
                 </div>
             </div>
 
-            <div class="meta-block" style="border-top: 0.5mm dashed #000; padding-top: 1.5mm;">
+            <div class="meta-block">
                 <div class="meta-row strong-row">
                     <span>FACTURACION TOTAL:</span>
                     <span>$${data.totalSales.toLocaleString('es-AR')}</span>
@@ -4668,29 +4676,39 @@ function buildThermalPrintHtml(data) {
                 </div>
             </div>
 
-            <div class="meta-block" style="border-top: 0.7mm solid #000; padding-top: 1.5mm;">
-                <div class="cmd-id" style="text-align:center; margin-bottom: 1.5mm;">AUDITORIA DE PIZZAS</div>
-                <div class="meta-row strong-row">
-                    <span>Pizza Libre (Personas):</span>
-                    <span>${data.librePersons} comensales</span>
-                </div>
-                <div class="meta-row">
-                    <span>Pizzas a la Carta:</span>
-                    <span>${data.traditionalPizzas} unidades</span>
-                </div>
-                <div class="meta-row strong-row">
-                    <span>Total Pizzas Despachadas:</span>
-                    <span>${data.totalPizzas} unidades</span>
-                </div>
+            <div class="meta-block">
+                <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">VENTAS POR CATEGORIA</div>
+                ${(data.categories || []).map(c => `
+                    <div class="meta-row strong-row">
+                        <span>${escapeHtmlSafe(c.name)} (${formatSalesQtyLabel(c.units, c.persons)})</span>
+                        <span>$${Number(c.revenue).toLocaleString('es-AR')}</span>
+                    </div>
+                    ${(c.subList || []).map(s => `
+                        <div class="meta-row">
+                            <span>&nbsp;&nbsp;- ${escapeHtmlSafe(s.name)}: ${formatSalesQtyLabel(s.units, s.persons)}</span>
+                            <span>$${Number(s.revenue).toLocaleString('es-AR')}</span>
+                        </div>
+                    `).join('')}
+                `).join('') || '<div class="legal-note">Sin ventas registradas</div>'}
             </div>
 
-            <div class="meta-block" style="border-top: 0.5mm dashed #000; padding-top: 1.5mm;">
-                <div class="cmd-id" style="text-align:center; margin-bottom: 1.5mm;">TOP GUSTOS DE PIZZA</div>
+            <div class="meta-block">
+                <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">LO MAS VENDIDO</div>
+                ${(data.topProducts || []).map((p, idx) => `
+                    <div class="meta-row">
+                        <span>${idx + 1}. ${escapeHtmlSafe(p.name)}</span>
+                        <span>${p.qty} ${p.isPersons ? 'pers.' : 'u.'}</span>
+                    </div>
+                `).join('') || '<div class="legal-note">Sin ventas registradas</div>'}
+            </div>
+
+            <div class="meta-block">
+                <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">TOP GUSTOS DE PIZZA</div>
                 ${topFlavorsHtml}
             </div>
 
             <div class="footer-block">
-                <div class="legal-note" style="text-align:center;">Rivera POS - Resumen de Turno</div>
+                <div class="legal-note" style="text-align:center;">Sarmiento POS - Resumen de Turno</div>
             </div>
         `;
     } else {
@@ -4707,11 +4725,11 @@ function buildThermalPrintHtml(data) {
 
             <div class="meta-block">
                 <div class="meta-row">
-                    <span>FECHA: ${escapeHtmlSafe(data.dateStr)}</span>
-                    <span>HORA: ${escapeHtmlSafe(data.timeStr)} hs</span>
+                    <span>Fecha: ${escapeHtmlSafe(data.dateStr)}</span>
+                    <span>Hora: ${escapeHtmlSafe(data.timeStr)} hs</span>
                 </div>
                 <div class="meta-row">
-                    <span>MOZO: ${escapeHtmlSafe(data.waiter)}</span>
+                    <span>Mozo: ${escapeHtmlSafe(data.waiter)}</span>
                 </div>
             </div>
 
@@ -4724,7 +4742,7 @@ function buildThermalPrintHtml(data) {
                 ${(data.items || []).map(i => `
                     <div class="bill-item">
                         <div class="bill-item-row">
-                            <span class="bill-item-name"><strong>${i.qty}x</strong> ${escapeHtmlSafe(formatBillItemName(i))}</span>
+                            <span class="bill-item-name">${i.qty}x ${escapeHtmlSafe(formatBillItemName(i))}</span>
                             <span class="bill-item-price">$${(i.price * i.qty).toLocaleString('es-AR')}</span>
                         </div>
                     </div>
@@ -4751,8 +4769,8 @@ function buildThermalPrintHtml(data) {
 
             ${data.alias ? `
                 <div class="obs-box" style="text-align:center;">
-                    <div class="obs-label" style="border-bottom:none; margin-bottom:0.5mm; font-size:${is80mm ? '11pt' : '9.5pt'};">ALIAS TRANSFERENCIA</div>
-                    <div class="obs-text" style="font-size:${is80mm ? '14pt' : '11.5pt'}; word-break:break-all;">${escapeHtmlSafe(data.alias)}</div>
+                    <div class="obs-label" style="border-bottom:none; margin-bottom:0.5mm;">ALIAS TRANSFERENCIA</div>
+                    <div class="obs-text" style="word-break:break-all;">${escapeHtmlSafe(data.alias)}</div>
                 </div>
             ` : ''}
 
@@ -4768,7 +4786,7 @@ function buildThermalPrintHtml(data) {
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Comanda Rivera - 3nStar RPT004</title>
+<title>Ticket Sarmiento POS</title>
 <style>
   @page {
     size: ${printWidthMm}mm auto;
@@ -4777,73 +4795,65 @@ function buildThermalPrintHtml(data) {
   * {
     box-sizing: border-box;
     color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
   html, body {
     margin: 0 !important;
     padding: 0 !important;
     width: ${printWidthMm}mm !important;
     max-width: ${printWidthMm}mm !important;
-    min-width: ${printWidthMm}mm !important;
-    height: auto !important;
-    overflow: visible !important;
     background: #ffffff !important;
-    font-family: 'Arial', 'Helvetica Neue', sans-serif;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 400;
   }
   .ticket-root {
     width: ${printWidthMm}mm;
-    padding: 1mm 0mm 6mm 0mm;
+    padding: 1mm 0mm 4mm 0mm;
   }
   .header-block {
     text-align: center;
-    padding-bottom: 2mm;
-    border-bottom: 0.7mm solid #000;
+    padding-bottom: 1.5mm;
+    border-bottom: 0.3mm solid #000;
   }
   .brand-title {
-    font-size: ${is80mm ? '26pt' : '19pt'};
-    font-weight: 900;
-    line-height: 1.05;
-    letter-spacing: 1.5px;
+    font-size: ${is80mm ? '15pt' : '12pt'};
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 1px;
     text-transform: uppercase;
   }
   .doc-subtitle {
-    font-size: ${is80mm ? '12.5pt' : '10pt'};
-    font-weight: 900;
-    margin-top: 1mm;
-    letter-spacing: 0.8px;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 400;
+    margin-top: 0.5mm;
     text-transform: uppercase;
   }
   .legal-note {
-    font-size: ${is80mm ? '9.5pt' : '8pt'};
-    font-weight: 700;
+    font-size: ${is80mm ? '8.5pt' : '7.5pt'};
+    font-weight: 400;
     margin-top: 0.5mm;
   }
   .table-banner {
     text-align: center;
-    padding: 2mm 0;
-    border-bottom: 0.8mm solid #000;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    padding: 1.5mm 0;
+    border-bottom: 0.3mm solid #000;
   }
   .table-name {
-    font-size: ${is80mm ? '24pt' : '18pt'};
-    font-weight: 900;
-    line-height: 1.05;
+    font-size: ${is80mm ? '14pt' : '11.5pt'};
+    font-weight: 700;
+    line-height: 1.15;
     text-transform: uppercase;
   }
   .cmd-id {
-    font-size: ${is80mm ? '12pt' : '10pt'};
-    font-weight: 800;
-    margin-top: 1mm;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 400;
+    margin-top: 0.5mm;
   }
   .meta-block {
-    padding: 2mm 0;
-    border-bottom: 0.6mm dashed #000;
-    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
-    font-weight: 700;
-    line-height: 1.35;
-    break-inside: avoid;
+    padding: 1.5mm 0;
+    border-bottom: 0.3mm dashed #000;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 400;
+    line-height: 1.3;
   }
   .meta-row {
     display: flex;
@@ -4851,40 +4861,34 @@ function buildThermalPrintHtml(data) {
     gap: 2mm;
   }
   .strong-row {
-    font-weight: 900;
-    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
+    font-weight: 700;
   }
   .section-title {
     text-align: center;
-    font-size: ${is80mm ? '15pt' : '12pt'};
-    font-weight: 900;
-    padding: 2mm 0 1.5mm 0;
-    border-bottom: 0.6mm solid #000;
-    letter-spacing: 0.8px;
+    font-size: ${is80mm ? '10.5pt' : '9pt'};
+    font-weight: 700;
+    padding: 1.5mm 0 1mm 0;
+    border-bottom: 0.3mm dashed #000;
   }
   .items-list {
     width: 100%;
   }
   .kitchen-item {
-    padding: 2.5mm 0;
-    border-bottom: 0.45mm dashed #000;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    padding: 1.5mm 0;
+    border-bottom: 0.25mm dotted #000;
   }
   .kitchen-item:last-child {
-    border-bottom: 0.7mm solid #000;
+    border-bottom: 0.3mm solid #000;
   }
   .kitchen-item-row {
     display: flex;
     align-items: flex-start;
-    gap: 2.2mm;
+    gap: 2mm;
   }
   .qty-box {
-    font-size: ${is80mm ? '19pt' : '14pt'};
-    font-weight: 900;
-    line-height: 1;
-    border: 0.6mm solid #000;
-    padding: 1mm 1.5mm;
+    font-size: ${is80mm ? '12pt' : '10pt'};
+    font-weight: 700;
+    line-height: 1.2;
     flex-shrink: 0;
   }
   .item-main {
@@ -4892,87 +4896,55 @@ function buildThermalPrintHtml(data) {
     min-width: 0;
   }
   .item-name {
-    font-size: ${is80mm ? '17pt' : '13pt'};
-    font-weight: 900;
-    line-height: 1.15;
+    font-size: ${is80mm ? '12pt' : '10pt'};
+    font-weight: 400;
+    line-height: 1.2;
     word-wrap: break-word;
-    overflow-wrap: break-word;
-  }
-  .addon-tag {
-    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
-    font-weight: 900;
-    margin-top: 1mm;
   }
   .item-note {
-    font-size: ${is80mm ? '13pt' : '10.5pt'};
-    font-weight: 800;
-    margin-top: 1mm;
+    font-size: ${is80mm ? '10pt' : '8.5pt'};
+    font-weight: 400;
+    margin-top: 0.5mm;
     line-height: 1.2;
-    word-wrap: break-word;
-  }
-  .delivered-section {
-    padding: 2mm 0;
-    border-bottom: 0.5mm dashed #000;
-    break-inside: avoid;
-  }
-  .delivered-title {
-    font-size: ${is80mm ? '10.5pt' : '9pt'};
-    font-weight: 900;
-    margin-bottom: 1mm;
-  }
-  .delivered-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 2mm;
-    font-size: ${is80mm ? '10.5pt' : '9pt'};
-    font-weight: 700;
-    padding: 0.5mm 0;
   }
   .obs-box {
-    margin: 2.5mm 0;
-    padding: 2mm;
-    border: 0.7mm solid #000;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    margin: 1.5mm 0;
+    padding: 1.5mm;
+    border: 0.3mm solid #000;
   }
   .obs-label {
-    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
-    font-weight: 900;
-    border-bottom: 0.4mm solid #000;
-    padding-bottom: 1mm;
-    margin-bottom: 1.2mm;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 700;
+    margin-bottom: 0.5mm;
   }
   .obs-text {
-    font-size: ${is80mm ? '15pt' : '12pt'};
-    font-weight: 900;
+    font-size: ${is80mm ? '10.5pt' : '9pt'};
+    font-weight: 400;
     line-height: 1.2;
-    word-wrap: break-word;
   }
   .bill-cols-header {
     display: flex;
     justify-content: space-between;
-    font-size: ${is80mm ? '11pt' : '9.5pt'};
-    font-weight: 900;
-    padding: 1.5mm 0;
-    border-bottom: 0.6mm solid #000;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 700;
+    padding: 1mm 0;
+    border-bottom: 0.3mm dashed #000;
   }
   .bill-item {
-    padding: 2mm 0;
-    border-bottom: 0.4mm dashed #000;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    padding: 1mm 0;
   }
   .bill-item:last-child {
-    border-bottom: 0.7mm solid #000;
+    padding-bottom: 1.5mm;
+    border-bottom: 0.3mm solid #000;
   }
   .bill-item-row {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 2mm;
-    font-size: ${is80mm ? '13pt' : '10.5pt'};
-    font-weight: 800;
-    line-height: 1.2;
+    font-size: ${is80mm ? '10pt' : '8.5pt'};
+    font-weight: 400;
+    line-height: 1.25;
   }
   .bill-item-name {
     flex: 1;
@@ -4980,60 +4952,30 @@ function buildThermalPrintHtml(data) {
   }
   .bill-item-price {
     flex-shrink: 0;
-    font-weight: 900;
-  }
-  .bill-item-note {
-    font-size: ${is80mm ? '11pt' : '9.5pt'};
-    font-weight: 700;
-    margin-top: 0.8mm;
-    padding-left: 2mm;
   }
   .total-block {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 2.5mm 0;
-    font-size: ${is80mm ? '18pt' : '14pt'};
-    font-weight: 900;
-    border-top: 0.7mm solid #000;
-    border-bottom: 0.7mm solid #000;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    padding: 1.5mm 0;
+    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
+    font-weight: 700;
+    border-bottom: 0.3mm dashed #000;
   }
   .tips-block {
-    padding: 2mm 0;
-    border-bottom: 0.5mm dashed #000;
-    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
-    font-weight: 700;
-    line-height: 1.45;
-    break-inside: avoid;
-  }
-  .voluntary-block {
-    padding: 2mm 0;
-    border-bottom: 0.5mm dashed #000;
-    font-size: ${is80mm ? '11.5pt' : '9.5pt'};
-    font-weight: 700;
-    line-height: 1.55;
-    break-inside: avoid;
-  }
-  .sign-line {
-    text-align: center;
-    padding-top: 3mm;
-    font-weight: 800;
+    padding: 1.5mm 0;
+    border-bottom: 0.3mm dashed #000;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 400;
+    line-height: 1.35;
   }
   .footer-block {
     text-align: center;
-    padding-top: 2.5mm;
-    break-inside: avoid;
+    padding-top: 2mm;
   }
   .footer-thanks {
-    font-size: ${is80mm ? '12.5pt' : '10.5pt'};
-    font-weight: 900;
-  }
-  .footer-sub {
-    font-size: ${is80mm ? '10.5pt' : '9pt'};
-    font-weight: 700;
-    margin-top: 0.8mm;
+    font-size: ${is80mm ? '9.5pt' : '8.5pt'};
+    font-weight: 400;
   }
 </style>
 </head>
@@ -5086,6 +5028,9 @@ async function triggerBrowserPrint() {
     };
 
     // 0. Impresión RAW ESC/POS directa por Windows (POS-80C / 3nStar RPT004) - Sin ventana de Guardar como PDF
+    if (!winPrintEndpoint && !directUsbPrinter && !directSerialPort && !rawBtEnabled) {
+        await discoverWindowsBridge(true);
+    }
     if (winPrintEndpoint && selectedWinPrinter) {
         try {
             const bytes = buildEscPosBytes(currentTicketData);
@@ -5145,7 +5090,7 @@ async function triggerBrowserPrint() {
             return;
         } catch (err) {
             if (writer) {
-                try { writer.releaseLock(); } catch (e) { }
+                try { writer.releaseLock(); } catch (e) {}
             }
             console.error('Error imprimiendo por Serial/COM:', err);
             directSerialPort = null;
@@ -5319,19 +5264,19 @@ function renderAdminMenuManager() {
                 </h5>
                 <div class="space-y-1.5">
                     ${filteredItems.length === 0 ? `<p class="text-[11px] text-slate-400 py-2 pl-2">Sin productos cargados en esta categoría.</p>` : filteredItems.map(item => {
-            const isAvail = item.isAvailable !== false;
-            const hasCustomDays = Array.isArray(item.availableDays);
-            const itemToday = isItemAvailableToday(item, cat);
-            const isExpanded = expandedAdminItemDaysId === item.id;
+                        const isAvail = item.isAvailable !== false;
+                        const hasCustomDays = Array.isArray(item.availableDays);
+                        const itemToday = isItemAvailableToday(item, cat);
+                        const isExpanded = expandedAdminItemDaysId === item.id;
 
-            let scheduleBadge = '';
-            if (!isAvail) {
-                scheduleBadge = '<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 font-bold">Pausado</span>';
-            } else if (hasCustomDays) {
-                scheduleBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-blue-50 text-[#2563eb] border border-blue-200 font-bold">${formatDaysSummary(item.availableDays)}</span>`;
-            }
+                        let scheduleBadge = '';
+                        if (!isAvail) {
+                            scheduleBadge = '<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 font-bold">Pausado</span>';
+                        } else if (hasCustomDays) {
+                            scheduleBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-blue-50 text-[#2563eb] border border-blue-200 font-bold">${formatDaysSummary(item.availableDays)}</span>`;
+                        }
 
-            const itemDayPills = isExpanded ? `
+                        const itemDayPills = isExpanded ? `
                             <div class="mt-2 pt-2 border-t border-slate-200 flex flex-wrap items-center gap-1">
                                 <button type="button" onclick="setItemInheritCategoryDays('${cKey}', '${item.id}')"
                                     class="px-2 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${!hasCustomDays ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}">
@@ -5342,19 +5287,19 @@ function renderAdminMenuManager() {
                                     Todos
                                 </button>
                                 ${WEEK_DAYS_ORDERED.map(d => {
-                const activeDay = hasCustomDays && item.availableDays.includes(d.id);
-                return `
+                                    const activeDay = hasCustomDays && item.availableDays.includes(d.id);
+                                    return `
                                         <button type="button" onclick="toggleItemDay('${cKey}', '${item.id}', ${d.id})"
                                             class="w-7 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${activeDay ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-100'}"
                                             title="${d.label}">
                                             ${d.short}
                                         </button>
                                     `;
-            }).join('')}
+                                }).join('')}
                             </div>
                         ` : '';
 
-            return `
+                        return `
                             <div class="p-2 rounded-xl ${itemToday ? 'bg-slate-50 hover:bg-white border-slate-200' : 'bg-amber-50/30 border-amber-200'} border text-xs">
                                 <div class="flex items-center justify-between gap-2">
                                     <div class="flex-1 min-w-0 pr-1">
@@ -5396,7 +5341,7 @@ function renderAdminMenuManager() {
                                 ${itemDayPills}
                             </div>
                         `;
-        }).join('')}
+                    }).join('')}
                 </div>
             </div>
         `;
@@ -5604,6 +5549,10 @@ async function addNewMenuItem() {
     const name = document.getElementById('new-item-name').value.trim();
     const price = parseFloat(document.getElementById('new-item-price').value);
     const desc = document.getElementById('new-item-desc').value.trim();
+    const subcatEl = document.getElementById('new-item-subcat');
+    const perPersonEl = document.getElementById('new-item-per-person');
+    const subcategory = subcatEl ? subcatEl.value.trim() : '';
+    const perPerson = perPersonEl ? Boolean(perPersonEl.checked) : false;
 
     if (!catKey || !name || isNaN(price) || price <= 0) {
         showToast('Completa el nombre y un precio válido mayor a 0', 'warning');
@@ -5616,6 +5565,8 @@ async function addNewMenuItem() {
         name: name,
         price: price,
         desc: desc,
+        subcategory: subcategory,
+        perPerson: perPerson,
         isAvailable: true,
         availableDays: null
     };
@@ -5632,12 +5583,14 @@ async function addNewMenuItem() {
     document.getElementById('new-item-name').value = "";
     document.getElementById('new-item-price').value = "";
     document.getElementById('new-item-desc').value = "";
+    if (subcatEl) subcatEl.value = "";
+    if (perPersonEl) perPersonEl.checked = false;
 
     try {
         const res = await fetch('/api/menu/item', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: newItemId, categoryId: catKey, name, price, desc })
+            body: JSON.stringify({ id: newItemId, categoryId: catKey, name, price, desc, subcategory, perPerson })
         });
         const data = await res.json();
         if (res.ok && data.success) {
@@ -5687,6 +5640,10 @@ function openEditMenuItemModal(catKey, itemId) {
     document.getElementById('edit-item-name').value = item.name;
     document.getElementById('edit-item-price').value = item.price;
     document.getElementById('edit-item-desc').value = item.desc || '';
+    const subcatEl = document.getElementById('edit-item-subcat');
+    if (subcatEl) subcatEl.value = item.subcategory || '';
+    const perPersonEl = document.getElementById('edit-item-per-person');
+    if (perPersonEl) perPersonEl.checked = isPerPersonMenuItem(item, catKey);
 
     document.getElementById('admin-edit-item-modal').classList.remove('hidden');
 }
@@ -5701,6 +5658,10 @@ async function saveEditedMenuItem() {
     const name = document.getElementById('edit-item-name').value.trim();
     const price = parseFloat(document.getElementById('edit-item-price').value) || 0;
     const desc = document.getElementById('edit-item-desc').value.trim();
+    const subcatEl = document.getElementById('edit-item-subcat');
+    const perPersonEl = document.getElementById('edit-item-per-person');
+    const subcategory = subcatEl ? subcatEl.value.trim() : '';
+    const perPerson = perPersonEl ? Boolean(perPersonEl.checked) : false;
 
     if (!name || price <= 0) {
         showToast('Ingresa un nombre y precio válido', 'warning');
@@ -5713,6 +5674,8 @@ async function saveEditedMenuItem() {
             item.name = name;
             item.price = price;
             item.desc = desc;
+            item.subcategory = subcategory;
+            item.perPerson = perPerson;
         }
     }
 
@@ -5725,7 +5688,7 @@ async function saveEditedMenuItem() {
         const res = await fetch('/api/menu/item', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: itemId, categoryId: catKey, name, price, desc })
+            body: JSON.stringify({ id: itemId, categoryId: catKey, name, price, desc, subcategory, perPerson })
         });
         if (res.ok) {
             isOnlineWithServer = true;
@@ -5816,8 +5779,8 @@ function computePizzaAndFlavorStats(payments = paymentHistory) {
         if (Array.isArray(p.items) && p.items.length > 0) {
             p.items.forEach(it => {
                 const isLibre = Boolean(
-                    it.isPizzaLibre ||
-                    (it.id && String(it.id).startsWith('pz_libre')) ||
+                    it.isPizzaLibre || 
+                    (it.id && String(it.id).startsWith('pz_libre')) || 
                     (it.name && /pizza\s*libre/i.test(it.name))
                 );
 
@@ -5842,8 +5805,8 @@ function computePizzaAndFlavorStats(payments = paymentHistory) {
                     });
                 } else {
                     const isPizzaItem = Boolean(
-                        it.isPizza ||
-                        (it.id && String(it.id).startsWith('pz_')) ||
+                        it.isPizza || 
+                        (it.id && String(it.id).startsWith('pz_')) || 
                         (it.name && /pizza/i.test(it.name))
                     );
 
@@ -5901,6 +5864,150 @@ function computePizzaAndFlavorStats(payments = paymentHistory) {
     };
 }
 
+// ================= REPORTES POR CATEGORÍA (TODA LA CARTA) =================
+
+function findMenuItemLocation(itemId) {
+    if (!itemId) return null;
+    for (const catKey in menuData) {
+        const cat = menuData[catKey];
+        const found = (cat && Array.isArray(cat.items)) ? cat.items.find(i => i.id === itemId) : null;
+        if (found) return { catKey, cat, item: found };
+    }
+    return null;
+}
+
+function isPizzaLibreSoldItem(it) {
+    return Boolean(
+        it && (it.isPizzaLibre ||
+        (it.id && String(it.id).startsWith('pz_libre')) ||
+        (it.name && /pizza\s*libre/i.test(it.name)))
+    );
+}
+
+function getSoldItemBaseName(it) {
+    if (it.baseName) return it.baseName;
+    return String(it.name || '').replace(/\s*\(\d+\s*personas?\)\s*$/i, '').trim();
+}
+
+function resolveSoldItemCategory(it) {
+    const loc = findMenuItemLocation(it.menuItemId) || findMenuItemLocation(it.id);
+    let catKey = it.categoryId || (loc ? loc.catKey : '');
+    if (!catKey && (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_')))) {
+        catKey = 'pizzas';
+    }
+    if (!catKey) catKey = 'otros';
+    const cat = menuData[catKey];
+    return {
+        catKey,
+        catName: cat ? cat.name : (catKey === 'pizzas' ? 'Pizzas' : 'Otros'),
+        icon: (cat && cat.icon) ? cat.icon : (catKey === 'pizzas' ? 'fa-pizza-slice' : 'fa-utensils'),
+        subcategory: String(it.subcategory || (loc && loc.item.subcategory) || '').trim()
+    };
+}
+
+function formatSalesQtyLabel(units, persons) {
+    const parts = [];
+    if (units > 0) parts.push(`${units} u.`);
+    if (persons > 0) parts.push(`${persons} pers.`);
+    return parts.length > 0 ? parts.join(' + ') : '0 u.';
+}
+
+function computeCategorySales(payments = paymentHistory) {
+    const cats = {};
+    let grandRevenue = 0;
+
+    payments.forEach(p => {
+        const items = Array.isArray(p.items) ? p.items : [];
+        items.forEach(it => {
+            const qty = Number(it.qty) || 0;
+            const price = Number(it.price) || 0;
+            const revenue = qty * price;
+            const info = resolveSoldItemCategory(it);
+
+            if (!cats[info.catKey]) {
+                cats[info.catKey] = { key: info.catKey, name: info.catName, icon: info.icon, units: 0, persons: 0, revenue: 0, extraRounds: 0, subs: {} };
+            }
+            const c = cats[info.catKey];
+
+            let units = 0;
+            let persons = 0;
+            if (isPizzaLibreSoldItem(it)) {
+                if (price > 0) persons = Number(it.librePersons) || qty || 1;
+                else c.extraRounds += 1;
+            } else if (it.perPerson) {
+                persons = qty;
+            } else {
+                units = qty;
+            }
+
+            c.units += units;
+            c.persons += persons;
+            c.revenue += revenue;
+            grandRevenue += revenue;
+
+            if (info.subcategory) {
+                if (!c.subs[info.subcategory]) c.subs[info.subcategory] = { name: info.subcategory, units: 0, persons: 0, revenue: 0 };
+                const s = c.subs[info.subcategory];
+                s.units += units;
+                s.persons += persons;
+                s.revenue += revenue;
+            }
+        });
+    });
+
+    const list = Object.values(cats)
+        .map(c => ({
+            ...c,
+            pct: grandRevenue > 0 ? Math.round((c.revenue / grandRevenue) * 1000) / 10 : 0,
+            subList: Object.values(c.subs).sort((a, b) => b.revenue - a.revenue)
+        }))
+        .sort((a, b) => b.revenue - a.revenue);
+
+    return { list, grandRevenue };
+}
+
+function computeProductRanking(payments = paymentHistory) {
+    const stats = {};
+    const add = (key, catName, qty, revenue, isPersons) => {
+        if (!stats[key]) stats[key] = { name: key, catName, qty: 0, revenue: 0, isPersons };
+        stats[key].qty += qty;
+        stats[key].revenue += revenue;
+    };
+
+    payments.forEach(p => {
+        if (Array.isArray(p.items) && p.items.length > 0) {
+            p.items.forEach(it => {
+                const qty = Number(it.qty) || 0;
+                const price = Number(it.price) || 0;
+                const info = resolveSoldItemCategory(it);
+                if (isPizzaLibreSoldItem(it)) {
+                    if (price > 0) {
+                        add('Pizza Libre (por persona)', info.catName, Number(it.librePersons) || qty || 1, price * qty, true);
+                    }
+                } else if (it.perPerson) {
+                    add(`${getSoldItemBaseName(it)} (por persona)`, info.catName, qty, price * qty, true);
+                } else {
+                    add(it.name, info.catName, qty, price * qty, false);
+                }
+            });
+        } else if (p.itemsSummary) {
+            String(p.itemsSummary).split(',').map(s => s.trim()).filter(Boolean).forEach(part => {
+                const m = part.match(/^(\d+)x\s*(.+)$/);
+                const qty = m ? parseInt(m[1], 10) : 1;
+                const name = m ? m[2].trim() : part;
+                if (/pizza\s*libre/i.test(name)) {
+                    if (/ronda\)/i.test(name) && !/1ra/i.test(name)) return;
+                    add('Pizza Libre (por persona)', 'Pizzas', qty, 0, true);
+                } else {
+                    add(name, 'Otros', qty, 0, false);
+                }
+            });
+        }
+    });
+
+    return Object.values(stats).sort((a, b) => (b.qty - a.qty) || (b.revenue - a.revenue));
+}
+
 function renderNightReportView() {
     const nowStr = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     document.getElementById('report-current-date').innerText = `Resumen: ${nowStr.charAt(0).toUpperCase() + nowStr.slice(1)}`;
@@ -5924,51 +6031,53 @@ function renderNightReportView() {
     document.getElementById('rep-kpi-tip-split').innerText = `$${tipPerWaiter.toLocaleString()} por mozo (${waiterCount})`;
     document.getElementById('rep-kpi-avg').innerText = `$${avgTicket.toLocaleString()}`;
 
-    // 1. Estadísticas de Pizzas y Pizza Libre del Turno
-    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
-
-    const badgeElem = document.getElementById('rep-pizza-summary-badge');
-    if (badgeElem) {
-        badgeElem.innerText = `${pizzaStats.librePersonsTotal} pers. libre / ${pizzaStats.totalPizzasDespachadas} pizzas`;
+    // 1. Ventas por Categoría (toda la carta) con desglose por tipo / subcategoría
+    const catSales = computeCategorySales(paymentHistory);
+    const catBadge = document.getElementById('rep-cat-summary-badge');
+    if (catBadge) {
+        const totUnits = catSales.list.reduce((a, c) => a + c.units, 0);
+        const totPersons = catSales.list.reduce((a, c) => a + c.persons, 0);
+        catBadge.innerText = `${catSales.list.length} categoría${catSales.list.length === 1 ? '' : 's'} | ${formatSalesQtyLabel(totUnits, totPersons)}`;
     }
-    const librePersElem = document.getElementById('rep-pizza-libre-persons');
-    if (librePersElem) {
-        librePersElem.innerText = `${pizzaStats.librePersonsTotal}`;
-    }
-    const libreSubElem = document.getElementById('rep-pizza-libre-sub');
-    if (libreSubElem) {
-        libreSubElem.innerText = `${pizzaStats.libreTablesCount} mesa${pizzaStats.libreTablesCount === 1 ? '' : 's'} ($${pizzaStats.libreRevenue.toLocaleString()})`;
-    }
-    const cartaCountElem = document.getElementById('rep-pizza-carta-count');
-    if (cartaCountElem) {
-        cartaCountElem.innerText = `${pizzaStats.traditionalPizzasCount}`;
-    }
-    const cartaSubElem = document.getElementById('rep-pizza-carta-sub');
-    if (cartaSubElem) {
-        cartaSubElem.innerText = `Carta / Tradicional ($${pizzaStats.traditionalRevenue.toLocaleString()})`;
-    }
-    const totalPizzasElem = document.getElementById('rep-pizza-total-count');
-    if (totalPizzasElem) {
-        totalPizzasElem.innerText = `${pizzaStats.totalPizzasDespachadas}`;
-    }
-    const totalPizzasSub = document.getElementById('rep-pizza-total-sub');
-    if (totalPizzasSub) {
-        totalPizzasSub.innerText = `${pizzaStats.traditionalPizzasCount} a la carta + ${pizzaStats.libreRoundsCount} rondas libre`;
-    }
-    const topFlavorElem = document.getElementById('rep-pizza-top-flavor');
-    const topFlavorSub = document.getElementById('rep-pizza-top-flavor-sub');
-    if (topFlavorElem && topFlavorSub) {
-        if (pizzaStats.sortedFlavors.length > 0) {
-            const tf = pizzaStats.sortedFlavors[0];
-            topFlavorElem.innerText = tf.name;
-            topFlavorSub.innerText = `${tf.pizzaEquiv} pizzas (${tf.orders} pedido${tf.orders === 1 ? '' : 's'})`;
+    const catContainer = document.getElementById('rep-category-breakdown');
+    if (catContainer) {
+        if (catSales.list.length === 0) {
+            catContainer.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-6 text-center">Sin ventas registradas en el turno.</p>`;
         } else {
-            topFlavorElem.innerText = 'Sin datos';
-            topFlavorSub.innerText = '0 pizzas registradas';
+            catContainer.innerHTML = catSales.list.map(c => `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="flex items-center gap-1.5 min-w-0">
+                            <i class="fa-solid ${c.icon} text-[#2563eb] text-xs shrink-0"></i>
+                            <span class="font-bold text-sm text-slate-900 truncate">${c.name}</span>
+                        </span>
+                        <span class="text-[10px] font-bold text-slate-500 shrink-0">${c.pct}% de ventas</span>
+                    </div>
+                    <div class="flex items-end justify-between gap-2">
+                        <span class="text-xs font-bold text-slate-700">${formatSalesQtyLabel(c.units, c.persons)}</span>
+                        <strong class="text-base text-slate-900">$${c.revenue.toLocaleString()}</strong>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div class="bg-[#2563eb] h-1.5 rounded-full" style="width: ${Math.min(100, c.pct)}%"></div>
+                    </div>
+                    ${c.extraRounds > 0 ? `<p class="text-[10px] text-slate-500">Rondas extra de libre servidas: ${c.extraRounds}</p>` : ''}
+                    ${c.subList.length > 0 ? `
+                        <div class="pt-1.5 border-t border-slate-200 space-y-1">
+                            ${c.subList.map(s => `
+                                <div class="flex justify-between text-[11px] text-slate-600">
+                                    <span class="truncate mr-2">${s.name}</span>
+                                    <span class="shrink-0"><strong class="text-slate-800">${formatSalesQtyLabel(s.units, s.persons)}</strong> | $${s.revenue.toLocaleString()}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
         }
     }
 
     // 2. Ranking de Gustos de Pizza Más Vendidos
+    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
     const flavorsListElem = document.getElementById('rep-top-flavors-list');
     if (flavorsListElem) {
         if (pizzaStats.sortedFlavors.length === 0) {
@@ -5997,66 +6106,9 @@ function renderNightReportView() {
         }
     }
 
-    // 3. Ranking de lo más vendido del día (con Pizza Libre unificada por persona)
-    const productStats = {};
-    paymentHistory.forEach(p => {
-        if (Array.isArray(p.items) && p.items.length > 0) {
-            p.items.forEach(i => {
-                const isLibre = Boolean(
-                    i.isPizzaLibre ||
-                    (i.id && String(i.id).startsWith('pz_libre')) ||
-                    (i.name && /pizza\s*libre/i.test(i.name))
-                );
-
-                if (isLibre) {
-                    if (i.price > 0 || (!i.libreRound || i.libreRound === 1)) {
-                        const libreKey = 'Pizza Libre (por persona)';
-                        if (!productStats[libreKey]) {
-                            productStats[libreKey] = { qty: 0, revenue: 0 };
-                        }
-                        const persons = i.librePersons || i.qty || 1;
-                        productStats[libreKey].qty += persons;
-                        productStats[libreKey].revenue += (i.price * persons);
-                    }
-                } else {
-                    if (!productStats[i.name]) {
-                        productStats[i.name] = { qty: 0, revenue: 0 };
-                    }
-                    productStats[i.name].qty += i.qty;
-                    productStats[i.name].revenue += (i.qty * i.price);
-                }
-            });
-        } else if (p.itemsSummary) {
-            const parts = p.itemsSummary.split(',').map(s => s.trim()).filter(Boolean);
-            parts.forEach(part => {
-                const match = part.match(/^(\d+)x\s*(.+)$/);
-                const qty = match ? parseInt(match[1], 10) : 1;
-                const itemName = match ? match[2].trim() : part;
-                if (/pizza\s*libre/i.test(itemName)) {
-                    const personsMatch = itemName.match(/(\d+)\s*personas/i);
-                    const persons = personsMatch ? parseInt(personsMatch[1], 10) : qty;
-                    const libreKey = 'Pizza Libre (por persona)';
-                    if (!productStats[libreKey]) {
-                        productStats[libreKey] = { qty: 0, revenue: 0 };
-                    }
-                    productStats[libreKey].qty += persons;
-                    productStats[libreKey].revenue += (persons * 16000);
-                } else {
-                    if (!productStats[itemName]) {
-                        productStats[itemName] = { qty: 0, revenue: 0 };
-                    }
-                    productStats[itemName].qty += qty;
-                    productStats[itemName].revenue += 0;
-                }
-            });
-        }
-    });
-
-    const sortedProducts = Object.keys(productStats)
-        .map(name => ({ name, ...productStats[name] }))
-        .sort((a, b) => b.qty - a.qty);
-
-    const maxQty = sortedProducts.length > 0 ? sortedProducts[0].qty : 1;
+    // 3. Ranking general de lo más vendido (toda la carta, servicios por persona unificados)
+    const sortedProducts = computeProductRanking(paymentHistory);
+    const maxQty = sortedProducts.length > 0 ? (sortedProducts[0].qty || 1) : 1;
     const topList = document.getElementById('rep-top-products-list');
 
     if (sortedProducts.length === 0) {
@@ -6069,9 +6121,10 @@ function renderNightReportView() {
                     <div class="flex justify-between items-center">
                         <span class="font-bold text-slate-800 truncate mr-2">
                             <span class="text-slate-400 font-semibold mr-1">${idx + 1}°.</span> ${p.name}
+                            <span class="text-[10px] text-slate-400 font-medium ml-1">${p.catName}</span>
                         </span>
                         <div class="text-right shrink-0">
-                            <strong class="text-slate-900">${p.qty} u.</strong>
+                            <strong class="text-slate-900">${p.qty} ${p.isPersons ? 'pers.' : 'u.'}</strong>
                             <span class="text-slate-400 text-[10px] ml-1">($${p.revenue.toLocaleString()})</span>
                         </div>
                     </div>
@@ -6207,79 +6260,96 @@ function copyNightReportText() {
     const ordersCount = paymentHistory.length;
     const dateStr = new Date().toLocaleDateString('es-AR');
 
+    const catSales = computeCategorySales(paymentHistory);
     const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+    const ranking = computeProductRanking(paymentHistory);
 
-    let tablesBreakdown = paymentHistory.map(p =>
-        `• ${p.table} (${p.method}): Cobró ${p.waiter} | Total: $${p.total.toLocaleString()} | Pagó: $${(p.paidWith || p.total).toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`
+    const catLines = catSales.list.length > 0
+        ? catSales.list.map(c => {
+            let line = `- ${c.name}: ${formatSalesQtyLabel(c.units, c.persons)} | $${c.revenue.toLocaleString()} (${c.pct}%)`;
+            c.subList.forEach(s => {
+                line += `\n     ${s.name}: ${formatSalesQtyLabel(s.units, s.persons)} | $${s.revenue.toLocaleString()}`;
+            });
+            return line;
+        }).join('\n')
+        : '- Sin ventas registradas';
+
+    const topProducts = ranking.length > 0
+        ? ranking.slice(0, 10).map((p, idx) => `${idx + 1}. ${p.name}: ${p.qty} ${p.isPersons ? 'pers.' : 'u.'}`).join('\n')
+        : '- Sin ventas registradas';
+
+    const topFlavors = pizzaStats.sortedFlavors.length > 0
+        ? pizzaStats.sortedFlavors.slice(0, 5).map((f, idx) => `${idx + 1}. ${f.name}: ${f.pizzaEquiv} pizzas (${f.orders} ped.)`).join('\n')
+        : '- Sin consumo de pizzas registrado';
+
+    const tablesBreakdown = paymentHistory.map(p =>
+        `- ${p.table} (${p.method}): Cobró ${p.waiter} | Total: $${p.total.toLocaleString()} | Pagó: $${(p.paidWith || p.total).toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`
     ).join('\n');
 
-    let topFlavorsText = '';
-    if (pizzaStats.sortedFlavors.length > 0) {
-        topFlavorsText = pizzaStats.sortedFlavors.slice(0, 5).map((f, idx) =>
-            `${idx + 1}. ${f.name}: ${f.pizzaEquiv} pizzas (${f.orders} ped.)`
-        ).join('\n');
-    } else {
-        topFlavorsText = '• Sin consumo de pizzas registrado';
-    }
-
-    const text = `*CIERRE NOCTURNO - RIVERA POS*\n` +
+    const text = `*CIERRE NOCTURNO - SARMIENTO POS*\n` +
         `Fecha: ${dateStr}\n\n` +
         `Facturación Total: $${totalSales.toLocaleString()}\n` +
         `Efectivo en Caja: $${totalCash.toLocaleString()}\n` +
         `Transferencias: $${totalTransfer.toLocaleString()}\n` +
         `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n` +
         `Mesas Cobradas: ${ordersCount}\n\n` +
-        `*AUDITORÍA DE PIZZAS Y PIZZA LIBRE:*\n` +
-        `• Pizza Libre: ${pizzaStats.librePersonsTotal} personas (en ${pizzaStats.libreTablesCount} mesas)\n` +
-        `• Pizzas a la Carta: ${pizzaStats.traditionalPizzasCount} unidades\n` +
-        `• Total Pizzas Despachadas: ${pizzaStats.totalPizzasDespachadas} elaboradas\n\n` +
-        `*TOP GUSTOS DE PIZZA MÁS VENDIDOS:*\n` +
-        `${topFlavorsText}\n\n` +
+        `*VENTAS POR CATEGORÍA:*\n${catLines}\n\n` +
+        `*LO MÁS VENDIDO (TOP 10):*\n${topProducts}\n\n` +
+        `*GUSTOS DE PIZZA MÁS VENDIDOS:*\n${topFlavors}\n\n` +
         `*RESUMEN DE COBRANZAS DE MESAS:*\n` +
         (tablesBreakdown || 'Sin cobranzas registradas') + '\n\n' +
-        `_Generado automáticamente desde Rivera POS_`;
+        `_Generado automáticamente desde Sarmiento POS_`;
 
     navigator.clipboard.writeText(text).then(() => {
-        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con el balance de pizzas, personas de pizza libre, gustos líderes y cobros por mozo, listo para enviar por WhatsApp.');
+        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con las ventas por categoría, lo más vendido, los gustos de pizza y los cobros por mozo, listo para enviar por WhatsApp.');
     }).catch(err => {
         console.error(err);
     });
 }
 
 function downloadNightReportCSV() {
+    const catSales = computeCategorySales(paymentHistory);
     const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+    const ranking = computeProductRanking(paymentHistory);
+    const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
 
-    let csv = "ID,Mesa,Mozo que Cobro,Hora,Metodo,Total,Pago,Propina,Personas Libre,Detalle\n";
+    let csv = "ID,Mesa,Mozo que Cobro,Hora,Metodo,Total,Pago,Propina,Personas (servicios por persona),Detalle\n";
     paymentHistory.forEach(p => {
-        const cleanSummary = (p.itemsSummary || '').replace(/"/g, '""');
-        let librePersonsInTable = 0;
+        let personsInTable = 0;
         if (Array.isArray(p.items)) {
             p.items.forEach(it => {
-                const isLibre = it.isPizzaLibre || (it.name && /pizza\s*libre/i.test(it.name));
-                if (isLibre && it.price > 0) {
-                    librePersonsInTable += (it.librePersons || it.qty || 1);
+                if (isPizzaLibreSoldItem(it)) {
+                    if (Number(it.price) > 0) personsInTable += (Number(it.librePersons) || Number(it.qty) || 1);
+                } else if (it.perPerson) {
+                    personsInTable += Number(it.qty) || 0;
                 }
             });
         }
-        csv += `"${p.id}","${p.table}","${p.waiter}","${p.time}","${p.method}",${p.total},${p.paidWith || p.total},${p.tip || 0},${librePersonsInTable},"${cleanSummary}"\n`;
+        csv += `${q(p.id)},${q(p.table)},${q(p.waiter)},${q(p.time)},${q(p.method)},${p.total},${p.paidWith || p.total},${p.tip || 0},${personsInTable},${q(p.itemsSummary || '')}\n`;
     });
 
-    csv += "\n\n--- AUDITORIA DE PIZZAS ---\n";
-    csv += "Concepto,Valor\n";
-    csv += `"Personas en Pizza Libre",${pizzaStats.librePersonsTotal}\n`;
-    csv += `"Mesas con Pizza Libre",${pizzaStats.libreTablesCount}\n`;
-    csv += `"Facturado Pizza Libre",${pizzaStats.libreRevenue}\n`;
-    csv += `"Pizzas a la Carta",${pizzaStats.traditionalPizzasCount}\n`;
-    csv += `"Facturado Pizzas Carta",${pizzaStats.traditionalRevenue}\n`;
-    csv += `"Total Pizzas Despachadas",${pizzaStats.totalPizzasDespachadas}\n`;
+    csv += "\n--- VENTAS POR CATEGORIA ---\n";
+    csv += "Categoria,Subcategoria,Unidades,Personas,Facturado,% de Ventas\n";
+    catSales.list.forEach(c => {
+        csv += `${q(c.name)},${q('(Total)')},${c.units},${c.persons},${c.revenue},${c.pct}\n`;
+        c.subList.forEach(s => {
+            csv += `${q(c.name)},${q(s.name)},${s.units},${s.persons},${s.revenue},\n`;
+        });
+    });
 
-    csv += "\n--- RANKING DE GUSTOS DE PIZZA ---\n";
+    csv += "\n--- LO MAS VENDIDO ---\n";
+    csv += "Posicion,Producto,Categoria,Cantidad,Tipo,Facturado\n";
+    ranking.forEach((p, idx) => {
+        csv += `${idx + 1},${q(p.name)},${q(p.catName)},${p.qty},${q(p.isPersons ? 'Personas' : 'Unidades')},${p.revenue}\n`;
+    });
+
+    csv += "\n--- GUSTOS DE PIZZA MAS VENDIDOS ---\n";
     csv += "Posicion,Gusto,Pizzas Equivalentes,Pedidos\n";
     pizzaStats.sortedFlavors.forEach((f, idx) => {
-        csv += `${idx + 1},"${f.name}",${f.pizzaEquiv},${f.orders}\n`;
+        csv += `${idx + 1},${q(f.name)},${f.pizzaEquiv},${f.orders}\n`;
     });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
@@ -6295,6 +6365,8 @@ async function printNightReportThermal() {
     const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
     const ordersCount = paymentHistory.length;
     const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+    const catSales = computeCategorySales(paymentHistory);
+    const ranking = computeProductRanking(paymentHistory);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const dateStr = new Date().toLocaleDateString('es-AR');
 
@@ -6307,11 +6379,9 @@ async function printNightReportThermal() {
         transferSales: totalTransfer,
         tipsPool: generalTipsPool,
         ordersCount,
-        librePersons: pizzaStats.librePersonsTotal,
-        traditionalPizzas: pizzaStats.traditionalPizzasCount,
-        totalPizzas: pizzaStats.totalPizzasDespachadas,
-        topFlavors: pizzaStats.sortedFlavors,
-        payments: paymentHistory
+        categories: catSales.list,
+        topProducts: ranking.slice(0, 10),
+        topFlavors: pizzaStats.sortedFlavors
     };
 
     if (winPrintEndpoint && selectedWinPrinter) {
