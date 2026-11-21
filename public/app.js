@@ -1180,20 +1180,20 @@ let perPersonModalCount = 1;
 
 function inferBeverageSubcategory(item) {
     const text = `${item && item.name ? item.name : ''} ${item && item.desc ? item.desc : ''}`.toLowerCase();
-    if (/cerveza|pinta|ipa|apa|stout|honey|golden|quilmes|patagonia|corona|heineken|stella|brahma|andes|imperial|lata|laton|latón|porron|porrón|chopp|schneider|budweiser|amstel|miller|kunstmann|grolsch|warsteiner/.test(text)) {
-        return 'Cervezas';
-    }
-    if (/vino|malbec|cabernet|merlot|syrah|tintillo|blanco|rosado|espumante|champagne|chandon|rutini|trumpeter|luigi bosca|alamos|cosecha|jarra de vino|copa de vino|torrontes|torrontés/.test(text)) {
-        return 'Vinos y Espumantes';
-    }
-    if (/fernet|campari|gin|gancia|vermut|aperol|cynar|trago|whisky|vodka|ron|caipirinha|mojito|negroni|daikiri|aperitivo|baileys|tequila/.test(text)) {
-        return 'Tragos y Aperitivos';
-    }
     if (/agua|soda|villavicencio|eco de los andes|glaciar|ivess|saborizada|aquarius|levite|levité|h2oh|ser\b/.test(text)) {
         return 'Aguas y Saborizadas';
     }
     if (/coca|sprite|fanta|pepsi|7up|seven|paso de los toros|tonica|tónica|pomelo|gaseosa|schweppes|mirinda|manaos|pritty|jugo|cepita|limonada|exprimido|monster|red bull|speed/.test(text)) {
         return 'Gaseosas y Jugos';
+    }
+    if (/cerveza|liso|pilsen|santa fe|pinta|ipa|apa|stout|honey|golden|quilmes|patagonia|corona|heineken|stella|brahma|andes|imperial|lata|laton|latón|porron|porrón|chopp|schneider|budweiser|amstel|miller|kunstmann|grolsch|warsteiner/.test(text)) {
+        return 'Cervezas';
+    }
+    if (/vino|champan|champán|champagne|espumante|sidra|santa julia|navarro correa|dada|dadá|malbec|cabernet|merlot|syrah|tintillo|blanco|rosado|chandon|rutini|trumpeter|luigi bosca|alamos|cosecha|jarra de vino|copa de vino|torrontes|torrontés|alma mora|portillo|valentin|valentín|salentein/.test(text)) {
+        return 'Vinos y Espumantes';
+    }
+    if (/fernet|campari|gin|gancia|vermut|aperol|cynar|trago|whisky|vodka|ron|caipirinha|mojito|negroni|daikiri|aperitivo|baileys|tequila/.test(text)) {
+        return 'Tragos y Aperitivos';
     }
     return 'Otras Bebidas';
 }

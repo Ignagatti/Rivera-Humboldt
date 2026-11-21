@@ -80,9 +80,9 @@ app.get('/api/state', async (req, res) => {
     const staffRes = await pool.query("SELECT id, name, role FROM pos_staff ORDER BY created_at ASC");
     const staffList = staffRes.rows;
 
-    // Categorías y Productos
-    const catRes = await pool.query("SELECT id, name, icon, sort_order, available_days, is_active FROM pos_categories ORDER BY sort_order ASC, name ASC");
-    const itemRes = await pool.query("SELECT id, category_id, name, price, description, is_available, available_days, subcategory, per_person FROM pos_menu_items ORDER BY name ASC");
+    // Categorías y Productos (SELECT * para compatibilidad total con cualquier versión de esquema)
+    const catRes = await pool.query("SELECT * FROM pos_categories ORDER BY sort_order ASC, name ASC");
+    const itemRes = await pool.query("SELECT * FROM pos_menu_items ORDER BY name ASC");
 
     const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
     const menuData = {};
@@ -221,37 +221,10 @@ app.get('/api/state', async (req, res) => {
       }
     });
   } catch (err) {
-    console.warn('Advertencia al obtener estado general de Neon DB (usando fallback seguro):', err.message);
-    res.json({
-      success: true,
-      data: {
-        staffList: [
-          { id: 'admin_perello', name: 'Perello (Encargado)', role: 'Cocina / Admin' }
-        ],
-        generalTipsPool: 0,
-        ticketConfig: {
-          businessName: 'SARMIENTO',
-          alias: '',
-          footerMessage: '¡Muchas gracias por elegir Sarmiento!',
-          showSuggestedTip: true
-        },
-        menuData: {
-          pizzas: {
-            id: 'pizzas',
-            name: 'Pizzas',
-            icon: 'fa-pizza-slice',
-            items: (officialPizzas || []).map(p => ({ id: p.id, name: p.name, price: Number(p.price), desc: p.desc || '' }))
-          },
-          milanesas: { id: 'milanesas', name: 'Sándwiches de Milanesa', icon: 'fa-burger', items: [] },
-          minutas: { id: 'minutas', name: 'Hamburguesas y Papas', icon: 'fa-utensils', items: [] },
-          bebidas: { id: 'bebidas', name: 'Bebidas', icon: 'fa-wine-glass', items: [] }
-        },
-        availableTables: ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"],
-        ordersByTable: {},
-        kitchenOrders: [],
-        paymentHistory: [],
-        savedNightReports: []
-      }
+    console.warn('Advertencia al obtener estado general de Neon DB:', err.message);
+    res.status(503).json({
+      success: false,
+      error: err.message
     });
   }
 });
@@ -670,6 +643,8 @@ app.post('/api/menu/item', async (req, res) => {
   const { id, categoryId, name, price, desc, subcategory, perPerson } = req.body;
   try {
     const itemId = id || `it_${Date.now().toString().slice(-6)}`;
+    await pool.query(`ALTER TABLE pos_menu_items ADD COLUMN IF NOT EXISTS subcategory VARCHAR(80) DEFAULT '';`);
+    await pool.query(`ALTER TABLE pos_menu_items ADD COLUMN IF NOT EXISTS per_person BOOLEAN DEFAULT FALSE;`);
     await pool.query(`
       INSERT INTO pos_menu_items (id, category_id, name, price, description, subcategory, per_person)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
