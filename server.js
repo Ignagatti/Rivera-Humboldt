@@ -152,8 +152,20 @@ app.get('/api/state', async (req, res) => {
       });
     }
 
-    // Pedidos en Mesas
-    const tablesRes = await pool.query("SELECT table_name, items, note FROM pos_table_orders ORDER BY table_name ASC");
+    // Pedidos en Mesas (ordenados naturalmente: Mesa 01..25, luego Mesa Barra, Para Llevar)
+    const tablesRes = await pool.query(`
+      SELECT table_name, items, note 
+      FROM pos_table_orders 
+      ORDER BY 
+        CASE 
+          WHEN table_name ~* '^Mesa\\s*(\\d+)' THEN 1 
+          WHEN table_name ~* 'barra' THEN 2 
+          WHEN table_name ~* 'llevar' THEN 3 
+          ELSE 4 
+        END,
+        NULLIF(substring(table_name from '\\d+'), '')::int,
+        table_name ASC
+    `);
     const ordersByTable = {};
     const availableTables = [];
     for (const row of tablesRes.rows) {

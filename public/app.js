@@ -59,7 +59,14 @@ let menuData = {
     }
 };
 
-let availableTables = ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"];
+let availableTables = (() => {
+    const list = [];
+    for (let i = 1; i <= 25; i++) {
+        list.push(`Mesa ${i < 10 ? '0' + i : i}`);
+    }
+    list.push("Mesa Barra", "Para Llevar");
+    return list;
+})();
 let currentTable = "Mesa 01";
 let activeCategory = "pizzas";
 let searchQuery = "";
@@ -187,6 +194,28 @@ function saveLocalState() {
     // Deshabilitado: la persistencia es exclusivamente en Neon PostgreSQL
 }
 
+function sortTablesNaturally(tables) {
+    if (!Array.isArray(tables)) return [];
+    return [...tables].sort((a, b) => {
+        const getPriority = (t) => {
+            if (/^mesa\s*\d+/i.test(t)) return 1;
+            if (/barra/i.test(t)) return 2;
+            if (/llevar/i.test(t)) return 3;
+            return 4;
+        };
+        const pA = getPriority(a);
+        const pB = getPriority(b);
+        if (pA !== pB) return pA - pB;
+
+        const numA = parseInt((a.match(/\d+/) || [])[0], 10);
+        const numB = parseInt((b.match(/\d+/) || [])[0], 10);
+        if (!isNaN(numA) && !isNaN(numB)) {
+            return numA - numB;
+        }
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    });
+}
+
 // Cargar estado directamente desde la API de Neon DB
 async function fetchServerState(silent = false) {
     try {
@@ -202,7 +231,9 @@ async function fetchServerState(silent = false) {
                 try { localStorage.setItem('rivera_ticket_config', JSON.stringify(ticketConfig)); } catch (_) {}
             }
             if (d.menuData && Object.keys(d.menuData).length > 0) menuData = d.menuData;
-            if (Array.isArray(d.availableTables) && d.availableTables.length > 0) availableTables = d.availableTables;
+            if (Array.isArray(d.availableTables) && d.availableTables.length > 0) {
+                availableTables = sortTablesNaturally(d.availableTables);
+            }
             if (d.ordersByTable) ordersByTable = d.ordersByTable;
             if (Array.isArray(d.paymentHistory)) paymentHistory = d.paymentHistory;
             if (Array.isArray(d.savedNightReports)) savedNightReports = d.savedNightReports;
@@ -365,7 +396,7 @@ function handleRealtimeMessage(msg) {
 
         case 'TABLE_ADDED':
             if (msg.tableName && !availableTables.includes(msg.tableName)) {
-                availableTables.push(msg.tableName);
+                availableTables = sortTablesNaturally([...availableTables, msg.tableName]);
                 if (!ordersByTable[msg.tableName]) {
                     ordersByTable[msg.tableName] = { items: [], note: "" };
                 }
@@ -6726,7 +6757,7 @@ async function submitAddNewTable() {
         return;
     }
 
-    availableTables.push(cleanName);
+    availableTables = sortTablesNaturally([...availableTables, cleanName]);
     ordersByTable[cleanName] = { items: [], note: "" };
     saveLocalState();
     closeAddTableModal();

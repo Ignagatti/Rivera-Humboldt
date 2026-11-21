@@ -232,8 +232,13 @@ async function initDatabase() {
       `);
     }
 
-    // Mesas iniciales del salón (sin borrar mesas adicionales agregadas por el usuario)
-    const defaultTables = ["Mesa 01", "Mesa 02", "Mesa 03", "Mesa 04", "Mesa 05", "Mesa 06", "Mesa Barra", "Para Llevar"];
+    // Mesas iniciales del salón: Mesas 01 a 25 + Barra y Para Llevar
+    const defaultTables = [];
+    for (let i = 1; i <= 25; i++) {
+      defaultTables.push(`Mesa ${i < 10 ? '0' + i : i}`);
+    }
+    defaultTables.push("Mesa Barra", "Para Llevar");
+
     for (const tbl of defaultTables) {
       await client.query(`
         INSERT INTO pos_table_orders (table_name, items, note)
