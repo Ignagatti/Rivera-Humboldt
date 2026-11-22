@@ -6299,7 +6299,53 @@ function parsePizzaFlavorsFromItem(itemName, itemNote) {
     return result;
 }
 
-function computePizzaAndFlavorStats(payments = paymentHistory) {
+// ================= RESUMEN DE SALIDAS Y CONSUMO TOTAL DEL TURNO =================
+
+function getAllShiftConsumptionRecords() {
+    // 1. Cuentas ya cobradas / cerradas en el turno
+    const records = (paymentHistory || []).map(p => ({
+        ...p,
+        isClosed: true
+    }));
+
+    // 2. Mesas activas del salón (tomadas directamente de las mesas, comandas y pedidos)
+    const activeTableNames = new Set();
+    if (Array.isArray(tablesList)) {
+        tablesList.forEach(t => activeTableNames.add(t));
+    }
+    if (ordersByTable && typeof ordersByTable === 'object') {
+        Object.keys(ordersByTable).forEach(t => activeTableNames.add(t));
+    }
+    if (Array.isArray(kitchenOrders)) {
+        kitchenOrders.forEach(k => {
+            if (k.table && k.status !== 'paid') {
+                activeTableNames.add(k.table);
+            }
+        });
+    }
+
+    activeTableNames.forEach(tName => {
+        const consolidated = getTableConsolidatedOrder(tName);
+        if (consolidated && Array.isArray(consolidated.items) && consolidated.items.length > 0) {
+            records.push({
+                id: `ACTIVA-${tName}`,
+                table: tName,
+                waiter: consolidated.waiterName || 'Mozo',
+                method: 'En Mesa (Salón)',
+                total: consolidated.total || 0,
+                paidWith: 0,
+                tip: 0,
+                items: consolidated.items,
+                itemsSummary: consolidated.items.map(i => `${i.qty}x ${i.name}`).join(', '),
+                isActive: true
+            });
+        }
+    });
+
+    return records;
+}
+
+function computePizzaAndFlavorStats(payments = getAllShiftConsumptionRecords()) {
     let librePersonsTotal = 0;
     let libreTablesCount = 0;
     let libreRevenue = 0;
@@ -6451,7 +6497,7 @@ function formatSalesQtyLabel(units, persons) {
     return parts.length > 0 ? parts.join(' + ') : '0 u.';
 }
 
-function computeCategorySales(payments = paymentHistory) {
+function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
     const cats = {};
     let grandRevenue = 0;
 
@@ -6505,7 +6551,7 @@ function computeCategorySales(payments = paymentHistory) {
     return { list, grandRevenue };
 }
 
-function computeProductRanking(payments = paymentHistory) {
+function computeProductRanking(payments = getAllShiftConsumptionRecords()) {
     const stats = {};
     const add = (key, catName, qty, revenue, isPersons) => {
         if (!stats[key]) stats[key] = { name: key, catName, qty: 0, revenue: 0, isPersons };
@@ -6551,6 +6597,10 @@ function renderNightReportView() {
     const nowStr = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     document.getElementById('report-current-date').innerText = `Resumen: ${nowStr.charAt(0).toUpperCase() + nowStr.slice(1)}`;
 
+    const shiftRecords = getAllShiftConsumptionRecords();
+    const activeTables = shiftRecords.filter(r => r.isActive);
+    const activeTablesTotal = activeTables.reduce((acc, r) => acc + (r.total || 0), 0);
+
     const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
     const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
     const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
@@ -6563,7 +6613,7 @@ function renderNightReportView() {
     const tipPerWaiter = Math.round(generalTipsPool / waiterCount);
 
     document.getElementById('rep-kpi-total').innerText = `$${totalSales.toLocaleString()}`;
-    document.getElementById('rep-kpi-orders').innerText = `${ordersCount} mesa${ordersCount === 1 ? '' : 's'} cobrada${ordersCount === 1 ? '' : 's'}`;
+    document.getElementById('rep-kpi-orders').innerText = `${ordersCount} cobradas • ${activeTables.length} mesas en salón ($${activeTablesTotal.toLocaleString()})`;
     document.getElementById('rep-kpi-cash').innerText = `$${totalCash.toLocaleString()}`;
     document.getElementById('rep-kpi-transfer').innerText = `$${totalTransfer.toLocaleString()}`;
     document.getElementById('rep-kpi-tips').innerText = `$${generalTipsPool.toLocaleString()}`;
@@ -6571,7 +6621,8 @@ function renderNightReportView() {
     document.getElementById('rep-kpi-avg').innerText = `$${avgTicket.toLocaleString()}`;
 
     // 1. Ventas por Categoría (toda la carta) con desglose por tipo / subcategoría
-    const catSales = computeCategorySales(paymentHistory);
+    // Tomado de todas las mesas del turno (salón y cobradas)
+    const catSales = computeCategorySales(shiftRecords);
     const catBadge = document.getElementById('rep-cat-summary-badge');
     if (catBadge) {
         const totUnits = catSales.list.reduce((a, c) => a + c.units, 0);
@@ -6581,7 +6632,7 @@ function renderNightReportView() {
     const catContainer = document.getElementById('rep-category-breakdown');
     if (catContainer) {
         if (catSales.list.length === 0) {
-            catContainer.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-6 text-center">Sin ventas registradas en el turno.</p>`;
+            catContainer.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-6 text-center">Sin consumos registrados en las mesas.</p>`;
         } else {
             catContainer.innerHTML = catSales.list.map(c => `
                 <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
@@ -6590,7 +6641,7 @@ function renderNightReportView() {
                             <i class="fa-solid ${c.icon} text-[#2563eb] text-xs shrink-0"></i>
                             <span class="font-bold text-sm text-slate-900 truncate">${c.name}</span>
                         </span>
-                        <span class="text-[10px] font-bold text-slate-500 shrink-0">${c.pct}% de ventas</span>
+                        <span class="text-[10px] font-bold text-slate-500 shrink-0">${c.pct}% de salidas</span>
                     </div>
                     <div class="flex items-end justify-between gap-2">
                         <span class="text-xs font-bold text-slate-700">${formatSalesQtyLabel(c.units, c.persons)}</span>
@@ -6615,8 +6666,8 @@ function renderNightReportView() {
         }
     }
 
-    // 2. Ranking de Gustos de Pizza Más Vendidos
-    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+    // 2. Ranking de Gustos de Pizza Más Vendidos (tomado de todas las mesas del turno)
+    const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
     const flavorsListElem = document.getElementById('rep-top-flavors-list');
     if (flavorsListElem) {
         if (pizzaStats.sortedFlavors.length === 0) {
@@ -6645,13 +6696,13 @@ function renderNightReportView() {
         }
     }
 
-    // 3. Ranking general de lo más vendido (toda la carta, servicios por persona unificados)
-    const sortedProducts = computeProductRanking(paymentHistory);
+    // 3. Ranking general de lo más vendido (toda la carta, tomado de las mesas del turno)
+    const sortedProducts = computeProductRanking(shiftRecords);
     const maxQty = sortedProducts.length > 0 ? (sortedProducts[0].qty || 1) : 1;
     const topList = document.getElementById('rep-top-products-list');
 
     if (sortedProducts.length === 0) {
-        topList.innerHTML = `<p class="text-xs text-slate-400 py-6 text-center">Sin ventas registradas en el turno.</p>`;
+        topList.innerHTML = `<p class="text-xs text-slate-400 py-6 text-center">Sin consumos registrados en el turno.</p>`;
     } else {
         topList.innerHTML = sortedProducts.map((p, idx) => {
             const pct = Math.round((p.qty / maxQty) * 100);
@@ -6802,15 +6853,19 @@ function downloadNightReportPDF() {
 }
 
 function copyNightReportText() {
+    const shiftRecords = getAllShiftConsumptionRecords();
+    const activeTables = shiftRecords.filter(r => r.isActive);
+    const activeTablesTotal = activeTables.reduce((acc, r) => acc + (r.total || 0), 0);
+
     const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
     const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
     const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
     const ordersCount = paymentHistory.length;
     const dateStr = new Date().toLocaleDateString('es-AR');
 
-    const catSales = computeCategorySales(paymentHistory);
-    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
-    const ranking = computeProductRanking(paymentHistory);
+    const catSales = computeCategorySales(shiftRecords);
+    const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
+    const ranking = computeProductRanking(shiftRecords);
 
     const catLines = catSales.list.length > 0
         ? catSales.list.map(c => {
@@ -6836,33 +6891,34 @@ function copyNightReportText() {
 
     const text = `*CIERRE NOCTURNO - SARMIENTO POS*\n` +
         `Fecha: ${dateStr}\n\n` +
-        `Facturación Total: $${totalSales.toLocaleString()}\n` +
+        `Facturación Cobrada: $${totalSales.toLocaleString()} (${ordersCount} mesas cerradas)\n` +
+        (activeTables.length > 0 ? `Consumo en Salón Activo: $${activeTablesTotal.toLocaleString()} (${activeTables.length} mesas abiertas)\n` : '') +
         `Efectivo en Caja: $${totalCash.toLocaleString()}\n` +
         `Transferencias: $${totalTransfer.toLocaleString()}\n` +
-        `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n` +
-        `Mesas Cobradas: ${ordersCount}\n\n` +
-        `*VENTAS POR CATEGORÍA:*\n${catLines}\n\n` +
-        `*LO MÁS VENDIDO (TOP 10):*\n${topProducts}\n\n` +
+        `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n\n` +
+        `*SALIDA POR CATEGORÍA (MESAS Y COBROS):*\n${catLines}\n\n` +
+        `*LO MÁS VENDIDO / CONSUMIDO (TOP 10):*\n${topProducts}\n\n` +
         `*GUSTOS DE PIZZA MÁS VENDIDOS:*\n${topFlavors}\n\n` +
         `*RESUMEN DE COBRANZAS DE MESAS:*\n` +
         (tablesBreakdown || 'Sin cobranzas registradas') + '\n\n' +
         `_Generado automáticamente desde Sarmiento POS_`;
 
     navigator.clipboard.writeText(text).then(() => {
-        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con las ventas por categoría, lo más vendido, los gustos de pizza y los cobros por mozo, listo para enviar por WhatsApp.');
+        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con las salidas por categoría, lo más vendido, los gustos de pizza y los cobros por mozo, listo para enviar por WhatsApp.');
     }).catch(err => {
         console.error(err);
     });
 }
 
 function downloadNightReportCSV() {
-    const catSales = computeCategorySales(paymentHistory);
-    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
-    const ranking = computeProductRanking(paymentHistory);
+    const shiftRecords = getAllShiftConsumptionRecords();
+    const catSales = computeCategorySales(shiftRecords);
+    const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
+    const ranking = computeProductRanking(shiftRecords);
     const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
 
-    let csv = "ID,Mesa,Mozo que Cobro,Hora,Metodo,Total,Pago,Propina,Personas (servicios por persona),Detalle\n";
-    paymentHistory.forEach(p => {
+    let csv = "ID,Mesa,Mozo,Hora,Metodo,Total,Pago,Propina,Personas (servicios por persona),Detalle\n";
+    shiftRecords.forEach(p => {
         let personsInTable = 0;
         if (Array.isArray(p.items)) {
             p.items.forEach(it => {
@@ -6873,11 +6929,11 @@ function downloadNightReportCSV() {
                 }
             });
         }
-        csv += `${q(p.id)},${q(p.table)},${q(p.waiter)},${q(p.time)},${q(p.method)},${p.total},${p.paidWith || p.total},${p.tip || 0},${personsInTable},${q(p.itemsSummary || '')}\n`;
+        csv += `${q(p.id)},${q(p.table)},${q(p.waiter)},${q(p.time || '')},${q(p.method)},${p.total},${p.paidWith || p.total},${p.tip || 0},${personsInTable},${q(p.itemsSummary || '')}\n`;
     });
 
-    csv += "\n--- VENTAS POR CATEGORIA ---\n";
-    csv += "Categoria,Subcategoria,Unidades,Personas,Facturado,% de Ventas\n";
+    csv += "\n--- SALIDAS / VENTAS POR CATEGORIA ---\n";
+    csv += "Categoria,Subcategoria,Unidades,Personas,Facturado,% de Salidas\n";
     catSales.list.forEach(c => {
         csv += `${q(c.name)},${q('(Total)')},${c.units},${c.persons},${c.revenue},${c.pct}\n`;
         c.subList.forEach(s => {
@@ -6885,7 +6941,7 @@ function downloadNightReportCSV() {
         });
     });
 
-    csv += "\n--- LO MAS VENDIDO ---\n";
+    csv += "\n--- LO MAS VENDIDO EN MESAS ---\n";
     csv += "Posicion,Producto,Categoria,Cantidad,Tipo,Facturado\n";
     ranking.forEach((p, idx) => {
         csv += `${idx + 1},${q(p.name)},${q(p.catName)},${p.qty},${q(p.isPersons ? 'Personas' : 'Unidades')},${p.revenue}\n`;
@@ -6901,20 +6957,21 @@ function downloadNightReportCSV() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `Ventas_Turno_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `Ventas_Mesas_Turno_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 }
 
 async function printNightReportThermal() {
+    const shiftRecords = getAllShiftConsumptionRecords();
     const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
     const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
     const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
     const ordersCount = paymentHistory.length;
-    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
-    const catSales = computeCategorySales(paymentHistory);
-    const ranking = computeProductRanking(paymentHistory);
+    const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
+    const catSales = computeCategorySales(shiftRecords);
+    const ranking = computeProductRanking(shiftRecords);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const dateStr = new Date().toLocaleDateString('es-AR');
 
@@ -6979,7 +7036,8 @@ async function confirmNightClosure() {
     const note = document.getElementById('close-night-note').value.trim();
     const shouldReset = document.getElementById('reset-after-close-checkbox').checked;
 
-    const pizzaStats = computePizzaAndFlavorStats(paymentHistory);
+    const shiftRecords = getAllShiftConsumptionRecords();
+    const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
     const reportId = `CIERRE-${Date.now().toString().slice(-4)}`;
     const dateStr = `Hoy • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} hs`;
 
