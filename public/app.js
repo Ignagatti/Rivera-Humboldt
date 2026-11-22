@@ -1284,8 +1284,34 @@ const WEEK_DAYS_ORDERED = [
 let showFullMenuOverride = false;
 let expandedAdminItemDaysId = null;
 
+function getShiftDate() {
+    const now = new Date();
+    // Entre las 00:00 y las 06:00 AM, el turno operativo pertenece a la noche iniciada el día anterior (ej. Sábado)
+    if (now.getHours() < 6) {
+        const prev = new Date(now);
+        prev.setDate(prev.getDate() - 1);
+        return prev;
+    }
+    return now;
+}
+
+function getShiftDateInfo() {
+    const now = new Date();
+    const isOvernight = now.getHours() < 6;
+    const shiftDate = getShiftDate();
+    const dayName = shiftDate.toLocaleDateString('es-AR', { weekday: 'long' });
+    const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    const dateNumStr = shiftDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+    
+    const shiftTitle = isOvernight 
+        ? `Turno Noche: ${capitalizedDay} ${shiftDate.getDate()} / Madrugada Domingo ${now.getDate()}`
+        : `Turno: ${capitalizedDay}, ${dateNumStr}`;
+    return { isOvernight, shiftDate, shiftTitle, capitalizedDay };
+}
+
 function getTodayDayIndex() {
-    return new Date().getDay(); // 0=Dom .. 6=Sáb
+    // Si son entre las 00:00 y las 06:00 AM, seguimos en el turno gastronómico de la noche anterior (ej. Sábado)
+    return getShiftDate().getDay();
 }
 
 function getTodayDayName() {
@@ -3290,7 +3316,32 @@ function openPaymentHistoryFromTips() {
     openPaymentHistoryModal();
 }
 
+let currentPaymentWaiterFilter = 'all';
+
+function setPaymentWaiterFilter(waiter) {
+    currentPaymentWaiterFilter = waiter;
+    renderPaymentHistoryList();
+}
+
+function getPaymentDayTag(p) {
+    if (!p) return 'Turno';
+    const t = String(p.time || '').toLowerCase();
+    if (t.includes('21:') || t.includes('22:') || t.includes('23:') || (t.includes('p.m.') && !t.includes('12:'))) {
+        return 'Sáb';
+    }
+    if (t.includes('00:') || t.includes('01:') || t.includes('02:') || t.includes('03:') || t.includes('04:') || t.includes('a.m.')) {
+        return 'Dom';
+    }
+    return 'Turno';
+}
+
 function renderPaymentHistoryList() {
+    const shiftInfo = getShiftDateInfo();
+    const shiftBadge = document.getElementById('reg-shift-badge');
+    if (shiftBadge) {
+        shiftBadge.innerText = shiftInfo.shiftTitle;
+    }
+
     const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
     const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
     const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
@@ -3300,23 +3351,55 @@ function renderPaymentHistoryList() {
     document.getElementById('reg-total-transfer').innerText = `$${totalTransfer.toLocaleString()}`;
     document.getElementById('reg-total-tips').innerText = `$${generalTipsPool.toLocaleString()}`;
 
+    // Barra de Filtros por Mozo
+    const filterBar = document.getElementById('payment-waiter-filter-bar');
+    if (filterBar) {
+        const waiterCounts = {};
+        paymentHistory.forEach(p => {
+            const w = p.waiter || 'Otro';
+            waiterCounts[w] = (waiterCounts[w] || 0) + 1;
+        });
+
+        const waiters = Object.keys(waiterCounts);
+        let filterHtml = `
+            <button onclick="setPaymentWaiterFilter('all')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${currentPaymentWaiterFilter === 'all' ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                Todos (${paymentHistory.length})
+            </button>
+        `;
+        waiters.forEach(w => {
+            const isActive = currentPaymentWaiterFilter === w;
+            filterHtml += `
+                <button onclick="setPaymentWaiterFilter('${w}')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${isActive ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                    ${w} (${waiterCounts[w]})
+                </button>
+            `;
+        });
+        filterBar.innerHTML = filterHtml;
+    }
+
     const container = document.getElementById('payment-history-list');
-    if (paymentHistory.length === 0) {
+    let displayedPayments = paymentHistory;
+    if (currentPaymentWaiterFilter !== 'all') {
+        displayedPayments = paymentHistory.filter(p => p.waiter === currentPaymentWaiterFilter);
+    }
+
+    if (displayedPayments.length === 0) {
         container.innerHTML = `
             <div class="text-center py-10 text-slate-400">
-                <p class="text-xs">Todavía no hay pagos registrados en este turno.</p>
+                <p class="text-xs">No hay cobros registrados ${currentPaymentWaiterFilter !== 'all' ? `para ${currentPaymentWaiterFilter}` : 'en este turno'}.</p>
             </div>
         `;
         return;
     }
 
-    container.innerHTML = paymentHistory.map(p => {
+    container.innerHTML = displayedPayments.map(p => {
         const isCash = p.method === 'Efectivo';
         const badgeClass = isCash
             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
             : 'bg-indigo-50 text-indigo-700 border-indigo-200';
         const iconClass = isCash ? 'fa-money-bill-wave' : 'fa-building-columns';
         const paidAmount = p.paidWith || p.total;
+        const dayTag = getPaymentDayTag(p);
 
         return `
             <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
@@ -3326,9 +3409,9 @@ function renderPaymentHistoryList() {
                         <span class="px-2 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 ${badgeClass}">
                             <i class="fa-solid ${iconClass}"></i> ${p.method}
                         </span>
-                        <span class="text-[11px] text-slate-400">${p.time}</span>
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${dayTag === 'Sáb' ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-900'}">${dayTag} ${p.time}</span>
                         <span class="bg-blue-50 text-[#2563eb] border border-blue-200 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
-                            <i class="fa-solid fa-user-check text-[9px]"></i> Cobró: ${p.waiter}
+                            <i class="fa-solid fa-user-check text-[9px]"></i> Atendió: ${p.waiter}
                         </span>
                     </div>
                     <p class="text-[11px] text-slate-500">${p.itemsSummary}</p>
@@ -3353,11 +3436,141 @@ function renderPaymentHistoryList() {
 
 function openTipsModal() {
     document.getElementById('tips-grand-total').innerText = `$${generalTipsPool.toLocaleString()}`;
+
+    // Desglose dinámico por mozo según mesas cobradas del turno
+    const waiterTips = {};
+    staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
+        waiterTips[m.name] = { tips: 0, tables: 0, sales: 0 };
+    });
+
+    paymentHistory.forEach(p => {
+        const w = p.waiter || 'Otro';
+        if (!waiterTips[w]) waiterTips[w] = { tips: 0, tables: 0, sales: 0 };
+        waiterTips[w].tips += (p.tip || 0);
+        waiterTips[w].tables += 1;
+        waiterTips[w].sales += p.total;
+    });
+
+    const breakdownElem = document.getElementById('tips-waiter-breakdown');
+    if (breakdownElem) {
+        const entries = Object.keys(waiterTips)
+            .map(w => ({ name: w, ...waiterTips[w] }))
+            .sort((a, b) => b.tips - a.tips);
+
+        if (entries.length === 0) {
+            breakdownElem.innerHTML = `<p class="text-xs text-slate-400 py-2 text-center">No hay propinas registradas aún en el turno.</p>`;
+        } else {
+            breakdownElem.innerHTML = entries.map(e => `
+                <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-7 h-7 rounded-lg bg-blue-100 text-[#2563eb] font-bold flex items-center justify-center text-xs">
+                            ${e.name.charAt(0)}
+                        </div>
+                        <div>
+                            <strong class="text-slate-900 block">${e.name}</strong>
+                            <span class="text-[10px] text-slate-500">${e.tables} mesa${e.tables === 1 ? '' : 's'} cobrada${e.tables === 1 ? '' : 's'}</span>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-sm font-bold text-emerald-700 block">+$${e.tips.toLocaleString()}</span>
+                        <span class="text-[10px] text-slate-400">$${e.sales.toLocaleString()} cobrado</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
+
     document.getElementById('tips-modal').classList.remove('hidden');
 }
 
 function closeTipsModal() {
     document.getElementById('tips-modal').classList.add('hidden');
+}
+
+// ================= MODAL: RESUMEN OPERATIVO DEL TURNO =================
+
+function openShiftSummaryModal() {
+    const shiftInfo = getShiftDateInfo();
+    const titleElem = document.getElementById('shift-modal-title');
+    const subElem = document.getElementById('shift-modal-subtitle');
+    if (titleElem) titleElem.innerText = "Resumen del Turno";
+    if (subElem) subElem.innerText = shiftInfo.shiftTitle + " (En curso)";
+
+    const shiftRecords = getAllShiftConsumptionRecords();
+    const activeTables = shiftRecords.filter(r => r.isActive);
+    const activeTablesTotal = activeTables.reduce((acc, r) => acc + (r.total || 0), 0);
+    const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
+    const ordersCount = paymentHistory.length;
+
+    const kpiSales = document.getElementById('shift-kpi-sales');
+    const kpiOrders = document.getElementById('shift-kpi-orders');
+    const kpiSalon = document.getElementById('shift-kpi-salon');
+    const kpiTips = document.getElementById('shift-kpi-tips');
+
+    if (kpiSales) kpiSales.innerText = `$${totalSales.toLocaleString()}`;
+    if (kpiOrders) kpiOrders.innerText = `${ordersCount} mesas`;
+    if (kpiSalon) kpiSalon.innerText = `${activeTables.length} mesas ($${activeTablesTotal.toLocaleString()})`;
+    if (kpiTips) kpiTips.innerText = `$${generalTipsPool.toLocaleString()}`;
+
+    // Rendimiento y propinas por mozo
+    const waiterStats = {};
+    staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
+        waiterStats[m.name] = { tips: 0, tables: 0, sales: 0 };
+    });
+    paymentHistory.forEach(p => {
+        const w = p.waiter || 'Otro';
+        if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
+        waiterStats[w].tips += (p.tip || 0);
+        waiterStats[w].tables += 1;
+        waiterStats[w].sales += p.total;
+    });
+
+    const waiterContainer = document.getElementById('shift-modal-waiter-list');
+    if (waiterContainer) {
+        const sortedWaiters = Object.keys(waiterStats)
+            .map(w => ({ name: w, ...waiterStats[w] }))
+            .sort((a, b) => b.tips - a.tips);
+
+        waiterContainer.innerHTML = sortedWaiters.map(w => `
+            <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-7 h-7 rounded-lg bg-blue-50 text-[#2563eb] font-bold flex items-center justify-center border border-blue-200 text-xs">
+                        ${w.name.charAt(0)}
+                    </div>
+                    <div>
+                        <strong class="text-slate-900 block">${w.name}</strong>
+                        <span class="text-[10px] text-slate-500">${w.tables} mesas cobradas • $${w.sales.toLocaleString()}</span>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-xs font-bold text-emerald-700 block">+$${w.tips.toLocaleString()} propina</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Top salidas (Lisos y bebidas)
+    const topContainer = document.getElementById('shift-modal-top-products');
+    if (topContainer) {
+        const ranking = computeProductRanking(shiftRecords);
+        const top5 = ranking.slice(0, 6);
+        if (top5.length === 0) {
+            topContainer.innerHTML = `<p class="text-slate-400">Sin salidas registradas en este turno.</p>`;
+        } else {
+            topContainer.innerHTML = top5.map((p, idx) => `
+                <div class="flex justify-between items-center py-0.5">
+                    <span><strong>${idx + 1}.</strong> ${p.name}</span>
+                    <span class="font-bold text-[#2563eb]">${p.qty} ${p.isPersons ? 'pers.' : 'u.'}</span>
+                </div>
+            `).join('');
+        }
+    }
+
+    document.getElementById('shift-summary-modal').classList.remove('hidden');
+}
+
+function closeShiftSummaryModal() {
+    document.getElementById('shift-summary-modal').classList.add('hidden');
 }
 
 // ================= PANEL DE ADMINISTRACIÓN Y COCINA (4 PESTAÑAS) =================
@@ -6310,8 +6523,8 @@ function getAllShiftConsumptionRecords() {
 
     // 2. Mesas activas del salón (tomadas directamente de las mesas, comandas y pedidos)
     const activeTableNames = new Set();
-    if (Array.isArray(tablesList)) {
-        tablesList.forEach(t => activeTableNames.add(t));
+    if (Array.isArray(availableTables)) {
+        availableTables.forEach(t => activeTableNames.add(t));
     }
     if (ordersByTable && typeof ordersByTable === 'object') {
         Object.keys(ordersByTable).forEach(t => activeTableNames.add(t));
@@ -6594,8 +6807,11 @@ function computeProductRanking(payments = getAllShiftConsumptionRecords()) {
 }
 
 function renderNightReportView() {
-    const nowStr = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    document.getElementById('report-current-date').innerText = `Resumen: ${nowStr.charAt(0).toUpperCase() + nowStr.slice(1)}`;
+    const shiftInfo = getShiftDateInfo();
+    const repDateElem = document.getElementById('report-current-date');
+    if (repDateElem) {
+        repDateElem.innerText = `Resumen: ${shiftInfo.shiftTitle}`;
+    }
 
     const shiftRecords = getAllShiftConsumptionRecords();
     const activeTables = shiftRecords.filter(r => r.isActive);
@@ -6861,11 +7077,28 @@ function copyNightReportText() {
     const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
     const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
     const ordersCount = paymentHistory.length;
-    const dateStr = new Date().toLocaleDateString('es-AR');
+    const shiftInfo = getShiftDateInfo();
+    const dateStr = shiftInfo.shiftTitle;
 
     const catSales = computeCategorySales(shiftRecords);
     const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
     const ranking = computeProductRanking(shiftRecords);
+
+    // Desglose de propinas por mozo
+    const waiterStats = {};
+    staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
+        waiterStats[m.name] = { tips: 0, tables: 0, sales: 0 };
+    });
+    paymentHistory.forEach(p => {
+        const w = p.waiter || 'Otro';
+        if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
+        waiterStats[w].tips += (p.tip || 0);
+        waiterStats[w].tables += 1;
+        waiterStats[w].sales += p.total;
+    });
+    const waiterTipLines = Object.keys(waiterStats)
+        .map(w => `- ${w}: $${waiterStats[w].tips.toLocaleString()} propinas (${waiterStats[w].tables} mesas cobradas | $${waiterStats[w].sales.toLocaleString()})`)
+        .join('\n');
 
     const catLines = catSales.list.length > 0
         ? catSales.list.map(c => {
@@ -6885,21 +7118,23 @@ function copyNightReportText() {
         ? pizzaStats.sortedFlavors.slice(0, 5).map((f, idx) => `${idx + 1}. ${f.name}: ${f.pizzaEquiv} pizzas (${f.orders} ped.)`).join('\n')
         : '- Sin consumo de pizzas registrado';
 
-    const tablesBreakdown = paymentHistory.map(p =>
-        `- ${p.table} (${p.method}): Cobró ${p.waiter} | Total: $${p.total.toLocaleString()} | Pagó: $${(p.paidWith || p.total).toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`
-    ).join('\n');
+    const tablesBreakdown = paymentHistory.map(p => {
+        const dayTag = getPaymentDayTag(p);
+        return `- ${p.table} [${dayTag} ${p.time}] (${p.method}): Atendió ${p.waiter} | Total: $${p.total.toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`;
+    }).join('\n');
 
-    const text = `*CIERRE NOCTURNO - SARMIENTO POS*\n` +
-        `Fecha: ${dateStr}\n\n` +
+    const text = `*RESUMEN OPERATIVO - SARMIENTO POS*\n` +
+        `${dateStr}\n\n` +
         `Facturación Cobrada: $${totalSales.toLocaleString()} (${ordersCount} mesas cerradas)\n` +
         (activeTables.length > 0 ? `Consumo en Salón Activo: $${activeTablesTotal.toLocaleString()} (${activeTables.length} mesas abiertas)\n` : '') +
         `Efectivo en Caja: $${totalCash.toLocaleString()}\n` +
         `Transferencias: $${totalTransfer.toLocaleString()}\n` +
         `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n\n` +
+        `*PROPINAS Y RENDIMIENTO POR MOZO:*\n${waiterTipLines || '- Sin propinas registradas'}\n\n` +
         `*SALIDA POR CATEGORÍA (MESAS Y COBROS):*\n${catLines}\n\n` +
         `*LO MÁS VENDIDO / CONSUMIDO (TOP 10):*\n${topProducts}\n\n` +
         `*GUSTOS DE PIZZA MÁS VENDIDOS:*\n${topFlavors}\n\n` +
-        `*RESUMEN DE COBRANZAS DE MESAS:*\n` +
+        `*DETALLE DE COBRANZAS DE MESAS:*\n` +
         (tablesBreakdown || 'Sin cobranzas registradas') + '\n\n' +
         `_Generado automáticamente desde Sarmiento POS_`;
 

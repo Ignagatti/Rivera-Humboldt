@@ -53,6 +53,7 @@
             width: 0;
             height: 0;
         }
+
         .scrollbar-none {
             -ms-overflow-style: none;
             scrollbar-width: none;
@@ -65,6 +66,7 @@
         }
 
         @media print {
+
             html,
             body {
                 width: 72mm !important;
@@ -170,15 +172,18 @@
                     <i class="fa-solid fa-shield-halved text-xs sm:text-sm"></i>
                 </div>
                 <div class="min-w-0">
-                    <h2 class="font-bold text-xs sm:text-sm tracking-tight text-slate-900 flex items-center gap-1 sm:gap-1.5 truncate">
-                        <span id="header-user-name" class="truncate max-w-[90px] xs:max-w-[140px] sm:max-w-none">Mozo</span>
+                    <h2
+                        class="font-bold text-xs sm:text-sm tracking-tight text-slate-900 flex items-center gap-1 sm:gap-1.5 truncate">
+                        <span id="header-user-name"
+                            class="truncate max-w-[90px] xs:max-w-[140px] sm:max-w-none">Mozo</span>
                         <span
                             class="text-[9px] sm:text-[10px] bg-blue-50 text-[#2563eb] px-1.5 sm:px-2 py-0.5 rounded-full border border-blue-200 font-semibold shrink-0"
                             id="header-role-badge">Mozo</span>
                         <span id="header-live-dot" class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shrink-0"
                             title="Sincronización en vivo activa"></span>
                     </h2>
-                    <p class="text-[10px] sm:text-[11px] text-slate-500 font-medium truncate" id="header-tips-summary">Caja Propinas: $0</p>
+                    <p class="text-[10px] sm:text-[11px] text-slate-500 font-medium truncate" id="header-tips-summary">
+                        Caja Propinas: $0</p>
                 </div>
             </div>
 
@@ -207,6 +212,14 @@
                     <i class="fa-solid fa-bell text-xs sm:text-sm"></i>
                     <span id="waiter-notif-badge"
                         class="hidden absolute -top-1 -right-1 bg-rose-600 text-white text-[9px] w-4 h-4 rounded-full font-bold flex items-center justify-center animate-bounce shadow">0</span>
+                </button>
+
+                <!-- Resumen de Turno -->
+                <button onclick="openShiftSummaryModal()"
+                    class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-sm transition-all active:scale-95"
+                    title="Resumen del Turno Nocturno">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span class="hidden sm:inline">Turno</span>
                 </button>
 
                 <!-- Registro de Pagos -->
@@ -245,7 +258,8 @@
                 </span>
                 <div class="text-xs">
                     <strong id="waiter-banner-title" class="block font-bold">¡Pedido Listo en Cocina!</strong>
-                    <span id="waiter-banner-desc" class="text-[11px] text-amber-50">Retirar por mostrador de cocina</span>
+                    <span id="waiter-banner-desc" class="text-[11px] text-amber-50">Retirar por mostrador de
+                        cocina</span>
                 </div>
             </div>
             <div class="flex items-center space-x-2 shrink-0">
@@ -375,7 +389,8 @@
 
             <!-- Backdrop para móvil al abrir comanda -->
             <div id="order-drawer-backdrop" onclick="setMobileDrawerState(false)"
-                class="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-20 hidden md:hidden transition-opacity"></div>
+                class="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-20 hidden md:hidden transition-opacity">
+            </div>
 
             <!-- Panel Derecho / Bottom Drawer Desplegable para Móvil -->
             <div id="order-drawer"
@@ -410,7 +425,9 @@
                         <h3 class="font-bold text-sm text-slate-800" id="current-order-title">Pedido Mesa 01</h3>
                     </div>
                     <div class="flex items-center space-x-2">
-                        <button type="button" onclick="cancelCurrentTableOrderPrompt()" class="text-rose-600 hover:text-rose-800 hover:bg-rose-50 border border-rose-200 text-[11px] px-2 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1" title="Anular pedido enviado por error o vaciar mesa">
+                        <button type="button" onclick="cancelCurrentTableOrderPrompt()"
+                            class="text-rose-600 hover:text-rose-800 hover:bg-rose-50 border border-rose-200 text-[11px] px-2 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1"
+                            title="Anular pedido enviado por error o vaciar mesa">
                             <i class="fa-solid fa-trash-can text-[10px]"></i>
                             <span>Anular</span>
                         </button>
@@ -421,8 +438,7 @@
                 </div>
 
                 <!-- Lista de Ítems de la Comanda -->
-                <div id="order-drawer-content"
-                    class="hidden md:flex flex-col flex-1 overflow-hidden min-h-0">
+                <div id="order-drawer-content" class="hidden md:flex flex-col flex-1 overflow-hidden min-h-0">
                     <div id="order-items-list"
                         class="flex-1 overflow-y-auto p-3 space-y-2 divide-y divide-slate-100 min-h-0">
                         <!-- Ítems dinámicos -->
@@ -439,16 +455,22 @@
                         <!-- Fila 1: Total Mesa a la izquierda y botones secundarios (Anular y Ticket) a la derecha -->
                         <div class="flex items-center justify-between gap-2 pt-0.5">
                             <div class="min-w-0">
-                                <span class="text-[10px] text-slate-500 uppercase font-semibold block truncate">Total Mesa</span>
-                                <span id="order-total-price" class="text-lg font-black text-slate-900 truncate block">$0</span>
+                                <span class="text-[10px] text-slate-500 uppercase font-semibold block truncate">Total
+                                    Mesa</span>
+                                <span id="order-total-price"
+                                    class="text-lg font-black text-slate-900 truncate block">$0</span>
                             </div>
                             <div class="flex items-center space-x-1.5 shrink-0">
-                                <button type="button" onclick="cancelCurrentTableOrderPrompt()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold px-2.5 py-1.5 rounded-xl text-xs transition-all flex items-center space-x-1 cursor-pointer active:scale-95" title="Anular pedido enviado por error o vaciar mesa">
+                                <button type="button" onclick="cancelCurrentTableOrderPrompt()"
+                                    class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold px-2.5 py-1.5 rounded-xl text-xs transition-all flex items-center space-x-1 cursor-pointer active:scale-95"
+                                    title="Anular pedido enviado por error o vaciar mesa">
                                     <i class="fa-solid fa-trash-can text-[11px]"></i>
                                     <span>Anular</span>
                                 </button>
-                                <button type="button" onclick="openTableBillTicketPrint(currentTable)" id="ticket-table-btn" disabled
-                                    class="bg-blue-50 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-400 text-[#2563eb] border border-blue-200 disabled:border-slate-200 font-bold px-2.5 py-1.5 rounded-xl text-xs transition-all flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed active:scale-95" title="Imprimir o ver pre-cuenta de la mesa">
+                                <button type="button" onclick="openTableBillTicketPrint(currentTable)"
+                                    id="ticket-table-btn" disabled
+                                    class="bg-blue-50 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-400 text-[#2563eb] border border-blue-200 disabled:border-slate-200 font-bold px-2.5 py-1.5 rounded-xl text-xs transition-all flex items-center space-x-1 cursor-pointer disabled:cursor-not-allowed active:scale-95"
+                                    title="Imprimir o ver pre-cuenta de la mesa">
                                     <i class="fa-solid fa-receipt text-[11px]"></i>
                                     <span>Ticket</span>
                                 </button>
@@ -479,12 +501,15 @@
                 <!-- Fila 1: Título y Botón Ver Salón -->
                 <div class="flex items-center justify-between gap-2">
                     <div class="flex items-center space-x-2.5 min-w-0">
-                        <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2563eb] text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                        <div
+                            class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2563eb] text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
                             <i class="fa-solid fa-fire-burner text-sm sm:text-base"></i>
                         </div>
                         <div class="min-w-0">
-                            <h2 class="font-bold text-xs sm:text-sm md:text-base text-slate-900 truncate">Panel Admin & Cocina</h2>
-                            <p class="text-[10px] sm:text-[11px] text-slate-500 truncate hidden xs:block">Comandas, carta, personal y cierre nocturno</p>
+                            <h2 class="font-bold text-xs sm:text-sm md:text-base text-slate-900 truncate">Panel Admin &
+                                Cocina</h2>
+                            <p class="text-[10px] sm:text-[11px] text-slate-500 truncate hidden xs:block">Comandas,
+                                carta, personal y cierre nocturno</p>
                         </div>
                     </div>
 
@@ -496,7 +521,8 @@
                 </div>
 
                 <!-- Fila 2: 4 Pestañas Horizontales Deslizables (Segmented / Swipeable Tabs) -->
-                <div class="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200 overflow-x-auto w-full scrollbar-none gap-1">
+                <div
+                    class="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200 overflow-x-auto w-full scrollbar-none gap-1">
                     <button onclick="switchAdminTab('kitchen')" id="admin-tab-kitchen"
                         class="flex-1 min-w-fit px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-[#2563eb] shadow-sm transition-all flex items-center justify-center space-x-1.5 whitespace-nowrap active:scale-95">
                         <i class="fa-solid fa-fire-burner"></i>
@@ -530,7 +556,8 @@
                             <span>Filtrar Comandas</span>
                         </span>
                         <div class="flex items-center space-x-2">
-                            <span class="text-[10px] text-slate-400 hidden md:inline">Toca "¡Listo!" para notificar al celular del mozo</span>
+                            <span class="text-[10px] text-slate-400 hidden md:inline">Toca "¡Listo!" para notificar al
+                                celular del mozo</span>
                             <button type="button" onclick="openTicketConfigModal()"
                                 class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 transition-all flex items-center space-x-1.5 cursor-pointer">
                                 <i class="fa-solid fa-gear"></i>
@@ -540,11 +567,13 @@
                     </div>
                     <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
                         <button onclick="setKitchenFilter('all')" id="kfilter-all"
-                            class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm whitespace-nowrap active:scale-95">Todas Activas</button>
+                            class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#2563eb] text-white transition-all shadow-sm whitespace-nowrap active:scale-95">Todas
+                            Activas</button>
                         <button onclick="setKitchenFilter('pending')" id="kfilter-pending"
                             class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">Pendientes</button>
                         <button onclick="setKitchenFilter('ready')" id="kfilter-ready"
-                            class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">¡Listos para Mozo!</button>
+                            class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">¡Listos
+                            para Mozo!</button>
                         <button onclick="setKitchenFilter('delivered')" id="kfilter-delivered"
                             class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all whitespace-nowrap active:scale-95">Entregadas</button>
                     </div>
@@ -562,7 +591,8 @@
 
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
                         <!-- Formulario para Crear Categoría -->
-                        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5 h-fit">
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5 h-fit">
                             <div class="flex items-center space-x-2.5 border-b border-slate-100 pb-3">
                                 <div
                                     class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
@@ -570,18 +600,21 @@
                                 </div>
                                 <div class="min-w-0">
                                     <h3 class="font-bold text-sm text-slate-900 truncate">Crear Categoría</h3>
-                                    <p class="text-[11px] text-slate-500 truncate">Ej: Postres, Promociones, Cafetería</p>
+                                    <p class="text-[11px] text-slate-500 truncate">Ej: Postres, Promociones, Cafetería
+                                    </p>
                                 </div>
                             </div>
 
                             <div class="space-y-3">
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre de la Categoría</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre de la
+                                        Categoría</label>
                                     <input type="text" id="new-cat-name" placeholder="Ej: Postres Caseros"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Ícono Vectorial FontAwesome</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Ícono Vectorial
+                                        FontAwesome</label>
                                     <select id="new-cat-icon"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                         <option value="fa-pizza-slice">Pizza / Masas (fa-pizza-slice)</option>
@@ -603,7 +636,8 @@
 
                             <!-- Lista de Categorías Existentes -->
                             <div class="pt-3 border-t border-slate-100 space-y-2">
-                                <span class="text-[11px] font-bold text-slate-500 uppercase block">Categorías Activas</span>
+                                <span class="text-[11px] font-bold text-slate-500 uppercase block">Categorías
+                                    Activas</span>
                                 <div id="admin-categories-list" class="space-y-1.5">
                                     <!-- Dinámicas -->
                                 </div>
@@ -611,7 +645,8 @@
                         </div>
 
                         <!-- Formulario para Agregar Plato o Bebida -->
-                        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm lg:col-span-2 space-y-3.5">
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm lg:col-span-2 space-y-3.5">
                             <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                                 <div class="flex items-center space-x-2.5 min-w-0">
                                     <div
@@ -619,22 +654,26 @@
                                         <i class="fa-solid fa-utensils text-sm"></i>
                                     </div>
                                     <div class="min-w-0">
-                                        <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Agregar Plato o Bebida</h3>
-                                        <p class="text-[11px] text-slate-500 truncate">Se actualiza en tiempo real en los celulares</p>
+                                        <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Agregar Plato
+                                            o Bebida</h3>
+                                        <p class="text-[11px] text-slate-500 truncate">Se actualiza en tiempo real en
+                                            los celulares</p>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Categoría Destino</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Categoría
+                                        Destino</label>
                                     <select id="new-item-cat"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                         <!-- Opciones dinámicas -->
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre del Producto</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Nombre del
+                                        Producto</label>
                                     <input type="text" id="new-item-name" placeholder="Ej: Milanesa Napolitana XXL"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
@@ -644,26 +683,39 @@
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                 </div>
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Subcategoría / Tipo (Ej. Bebidas)</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Subcategoría / Tipo
+                                        (Ej. Bebidas)</label>
                                     <input type="text" id="new-item-subcat"
                                         placeholder="Ej: Cervezas, Gaseosas y Jugos, Vinos..."
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                     <div class="flex flex-wrap gap-1 mt-1">
-                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Cervezas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Cervezas</button>
-                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Gaseosas y Jugos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Gaseosas</button>
-                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Aguas y Saborizadas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Aguas</button>
-                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Vinos y Espumantes')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Vinos</button>
-                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Tragos y Aperitivos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Tragos</button>
+                                        <button type="button" onclick="fillSubcatInput('new-item-subcat','Cervezas')"
+                                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Cervezas</button>
+                                        <button type="button"
+                                            onclick="fillSubcatInput('new-item-subcat','Gaseosas y Jugos')"
+                                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Gaseosas</button>
+                                        <button type="button"
+                                            onclick="fillSubcatInput('new-item-subcat','Aguas y Saborizadas')"
+                                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Aguas</button>
+                                        <button type="button"
+                                            onclick="fillSubcatInput('new-item-subcat','Vinos y Espumantes')"
+                                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Vinos</button>
+                                        <button type="button"
+                                            onclick="fillSubcatInput('new-item-subcat','Tragos y Aperitivos')"
+                                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Tragos</button>
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción / Ingredientes (Opcional)</label>
+                                    <label class="text-xs font-semibold text-slate-600 block mb-1">Descripción /
+                                        Ingredientes (Opcional)</label>
                                     <input type="text" id="new-item-desc"
                                         placeholder="Ej: Salsa fileto, jamón natural y queso gratinado"
                                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                                     <label class="inline-flex items-center space-x-2 mt-1.5 cursor-pointer select-none">
-                                        <input type="checkbox" id="new-item-per-person" class="w-4 h-4 rounded text-[#2563eb] border-slate-300">
-                                        <span class="text-[11px] font-bold text-slate-700">Elegir cantidad de personas al pedir (como Libre / Parrilla)</span>
+                                        <input type="checkbox" id="new-item-per-person"
+                                            class="w-4 h-4 rounded text-[#2563eb] border-slate-300">
+                                        <span class="text-[11px] font-bold text-slate-700">Elegir cantidad de personas
+                                            al pedir (como Libre / Parrilla)</span>
                                     </label>
                                 </div>
                                 <div class="flex items-end">
@@ -679,12 +731,15 @@
                             <div class="pt-4 border-t border-slate-100 space-y-3">
                                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                     <div class="flex items-center space-x-2">
-                                        <h4 class="font-bold text-xs uppercase tracking-wider text-slate-500">Productos Cargados</h4>
+                                        <h4 class="font-bold text-xs uppercase tracking-wider text-slate-500">Productos
+                                            Cargados</h4>
                                         <span id="admin-total-products-badge"
-                                            class="text-xs font-bold text-[#2563eb] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">0 ítems</span>
+                                            class="text-xs font-bold text-[#2563eb] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">0
+                                            ítems</span>
                                     </div>
                                     <div class="relative w-full sm:w-56">
-                                        <i class="fa-solid fa-magnifying-glass text-[11px] text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                                        <i
+                                            class="fa-solid fa-magnifying-glass text-[11px] text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
                                         <input type="text" id="admin-items-search" oninput="renderAdminMenuManager()"
                                             placeholder="Filtrar producto o bebida..."
                                             class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563eb]">
@@ -712,8 +767,10 @@
                         class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
                         <div class="min-w-0">
                             <span
-                                class="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563eb] px-2.5 py-0.5 rounded-full border border-blue-200">Turno en Vivo</span>
-                            <h3 class="text-base sm:text-lg font-bold text-slate-900 mt-1 truncate" id="report-current-date">Resumen Nocturno</h3>
+                                class="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563eb] px-2.5 py-0.5 rounded-full border border-blue-200">Turno
+                                en Vivo</span>
+                            <h3 class="text-base sm:text-lg font-bold text-slate-900 mt-1 truncate"
+                                id="report-current-date">Resumen Nocturno</h3>
                             <p class="text-xs text-slate-500">KPIs de ventas, ranking de salida y propinas</p>
                         </div>
                         <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
@@ -750,52 +807,76 @@
                         <!-- 5 Tarjetas KPI -->
                         <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3">
                             <div class="bg-white border border-slate-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
-                                <span class="text-[10px] sm:text-[11px] text-slate-500 font-semibold block truncate">Facturación Total</span>
-                                <span id="rep-kpi-total" class="text-base sm:text-xl font-bold text-slate-900 mt-0.5 sm:mt-1 block truncate">$0</span>
-                                <span id="rep-kpi-orders" class="text-[10px] text-slate-400 block truncate">0 mesas cobradas</span>
+                                <span
+                                    class="text-[10px] sm:text-[11px] text-slate-500 font-semibold block truncate">Facturación
+                                    Total</span>
+                                <span id="rep-kpi-total"
+                                    class="text-base sm:text-xl font-bold text-slate-900 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span id="rep-kpi-orders" class="text-[10px] text-slate-400 block truncate">0 mesas
+                                    cobradas</span>
                             </div>
                             <div class="bg-white border border-emerald-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
-                                <span class="text-[10px] sm:text-[11px] text-emerald-700 font-semibold block truncate">Efectivo en Caja</span>
-                                <span id="rep-kpi-cash" class="text-base sm:text-xl font-bold text-emerald-600 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span
+                                    class="text-[10px] sm:text-[11px] text-emerald-700 font-semibold block truncate">Efectivo
+                                    en Caja</span>
+                                <span id="rep-kpi-cash"
+                                    class="text-base sm:text-xl font-bold text-emerald-600 mt-0.5 sm:mt-1 block truncate">$0</span>
                                 <span class="text-[10px] text-slate-400 block truncate">Pagos en billete</span>
                             </div>
                             <div class="bg-white border border-indigo-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
-                                <span class="text-[10px] sm:text-[11px] text-indigo-700 font-semibold block truncate">Transferencias</span>
-                                <span id="rep-kpi-transfer" class="text-base sm:text-xl font-bold text-indigo-600 mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span
+                                    class="text-[10px] sm:text-[11px] text-indigo-700 font-semibold block truncate">Transferencias</span>
+                                <span id="rep-kpi-transfer"
+                                    class="text-base sm:text-xl font-bold text-indigo-600 mt-0.5 sm:mt-1 block truncate">$0</span>
                                 <span class="text-[10px] text-slate-400 block truncate">Pagos digitales</span>
                             </div>
                             <div class="bg-white border border-blue-200 p-3 sm:p-4 rounded-2xl shadow-sm min-w-0">
-                                <span class="text-[10px] sm:text-[11px] text-[#2563eb] font-semibold block truncate">Pozo de Propinas</span>
-                                <span id="rep-kpi-tips" class="text-base sm:text-xl font-bold text-[#2563eb] mt-0.5 sm:mt-1 block truncate">$0</span>
-                                <span id="rep-kpi-tip-split" class="text-[10px] text-slate-500 font-medium block truncate">$0 por mozo</span>
+                                <span
+                                    class="text-[10px] sm:text-[11px] text-[#2563eb] font-semibold block truncate">Pozo
+                                    de Propinas</span>
+                                <span id="rep-kpi-tips"
+                                    class="text-base sm:text-xl font-bold text-[#2563eb] mt-0.5 sm:mt-1 block truncate">$0</span>
+                                <span id="rep-kpi-tip-split"
+                                    class="text-[10px] text-slate-500 font-medium block truncate">$0 por mozo</span>
                             </div>
-                            <div class="bg-white border border-slate-200 p-3 sm:p-4 rounded-2xl shadow-sm col-span-2 lg:col-span-1 min-w-0">
-                                <span class="text-[10px] sm:text-[11px] text-slate-500 font-semibold block truncate">Ticket Promedio</span>
-                                <span id="rep-kpi-avg" class="text-base sm:text-xl font-bold text-slate-900 mt-0.5 sm:mt-1 block truncate">$0</span>
+                            <div
+                                class="bg-white border border-slate-200 p-3 sm:p-4 rounded-2xl shadow-sm col-span-2 lg:col-span-1 min-w-0">
+                                <span
+                                    class="text-[10px] sm:text-[11px] text-slate-500 font-semibold block truncate">Ticket
+                                    Promedio</span>
+                                <span id="rep-kpi-avg"
+                                    class="text-base sm:text-xl font-bold text-slate-900 mt-0.5 sm:mt-1 block truncate">$0</span>
                                 <span class="text-[10px] text-slate-400 block truncate">Promedio por mesa</span>
                             </div>
                         </div>
 
                         <!-- Panel Principal: Ventas por Categoría (Toda la Carta) -->
                         <div class="bg-white border border-blue-200/80 rounded-2xl p-3.5 sm:p-4 shadow-sm space-y-3">
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                            <div
+                                class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
                                 <div class="flex items-center space-x-2.5">
-                                    <div class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 font-bold shrink-0">
+                                    <div
+                                        class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 font-bold shrink-0">
                                         <i class="fa-solid fa-chart-pie text-sm"></i>
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-sm text-slate-900">Ventas por Categoría (Toda la Carta)</h4>
-                                        <p class="text-[11px] text-slate-500">Unidades, personas (pizza libre / parrilla), bebidas por tipo y facturación</p>
+                                        <h4 class="font-bold text-sm text-slate-900">Ventas por Categoría (Toda la
+                                            Carta)</h4>
+                                        <p class="text-[11px] text-slate-500">Unidades, personas (pizza libre /
+                                            parrilla), bebidas por tipo y facturación</p>
                                     </div>
                                 </div>
                                 <div class="flex items-center space-x-2 text-[11px]">
-                                    <span class="px-2.5 py-1 rounded-lg bg-blue-50 text-[#2563eb] font-bold border border-blue-200" id="rep-cat-summary-badge">
+                                    <span
+                                        class="px-2.5 py-1 rounded-lg bg-blue-50 text-[#2563eb] font-bold border border-blue-200"
+                                        id="rep-cat-summary-badge">
                                         0 categorías | 0 u.
                                     </span>
                                 </div>
                             </div>
 
-                            <div id="rep-category-breakdown" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                            <div id="rep-category-breakdown"
+                                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
                                 <!-- Generado dinámicamente con todas las categorías vendidas y sus subcategorías -->
                             </div>
                         </div>
@@ -803,11 +884,14 @@
                         <!-- Ranking General + Gustos de Pizza + Rendimiento por Mozo -->
                         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
                             <!-- Ranking General Productos Más Vendidos (Toda la Carta) -->
-                            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
+                            <div
+                                class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                                 <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
                                     <div class="min-w-0">
-                                        <h4 class="font-bold text-sm text-slate-900 truncate">Ranking: Lo Más Vendido del Día</h4>
-                                        <p class="text-[11px] text-slate-500 truncate">Todo el menú: platos, libres/parrilla por persona y bebidas</p>
+                                        <h4 class="font-bold text-sm text-slate-900 truncate">Ranking: Lo Más Vendido
+                                            del Día</h4>
+                                        <p class="text-[11px] text-slate-500 truncate">Todo el menú: platos,
+                                            libres/parrilla por persona y bebidas</p>
                                     </div>
                                     <span
                                         class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 font-bold shrink-0">
@@ -820,11 +904,14 @@
                             </div>
 
                             <!-- Ranking Gustos de Pizza Más Vendidos -->
-                            <div class="bg-white border border-amber-200/80 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
+                            <div
+                                class="bg-white border border-amber-200/80 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                                 <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
                                     <div class="min-w-0">
-                                        <h4 class="font-bold text-sm text-slate-900 truncate">Gustos de Pizza Más Vendidos</h4>
-                                        <p class="text-[11px] text-slate-500 truncate">Demanda de sabores en carta y libre</p>
+                                        <h4 class="font-bold text-sm text-slate-900 truncate">Gustos de Pizza Más
+                                            Vendidos</h4>
+                                        <p class="text-[11px] text-slate-500 truncate">Demanda de sabores en carta y
+                                            libre</p>
                                     </div>
                                     <span
                                         class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 font-bold shrink-0">
@@ -837,11 +924,13 @@
                             </div>
 
                             <!-- Rendimiento por Mozo -->
-                            <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
+                            <div
+                                class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                                 <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
                                     <div class="min-w-0">
                                         <h4 class="font-bold text-sm text-slate-900 truncate">Rendimiento por Mozo</h4>
-                                        <p class="text-[11px] text-slate-500 truncate">Mesas cerradas y propinas generadas</p>
+                                        <p class="text-[11px] text-slate-500 truncate">Mesas cerradas y propinas
+                                            generadas</p>
                                     </div>
                                     <span
                                         class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
@@ -858,11 +947,14 @@
                         <div class="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col">
                             <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
                                 <div class="min-w-0">
-                                    <h4 class="font-bold text-sm text-slate-900 truncate">Registro de Todas las Mesas</h4>
-                                    <p class="text-[11px] text-slate-500 truncate">Cobros, método de pago y consumiciones</p>
+                                    <h4 class="font-bold text-sm text-slate-900 truncate">Registro de Todas las Mesas
+                                    </h4>
+                                    <p class="text-[11px] text-slate-500 truncate">Cobros, método de pago y
+                                        consumiciones</p>
                                 </div>
                                 <span id="rep-tickets-badge"
-                                    class="bg-blue-50 text-[#2563eb] text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200 shrink-0">0 cobros</span>
+                                    class="bg-blue-50 text-[#2563eb] text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200 shrink-0">0
+                                    cobros</span>
                             </div>
                             <div id="rep-payments-table"
                                 class="space-y-2 max-h-96 overflow-y-auto divide-y divide-slate-100 pr-1">
@@ -880,8 +972,10 @@
                                     <i class="fa-solid fa-clock-rotate-left text-xs"></i>
                                 </div>
                                 <div class="min-w-0">
-                                    <h4 class="font-bold text-sm text-slate-900 truncate">Archivo de Cierres Nocturnos</h4>
-                                    <p class="text-[11px] text-slate-500 truncate">Historial de turnos archivados en Neon DB</p>
+                                    <h4 class="font-bold text-sm text-slate-900 truncate">Archivo de Cierres Nocturnos
+                                    </h4>
+                                    <p class="text-[11px] text-slate-500 truncate">Historial de turnos archivados en
+                                        Neon DB</p>
                                 </div>
                             </div>
                         </div>
@@ -905,8 +999,10 @@
                                 <i class="fa-solid fa-user-plus text-sm"></i>
                             </div>
                             <div class="min-w-0">
-                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Agregar Mozo o Personal</h3>
-                                <p class="text-[11px] text-slate-500 truncate">Aparece de inmediato en todos los celulares</p>
+                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Agregar Mozo o
+                                    Personal</h3>
+                                <p class="text-[11px] text-slate-500 truncate">Aparece de inmediato en todos los
+                                    celulares</p>
                             </div>
                         </div>
 
@@ -939,11 +1035,13 @@
                     <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
                         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                             <div class="min-w-0">
-                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Personal Activo del Turno</h3>
+                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Personal Activo del
+                                    Turno</h3>
                                 <p class="text-[11px] text-slate-500 truncate">Seguimiento de mesas cobradas y roles</p>
                             </div>
                             <span id="staff-count-badge"
-                                class="bg-slate-100 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-full shrink-0">0 usuarios</span>
+                                class="bg-slate-100 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-full shrink-0">0
+                                usuarios</span>
                         </div>
 
                         <div id="admin-staff-list" class="divide-y divide-slate-100">
@@ -959,8 +1057,10 @@
                                 <i class="fa-solid fa-key text-sm"></i>
                             </div>
                             <div class="min-w-0">
-                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Seguridad y Clave de Acceso</h3>
-                                <p class="text-[11px] text-slate-500 truncate">Modifica la clave de ingreso al panel de administración.</p>
+                                <h3 class="font-bold text-sm sm:text-base text-slate-900 truncate">Seguridad y Clave de
+                                    Acceso</h3>
+                                <p class="text-[11px] text-slate-500 truncate">Modifica la clave de ingreso al panel de
+                                    administración.</p>
                             </div>
                         </div>
 
@@ -978,7 +1078,8 @@
                                     class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
                             </div>
                             <div>
-                                <label class="text-xs font-semibold text-slate-600 block mb-1">Confirmar Nueva Contraseña</label>
+                                <label class="text-xs font-semibold text-slate-600 block mb-1">Confirmar Nueva
+                                    Contraseña</label>
                                 <input type="password" inputmode="numeric" id="change-pwd-confirm"
                                     placeholder="Repite la nueva clave"
                                     class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-base text-slate-900 focus:outline-none focus:border-[#2563eb]">
@@ -1218,7 +1319,8 @@
                     Cancelar
                 </button>
                 <button type="button" onclick="openTableBillTicketPrint(activePaymentTable)"
-                    class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5" title="Ver / Imprimir Pre-cuenta">
+                    class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5"
+                    title="Ver / Imprimir Pre-cuenta">
                     <i class="fa-solid fa-receipt"></i>
                     <span>Ver Ticket</span>
                 </button>
@@ -1234,12 +1336,14 @@
     <!-- ================= MODAL: ARMADO DE PIZZAS (1, 2 Y 3 GUSTOS) ================= -->
     <div id="pizza-builder-modal"
         class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4">
-        <div class="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
-            
+        <div
+            class="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+
             <!-- Encabezado del modal -->
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <div class="flex items-center space-x-2.5">
-                    <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 text-sm">
+                    <div
+                        class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 text-sm">
                         <i class="fa-solid fa-pizza-slice"></i>
                     </div>
                     <div>
@@ -1278,12 +1382,13 @@
             <!-- Paso 2: Selección de los sabores según la cantidad elegida -->
             <div class="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                 <label class="text-xs font-bold text-slate-700 block mb-1">2. Elegir Gustos / Sabores</label>
-                
+
                 <!-- Gusto 1 (Siempre visible) -->
                 <div>
                     <div class="flex justify-between items-center mb-1">
                         <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <span id="badge-gusto-1" class="w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] flex items-center justify-center font-bold">1</span>
+                            <span id="badge-gusto-1"
+                                class="w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] flex items-center justify-center font-bold">1</span>
                             <span id="label-gusto-1">Gusto de la Pizza (Entera)</span>
                         </span>
                         <span id="price-gusto-1" class="text-[11px] font-bold text-[#2563eb]">$0</span>
@@ -1297,7 +1402,8 @@
                 <div id="container-gusto-2" class="hidden pt-2 border-t border-slate-200/70">
                     <div class="flex justify-between items-center mb-1">
                         <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <span class="w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] flex items-center justify-center font-bold">2</span>
+                            <span
+                                class="w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] flex items-center justify-center font-bold">2</span>
                             <span id="label-gusto-2">Segundo Gusto (1/2)</span>
                         </span>
                         <span id="price-gusto-2" class="text-[11px] font-bold text-[#2563eb]">$0</span>
@@ -1311,7 +1417,8 @@
                 <div id="container-gusto-3" class="hidden pt-2 border-t border-slate-200/70">
                     <div class="flex justify-between items-center mb-1">
                         <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <span class="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-bold">3</span>
+                            <span
+                                class="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-bold">3</span>
                             <span>Tercer Gusto (1/3)</span>
                         </span>
                         <span id="price-gusto-3" class="text-[11px] font-bold text-[#2563eb]">$0</span>
@@ -1328,7 +1435,8 @@
                             + ¿Gusto especial o fuera de carta?
                         </summary>
                         <div class="mt-2 space-y-2">
-                            <input type="text" id="pizza-custom-flavor-input" placeholder="Ej: Con rúcula fresca y aceitunas negras"
+                            <input type="text" id="pizza-custom-flavor-input"
+                                placeholder="Ej: Con rúcula fresca y aceitunas negras"
                                 oninput="onPizzaFlavorSelectChange()"
                                 class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]">
                         </div>
@@ -1365,12 +1473,14 @@
                 <div class="flex justify-between items-start gap-2">
                     <div class="min-w-0">
                         <span class="text-[10px] uppercase font-bold text-blue-700 block">Detalle de la Pizza</span>
-                        <h5 id="pizza-preview-name" class="font-bold text-xs sm:text-sm text-slate-900 leading-snug">Pizza Muzzarella (Entera)</h5>
+                        <h5 id="pizza-preview-name" class="font-bold text-xs sm:text-sm text-slate-900 leading-snug">
+                            Pizza Muzzarella (Entera)</h5>
                         <p id="pizza-preview-calculation" class="text-[10px] text-slate-500 mt-0.5">$8.500 c/u</p>
                     </div>
                     <div class="text-right shrink-0">
                         <span class="text-[10px] uppercase font-bold text-blue-700 block">Subtotal</span>
-                        <span id="pizza-preview-total" class="text-base sm:text-lg font-bold text-[#2563eb]">$8.500</span>
+                        <span id="pizza-preview-total"
+                            class="text-base sm:text-lg font-bold text-[#2563eb]">$8.500</span>
                     </div>
                 </div>
             </div>
@@ -1393,7 +1503,8 @@
     <!-- ================= MODAL: PIZZA LIBRE (1RA RONDA) ================= -->
     <div id="pizza-libre-modal"
         class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div
+            class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <div class="flex items-center space-x-2">
                     <div class="w-8 h-8 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center">
@@ -1441,7 +1552,8 @@
                     <div class="flex flex-wrap gap-1.5" id="pizza-libre-exclusion-chips">
                         <!-- Generados dinámicamente -->
                     </div>
-                    <textarea id="pizza-libre-exclusions-text" rows="2" placeholder="Ej: Sin cebolla, sin anchoa, etc..."
+                    <textarea id="pizza-libre-exclusions-text" rows="2"
+                        placeholder="Ej: Sin cebolla, sin anchoa, etc..."
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563eb]"></textarea>
                 </div>
             </div>
@@ -1463,14 +1575,17 @@
     <!-- ================= MODAL: SIGUIENTE RONDA PIZZA LIBRE ($0) ================= -->
     <div id="pizza-libre-next-round-modal"
         class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div
+            class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <div class="flex items-center space-x-2.5">
-                    <div class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                    <div
+                        class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
                         <i class="fa-solid fa-arrows-rotate text-sm"></i>
                     </div>
                     <div>
-                        <h3 class="font-bold text-base text-slate-900" id="next-round-modal-title">Pedir Siguiente Ronda</h3>
+                        <h3 class="font-bold text-base text-slate-900" id="next-round-modal-title">Pedir Siguiente Ronda
+                        </h3>
                         <p class="text-xs text-slate-500" id="next-round-modal-subtitle">Pizza Libre</p>
                     </div>
                 </div>
@@ -1522,10 +1637,12 @@
     <!-- ================= MODAL: PLATO POR CANTIDAD DE PERSONAS (EJ. PARRILLA) ================= -->
     <div id="per-person-item-modal"
         class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div
+            class="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <div class="flex items-center space-x-2">
-                    <div class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                    <div
+                        class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
                         <i class="fa-solid fa-users text-xs"></i>
                     </div>
                     <div>
@@ -1562,8 +1679,10 @@
                 </div>
 
                 <div class="space-y-1.5 pt-1">
-                    <label class="text-xs font-semibold text-slate-700 block">Observaciones / Punto de cocción (Opcional)</label>
-                    <textarea id="per-person-modal-note" rows="2" placeholder="Ej: A punto, bien cocido, sin chinchulín..."
+                    <label class="text-xs font-semibold text-slate-700 block">Observaciones / Punto de cocción
+                        (Opcional)</label>
+                    <textarea id="per-person-modal-note" rows="2"
+                        placeholder="Ej: A punto, bien cocido, sin chinchulín..."
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563eb]"></textarea>
                 </div>
             </div>
@@ -1617,15 +1736,21 @@
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 focus:outline-none focus:border-[#2563eb]">
                 </div>
                 <div>
-                    <label class="text-xs font-semibold text-slate-600 block mb-1">Subcategoría / Tipo (Opcional - Ej. Bebidas)</label>
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Subcategoría / Tipo (Opcional - Ej.
+                        Bebidas)</label>
                     <input type="text" id="edit-item-subcat" placeholder="Ej: Cervezas, Gaseosas y Jugos, Vinos..."
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#2563eb]">
                     <div class="flex flex-wrap gap-1 mt-1">
-                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Cervezas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Cervezas</button>
-                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Gaseosas y Jugos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Gaseosas</button>
-                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Aguas y Saborizadas')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Aguas</button>
-                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Vinos y Espumantes')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Vinos</button>
-                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Tragos y Aperitivos')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Tragos</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Cervezas')"
+                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Cervezas</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Gaseosas y Jugos')"
+                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Gaseosas</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Aguas y Saborizadas')"
+                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Aguas</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Vinos y Espumantes')"
+                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Vinos</button>
+                        <button type="button" onclick="fillSubcatInput('edit-item-subcat','Tragos y Aperitivos')"
+                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold cursor-pointer">Tragos</button>
                     </div>
                 </div>
                 <div>
@@ -1633,9 +1758,12 @@
                     <textarea id="edit-item-desc" rows="2"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-[#2563eb]"></textarea>
                 </div>
-                <label class="flex items-center space-x-2 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer select-none">
-                    <input type="checkbox" id="edit-item-per-person" class="w-4 h-4 rounded text-[#2563eb] border-slate-300">
-                    <span class="text-xs font-bold text-amber-950">Elegir cantidad de personas al pedir (ej. Parrilla / Libre)</span>
+                <label
+                    class="flex items-center space-x-2 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer select-none">
+                    <input type="checkbox" id="edit-item-per-person"
+                        class="w-4 h-4 rounded text-[#2563eb] border-slate-300">
+                    <span class="text-xs font-bold text-amber-950">Elegir cantidad de personas al pedir (ej. Parrilla /
+                        Libre)</span>
                 </label>
             </div>
 
@@ -1665,9 +1793,11 @@
                         <i class="fa-solid fa-clipboard-list text-sm"></i>
                     </div>
                     <div>
-                        <h3 class="font-bold text-base text-slate-900">Registro de Pagos y Cierre de Mesas</h3>
-                        <p class="text-[11px] text-slate-500">Historial de cobros realizados en Efectivo y Transferencia
-                        </p>
+                        <div class="flex items-center gap-1.5">
+                            <h3 class="font-bold text-base text-slate-900">Registro de Pagos y Cierre de Mesas</h3>
+                            <span id="reg-shift-badge" class="text-[10px] bg-blue-100 text-[#2563eb] px-2 py-0.5 rounded-full font-bold">Turno Sábado / Domingo</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500">Historial completo de cobros por mesa y mozo en este turno nocturno</p>
                     </div>
                 </div>
                 <button onclick="closePaymentHistoryModal()"
@@ -1677,7 +1807,7 @@
             </div>
 
             <!-- Resumen Rápido -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 my-4 shrink-0">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 my-3 shrink-0">
                 <div class="bg-slate-50 border border-slate-200 p-3 rounded-2xl">
                     <span class="text-[10px] text-slate-500 uppercase font-semibold block">Total Ventas</span>
                     <span id="reg-total-sales" class="text-sm sm:text-base font-bold text-slate-900">$0</span>
@@ -1696,14 +1826,24 @@
                 </div>
             </div>
 
+            <!-- Filtros por Mozo -->
+            <div id="payment-waiter-filter-bar" class="flex items-center gap-1.5 overflow-x-auto pb-1 shrink-0 no-scrollbar">
+                <!-- Filtros dinámicos por mozo -->
+            </div>
+
             <!-- Lista de Transacciones -->
             <div id="payment-history-list" class="flex-1 overflow-y-auto space-y-2.5 pr-1 divide-y divide-slate-100">
                 <!-- Filas de pagos -->
             </div>
 
-            <div class="pt-4 border-t border-slate-100 mt-3 shrink-0">
+            <div class="pt-3 border-t border-slate-100 mt-2 shrink-0 flex gap-2">
+                <button onclick="openShiftSummaryModal()"
+                    class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold px-3 py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span>Ver Resumen de Turno</span>
+                </button>
                 <button onclick="closePaymentHistoryModal()"
-                    class="w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all">
+                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all">
                     Cerrar Registro
                 </button>
             </div>
@@ -1713,14 +1853,17 @@
     <!-- ================= MODAL: CAJA GENERAL DE PROPINAS ================= -->
     <div id="tips-modal"
         class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
                 <div class="flex items-center space-x-2">
                     <div
                         class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-100">
                         <i class="fa-solid fa-wallet text-sm"></i>
                     </div>
-                    <h3 class="font-bold text-base text-slate-900">Caja General de Propinas</h3>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-900">Caja General de Propinas</h3>
+                        <p class="text-[11px] text-slate-500">Acumulado del turno actual por mozo</p>
+                    </div>
                 </div>
                 <button onclick="closeTipsModal()"
                     class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
@@ -1728,24 +1871,123 @@
                 </button>
             </div>
 
-            <div class="bg-blue-50/60 p-5 rounded-2xl border border-blue-100 text-center space-y-1">
+            <div class="bg-blue-50/60 p-4 rounded-2xl border border-blue-100 text-center space-y-1 shrink-0">
                 <span class="text-xs text-slate-600 font-medium block">Fondo Acumulado del Turno</span>
                 <span id="tips-grand-total" class="text-3xl font-bold text-[#2563eb]">$0</span>
-                <p class="text-[11px] text-slate-500 pt-1">Se suma automáticamente al cobrar cada comanda por resta de
-                    lo abonado por el cliente.</p>
+                <p class="text-[11px] text-slate-500 pt-0.5">Asociado al mozo que atendió la mesa.</p>
             </div>
 
-            <div class="flex space-x-2">
+            <!-- Desglose por Mozo -->
+            <div class="space-y-1.5 shrink-0">
+                <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Propinas por Mozo:</h4>
+                <div id="tips-waiter-breakdown" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    <!-- Filas dinámicas por mozo -->
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2 border-t border-slate-100 shrink-0">
                 <button onclick="openPaymentHistoryFromTips()"
-                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all">
-                    Ver Registro de Pagos
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1">
+                    <i class="fa-solid fa-clipboard-list text-xs"></i>
+                    <span>Ver Mesas</span>
+                </button>
+                <button onclick="closeTipsModal(); openShiftSummaryModal();"
+                    class="flex-1 bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center space-x-1">
+                    <i class="fa-solid fa-chart-pie text-xs"></i>
+                    <span>Resumen Turno</span>
                 </button>
                 <button onclick="closeTipsModal()"
-                    class="flex-1 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20">
-                    Entendido
+                    class="bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20">
+                    Cerrar
                 </button>
             </div>
         </div>
+    </div>
+
+    <!-- ================= MODAL: RESUMEN OPERATIVO DEL TURNO ================= -->
+    <div id="shift-summary-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200">
+                        <i class="fa-solid fa-chart-pie text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-900" id="shift-modal-title">Resumen del Turno</h3>
+                        <p class="text-[11px] text-slate-500" id="shift-modal-subtitle">Turno Nocturno en curso</p>
+                    </div>
+                </div>
+                <button onclick="closeShiftSummaryModal()"
+                    class="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- KPIs Resumen -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
+                <div class="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                    <span class="text-[9px] text-slate-500 uppercase font-semibold block">Facturado</span>
+                    <strong id="shift-kpi-sales" class="text-sm font-bold text-slate-900">$0</strong>
+                </div>
+                <div class="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl">
+                    <span class="text-[9px] text-emerald-800 uppercase font-semibold block">Cobradas</span>
+                    <strong id="shift-kpi-orders" class="text-sm font-bold text-emerald-800">0 mesas</strong>
+                </div>
+                <div class="bg-amber-50/70 border border-amber-200 p-2.5 rounded-xl">
+                    <span class="text-[9px] text-amber-800 uppercase font-semibold block">En Salón</span>
+                    <strong id="shift-kpi-salon" class="text-sm font-bold text-amber-800">0 mesas</strong>
+                </div>
+                <div class="bg-blue-50/70 border border-blue-200 p-2.5 rounded-xl">
+                    <span class="text-[9px] text-[#2563eb] uppercase font-semibold block">Propinas</span>
+                    <strong id="shift-kpi-tips" class="text-sm font-bold text-[#2563eb]">$0</strong>
+                </div>
+            </div>
+
+            <!-- Contenido deslizable del resumen -->
+            <div class="flex-1 overflow-y-auto space-y-3.5 pr-1">
+                <!-- Rendimiento y Propinas por Mozo -->
+                <div class="space-y-1.5">
+                    <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-user-check text-[#2563eb]"></i>
+                        <span>Mesas y Propinas por Mozo</span>
+                    </h4>
+                    <div id="shift-modal-waiter-list" class="space-y-2">
+                        <!-- Filas de mozos -->
+                    </div>
+                </div>
+
+                <!-- Resumen de Consumo / Salidas del Turno -->
+                <div class="space-y-1.5">
+                    <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-beer-mug-empty text-[#2563eb]"></i>
+                        <span>Salida de Lisos y Platos Principales</span>
+                    </h4>
+                    <div id="shift-modal-top-products" class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1 text-slate-700">
+                        <!-- Salidas -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botones de Acción -->
+            <div class="pt-3 border-t border-slate-100 flex flex-wrap gap-2 shrink-0">
+                <button onclick="copyNightReportText()"
+                    class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 px-3 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-copy text-xs"></i>
+                    <span>Copiar WhatsApp</span>
+                </button>
+                <button onclick="closeShiftSummaryModal(); openPaymentHistoryModal();"
+                    class="bg-blue-50 hover:bg-blue-100 text-[#2563eb] border border-blue-200 font-bold py-2.5 px-3 rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-clipboard-list text-xs"></i>
+                    <span>Ver Cobros</span>
+                </button>
+                <button onclick="closeShiftSummaryModal()"
+                    class="bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-md shadow-blue-500/20">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
     </div>
 
     <!-- ================= MODAL: AVISOS DE COCINA ("¡PEDIDO LISTO!") ================= -->
@@ -1800,7 +2042,8 @@
                 </div>
                 <div class="flex items-center space-x-1.5">
                     <button type="button" onclick="openTicketConfigModal()"
-                        class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-[#2563eb] flex items-center justify-center transition-all cursor-pointer" title="Configurar Ticket (Alias, Mensaje, Propina)">
+                        class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-[#2563eb] flex items-center justify-center transition-all cursor-pointer"
+                        title="Configurar Ticket (Alias, Mensaje, Propina)">
                         <i class="fa-solid fa-gear text-xs"></i>
                     </button>
                     <button onclick="closeTicketPrintModal()"
@@ -1815,7 +2058,8 @@
                 <div class="flex items-center justify-between gap-2">
                     <div class="flex items-center space-x-1.5 min-w-0">
                         <span id="printer-status-dot" class="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
-                        <span id="printer-status-text" class="text-[11px] font-semibold text-slate-700 truncate">Impresora del sistema</span>
+                        <span id="printer-status-text"
+                            class="text-[11px] font-semibold text-slate-700 truncate">Impresora del sistema</span>
                     </div>
                     <div class="flex items-center space-x-1 shrink-0">
                         <button type="button" onclick="setPaperWidth(80)" id="btn-paper-80"
@@ -1826,17 +2070,20 @@
                 </div>
                 <div class="grid grid-cols-3 gap-1.5">
                     <button type="button" onclick="connectWindowsBridgePrinter()" id="btn-connect-win"
-                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar directo a impresora instalada en Windows (POS-80C / 3nStar RPT004) sin ventana PDF">
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                        title="Conectar directo a impresora instalada en Windows (POS-80C / 3nStar RPT004) sin ventana PDF">
                         <i class="fa-solid fa-desktop"></i>
                         <span>PC Windows</span>
                     </button>
                     <button type="button" onclick="connectDirectSerialPrinter()" id="btn-connect-serial"
-                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Conectar impresora térmica por puerto COM o Bluetooth Serial (sin ventana Guardar como PDF)">
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                        title="Conectar impresora térmica por puerto COM o Bluetooth Serial (sin ventana Guardar como PDF)">
                         <i class="fa-solid fa-plug"></i>
                         <span>COM / BT</span>
                     </button>
                     <button type="button" onclick="toggleRawBtMode()" id="btn-toggle-rawbt"
-                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer" title="Impresión directa en Android con la app RawBT (sin Guardar como PDF)">
+                        class="bg-white hover:bg-blue-50 text-slate-700 hover:text-[#2563eb] border border-slate-200 rounded-xl py-1.5 px-2 text-[10px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                        title="Impresión directa en Android con la app RawBT (sin Guardar como PDF)">
                         <i class="fa-solid fa-mobile-screen"></i>
                         <span>RawBT</span>
                     </button>
@@ -1861,7 +2108,8 @@
                     Cerrar
                 </button>
                 <button onclick="copyTicketText()"
-                    class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2.5 rounded-xl text-xs transition-all border border-slate-300 flex items-center justify-center space-x-1 cursor-pointer" title="Copiar resumen para WhatsApp">
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2.5 rounded-xl text-xs transition-all border border-slate-300 flex items-center justify-center space-x-1 cursor-pointer"
+                    title="Copiar resumen para WhatsApp">
                     <i class="fa-solid fa-copy"></i>
                     <span>Copiar</span>
                 </button>
@@ -1903,7 +2151,8 @@
                 </div>
 
                 <div>
-                    <label class="text-[11px] font-bold text-slate-700 block mb-1">Alias para Transferencia (opcional)</label>
+                    <label class="text-[11px] font-bold text-slate-700 block mb-1">Alias para Transferencia
+                        (opcional)</label>
                     <input type="text" id="cfg-ticket-alias" placeholder="Ej: sarmiento.pos (dejar vacío para ocultar)"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#2563eb]">
                 </div>
@@ -1914,12 +2163,14 @@
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-[#2563eb] resize-none"></textarea>
                 </div>
 
-                <label class="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-2xl cursor-pointer">
+                <label
+                    class="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-2xl cursor-pointer">
                     <div>
                         <span class="text-xs font-bold text-slate-800 block">Mostrar Propina Sugerida (10%)</span>
                         <span class="text-[10px] text-slate-500">Incluir cálculo sugerido del 10% en la cuenta</span>
                     </div>
-                    <input type="checkbox" id="cfg-ticket-tip-toggle" class="w-5 h-5 accent-[#2563eb] rounded cursor-pointer">
+                    <input type="checkbox" id="cfg-ticket-tip-toggle"
+                        class="w-5 h-5 accent-[#2563eb] rounded cursor-pointer">
                 </label>
             </div>
 
