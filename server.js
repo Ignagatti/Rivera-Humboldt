@@ -426,9 +426,45 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
       };
     }
 
+    // Sincronizar pos_table_orders para que la mesa contenga todos los platos enviados consolidados
+    const tableItemsMap = new Map();
+    (finalOrder.items || []).forEach(it => {
+      const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+      if (tableItemsMap.has(key)) {
+        tableItemsMap.get(key).qty += Number(it.qty) || 1;
+        tableItemsMap.get(key).sentQty += Number(it.qty) || 1;
+      } else {
+        tableItemsMap.set(key, {
+          id: it.id,
+          name: it.name,
+          price: Number(it.price) || 0,
+          qty: Number(it.qty) || 1,
+          sentQty: Number(it.qty) || 1,
+          note: it.note || '',
+          isPizzaLibre: Boolean(it.isPizzaLibre),
+          libreRound: it.libreRound || null
+        });
+      }
+    });
+    const tableItemsForDb = Array.from(tableItemsMap.values());
+
+    await pool.query(`
+      INSERT INTO pos_table_orders (table_name, items, note, updated_at)
+      VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (table_name)
+      DO UPDATE SET items = EXCLUDED.items, note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP
+    `, [table, JSON.stringify(tableItemsForDb), finalOrder.note || '']);
+
     broadcast({
       type: 'KITCHEN_ORDER_NEW',
       order: finalOrder
+    });
+
+    broadcast({
+      type: 'TABLE_UPDATED',
+      tableName: table,
+      items: tableItemsForDb,
+      note: finalOrder.note || ''
     });
 
     res.json({ success: true, order: finalOrder });

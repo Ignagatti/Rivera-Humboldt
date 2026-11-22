@@ -262,6 +262,13 @@ async function fetchServerState(silent = false) {
                         showToast(`¡${newlyReadyOrders[0].table} lista para retirar en Cocina!`, 'warning');
                     }
                 }
+
+                // Sincronizar mesas activas con sus comandas de cocina
+                kitchenOrders.forEach(ko => {
+                    if (ko.status !== 'paid' && ko.table) {
+                        syncTableWithActiveKitchenOrder(ko.table);
+                    }
+                });
             }
 
             isOnlineWithServer = true;
@@ -351,6 +358,9 @@ function handleRealtimeMessage(msg) {
             } else {
                 kitchenOrders.unshift(msg.order);
             }
+            if (msg.order && msg.order.table) {
+                syncTableWithActiveKitchenOrder(msg.order.table);
+            }
             saveLocalState();
             refreshActiveViews();
             break;
@@ -419,12 +429,10 @@ function handleRealtimeMessage(msg) {
             break;
 
         case 'TABLE_UPDATED':
-            if (ordersByTable[msg.tableName]) {
-                ordersByTable[msg.tableName] = {
-                    items: msg.items || [],
-                    note: msg.note || ''
-                };
-            }
+            ordersByTable[msg.tableName] = {
+                items: msg.items || [],
+                note: msg.note || ''
+            };
             saveLocalState();
             if (currentTable === msg.tableName && !document.getElementById('waiter-order-view').classList.contains('hidden')) {
                 renderOrderList();
@@ -927,6 +935,167 @@ async function markOrderDeliveredFromNotif(cmdId) {
     showToast(`Pedido de ${order ? order.table : 'mesa'} marcado como entregado`, 'success');
 }
 
+// ================= SINCRONIZACIÓN Y CONSOLIDACIÓN TOTAL DE COMANDAS =================
+
+function syncTableWithActiveKitchenOrder(tableName) {
+    if (!tableName) return;
+    const activeCmd = kitchenOrders.find(o => o.table === tableName && o.status !== 'paid');
+    if (!ordersByTable[tableName]) {
+        ordersByTable[tableName] = { items: [], note: "" };
+    }
+    const tableOrder = ordersByTable[tableName];
+
+    if (!activeCmd || !Array.isArray(activeCmd.items) || activeCmd.items.length === 0) {
+        return;
+    }
+
+    if (!Array.isArray(tableOrder.items)) {
+        tableOrder.items = [];
+    }
+
+    // Si la mesa no tiene ítems locales, hidratar directamente desde la comanda de cocina
+    if (tableOrder.items.length === 0) {
+        tableOrder.items = activeCmd.items.map(it => ({
+            id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            menuItemId: it.menuItemId || it.id,
+            name: it.name,
+            price: Number(it.price) || 0,
+            qty: Number(it.qty) || 1,
+            sentQty: Number(it.qty) || 1,
+            note: it.note || '',
+            isPizzaLibre: Boolean(it.isPizzaLibre),
+            libreRound: it.libreRound || null
+        }));
+        if (!tableOrder.note && activeCmd.note) {
+            tableOrder.note = activeCmd.note;
+        }
+        return;
+    }
+
+    // Si la mesa YA tiene ítems, sumar por nombre + precio en activeCmd
+    const kitchenTotals = new Map();
+    activeCmd.items.forEach(it => {
+        const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+        const current = kitchenTotals.get(key) || { qty: 0, sample: it };
+        current.qty += Number(it.qty) || 1;
+        kitchenTotals.set(key, current);
+    });
+
+    const seenKeys = new Set();
+    tableOrder.items.forEach(it => {
+        const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+        seenKeys.add(key);
+        if (kitchenTotals.has(key)) {
+            const kData = kitchenTotals.get(key);
+            it.sentQty = Math.max(Number(it.sentQty) || 0, kData.qty);
+            if (it.qty < it.sentQty) {
+                it.qty = it.sentQty;
+            }
+        }
+    });
+
+    // Agregar platos que están en cocina pero que faltaban en el borrador local de la mesa
+    kitchenTotals.forEach((kData, key) => {
+        if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            const it = kData.sample;
+            tableOrder.items.push({
+                id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                menuItemId: it.menuItemId || it.id,
+                name: it.name,
+                price: Number(it.price) || 0,
+                qty: kData.qty,
+                sentQty: kData.qty,
+                note: it.note || '',
+                isPizzaLibre: Boolean(it.isPizzaLibre),
+                libreRound: it.libreRound || null
+            });
+        }
+    });
+
+    if (!tableOrder.note && activeCmd.note) {
+        tableOrder.note = activeCmd.note;
+    }
+}
+
+function getTableConsolidatedOrder(tableName) {
+    const table = tableName || currentTable;
+    const tableOrder = ordersByTable[table] || { items: [], note: "" };
+    const activeCmd = kitchenOrders.find(o => o.table === table && o.status !== 'paid');
+
+    const consolidatedMap = new Map();
+
+    // 1. Agregar todos los ítems de la comanda activa de cocina como base confiable
+    if (activeCmd && Array.isArray(activeCmd.items)) {
+        activeCmd.items.forEach(it => {
+            const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}___${(it.note || '').trim().toLowerCase()}`;
+            if (consolidatedMap.has(key)) {
+                consolidatedMap.get(key).qty += Number(it.qty) || 1;
+                consolidatedMap.get(key).sentQty += Number(it.qty) || 1;
+            } else {
+                consolidatedMap.set(key, {
+                    id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    menuItemId: it.menuItemId || it.id,
+                    name: it.name,
+                    price: Number(it.price) || 0,
+                    qty: Number(it.qty) || 1,
+                    sentQty: Number(it.qty) || 1,
+                    note: it.note || '',
+                    isPizzaLibre: Boolean(it.isPizzaLibre),
+                    libreRound: it.libreRound || null
+                });
+            }
+        });
+    }
+
+    // 2. Sumar ítems de tableOrder (si no hay cocina, se suman todos; si hay cocina, solo la diferencia pendiente)
+    if (Array.isArray(tableOrder.items)) {
+        tableOrder.items.forEach(it => {
+            const sent = Number(it.sentQty) || 0;
+            const unsent = Math.max(0, (Number(it.qty) || 0) - sent);
+
+            if (!activeCmd) {
+                const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}___${(it.note || '').trim().toLowerCase()}`;
+                if (consolidatedMap.has(key)) {
+                    consolidatedMap.get(key).qty += Number(it.qty) || 1;
+                } else {
+                    consolidatedMap.set(key, {
+                        ...it,
+                        price: Number(it.price) || 0,
+                        qty: Number(it.qty) || 1
+                    });
+                }
+            } else if (unsent > 0) {
+                const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}___${(it.note || '').trim().toLowerCase()}`;
+                if (consolidatedMap.has(key)) {
+                    consolidatedMap.get(key).qty += unsent;
+                } else {
+                    consolidatedMap.set(key, {
+                        ...it,
+                        price: Number(it.price) || 0,
+                        qty: unsent,
+                        sentQty: 0
+                    });
+                }
+            }
+        });
+    }
+
+    const items = Array.from(consolidatedMap.values());
+    const total = items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+    const waiterName = (activeCmd && activeCmd.waiterName)
+        ? activeCmd.waiterName
+        : ((tableOrder && tableOrder.waiterName) ? tableOrder.waiterName : (currentUser ? currentUser.name : 'Mozo'));
+
+    return {
+        items,
+        total,
+        waiterName,
+        note: (activeCmd && activeCmd.note) || tableOrder.note || '',
+        activeCmd
+    };
+}
+
 // ================= VISTA A: MAPA DE SALÓN Y MESAS =================
 
 function renderTablesGrid() {
@@ -943,14 +1112,13 @@ function renderTablesGrid() {
         let dotColor = "bg-emerald-500";
         let isReadyInKitchen = false;
 
-        const hasLocalItems = tableOrder.items.length > 0;
-        let total = hasLocalItems
-            ? tableOrder.items.reduce((acc, i) => acc + (i.price * i.qty), 0)
-            : (activeCmd ? activeCmd.total : 0);
+        const consolidated = getTableConsolidatedOrder(tName);
+        const total = consolidated.total;
+        const itemsCount = consolidated.items.reduce((acc, i) => acc + (Number(i.qty) || 0), 0);
 
         // Detectar si la mesa tiene platos pendientes de enviar a cocina
-        const unsentCount = hasLocalItems
-            ? tableOrder.items.reduce((acc, i) => acc + Math.max(0, i.qty - (i.sentQty || 0)), 0)
+        const unsentCount = Array.isArray(tableOrder.items)
+            ? tableOrder.items.reduce((acc, i) => acc + Math.max(0, (Number(i.qty) || 0) - (Number(i.sentQty) || 0)), 0)
             : 0;
         const hasUnsentItems = unsentCount > 0;
 
@@ -977,7 +1145,7 @@ function renderTablesGrid() {
                 borderClass = "border-emerald-300 bg-white hover:border-emerald-500";
                 dotColor = "bg-emerald-600";
             }
-        } else if (hasLocalItems) {
+        } else if (total > 0) {
             if (hasUnsentItems) {
                 statusText = "Comanda sin enviar";
                 statusBadge = "bg-amber-100 text-amber-900 border-amber-300 font-bold";
@@ -990,10 +1158,6 @@ function renderTablesGrid() {
                 dotColor = "bg-blue-400";
             }
         }
-
-        const itemsCount = hasLocalItems
-            ? tableOrder.items.reduce((acc, i) => acc + i.qty, 0)
-            : (activeCmd ? activeCmd.items.reduce((acc, i) => acc + i.qty, 0) : 0);
 
         return `
             <div onclick="selectTable('${tName}')" class="border rounded-3xl p-4 sm:p-5 shadow-sm transition-all cursor-pointer flex flex-col justify-between group ${borderClass} relative">
@@ -1052,6 +1216,9 @@ function selectTable(tableName) {
     currentTable = tableName;
     document.getElementById('active-table-indicator').innerText = tableName;
     document.getElementById('current-order-title').innerText = `Pedido ${tableName}`;
+
+    // Sincronizar mesa con los ítems ya confirmados en comanda de cocina
+    syncTableWithActiveKitchenOrder(tableName);
 
     // Cargar nota actual
     const tableOrder = ordersByTable[tableName] || { items: [], note: "" };
@@ -2458,7 +2625,11 @@ function addToOrder(itemId) {
     }
 
     const tableItems = ordersByTable[currentTable].items;
-    const existing = tableItems.find(i => i.id === itemId);
+    const existing = tableItems.find(i =>
+        i.id === itemId ||
+        i.menuItemId === itemId ||
+        (i.name && item.name && i.name.trim().toLowerCase() === item.name.trim().toLowerCase() && Number(i.price) === Number(item.price))
+    );
 
     if (existing) {
         existing.qty += 1;
@@ -2554,11 +2725,13 @@ function renderOrderList() {
     const totalPriceElem = document.getElementById('order-total-price');
     const sendBtn = document.getElementById('send-order-btn');
     const payBtn = document.getElementById('pay-table-btn');
+    const ticketBtn = document.getElementById('ticket-table-btn');
     const alertBanner = document.getElementById('table-unsent-alert-banner');
 
-    const totalQty = items.reduce((acc, i) => acc + i.qty, 0);
-    const totalPrice = items.reduce((acc, i) => acc + (i.price * i.qty), 0);
-    const newItemsCount = items.reduce((acc, i) => acc + Math.max(0, i.qty - (i.sentQty || 0)), 0);
+    const consolidated = getTableConsolidatedOrder(currentTable);
+    const totalQty = consolidated.items.reduce((acc, i) => acc + (Number(i.qty) || 0), 0);
+    const totalPrice = consolidated.total;
+    const newItemsCount = items.reduce((acc, i) => acc + Math.max(0, (Number(i.qty) || 0) - (Number(i.sentQty) || 0)), 0);
 
     if (itemCountBadge) itemCountBadge.innerText = `${totalQty} ítem${totalQty === 1 ? '' : 's'}`;
     if (drawerTitleMobile) drawerTitleMobile.innerText = `Ver Comanda (${totalQty} ítem${totalQty === 1 ? '' : 's'})`;
@@ -2588,7 +2761,7 @@ function renderOrderList() {
         }
     }
 
-    if (items.length === 0) {
+    if (items.length === 0 && totalQty === 0) {
         container.innerHTML = `
             <div class="text-center py-6 text-slate-400 space-y-1">
                 <i class="fa-solid fa-receipt text-xl"></i>
@@ -2601,10 +2774,12 @@ function renderOrderList() {
             sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina</span>';
         }
         if (payBtn) payBtn.disabled = true;
+        if (ticketBtn) ticketBtn.disabled = true;
         return;
     }
 
     if (payBtn) payBtn.disabled = false;
+    if (ticketBtn) ticketBtn.disabled = false;
 
     if (sendBtn) {
         if (newItemsCount > 0) {
@@ -2788,26 +2963,20 @@ async function sendOrderToKitchen() {
 
 function openPaymentByTable(tableName) {
     activePaymentTable = tableName;
-    const tableOrder = ordersByTable[tableName];
-    const cmd = kitchenOrders.find(o => o.table === tableName && o.status !== 'paid');
-
-    let total = 0;
-    if (tableOrder && tableOrder.items.length > 0) {
-        total = tableOrder.items.reduce((acc, i) => acc + (i.price * i.qty), 0);
-    } else if (cmd) {
-        total = cmd.total;
-    }
+    const consolidated = getTableConsolidatedOrder(tableName);
+    const total = consolidated.total;
 
     if (total <= 0) return;
     activePaymentTotal = total;
 
+    const cmd = consolidated.activeCmd;
     document.getElementById('pay-modal-subtitle').innerText = `${tableName}${cmd ? ' • ' + cmd.id : ''}`;
     document.getElementById('pay-modal-total').innerText = `$${total.toLocaleString()}`;
 
     // Poblar y seleccionar mozo que cobra la mesa
     const waiterSelect = document.getElementById('pay-waiter-select');
     if (waiterSelect) {
-        const preferredWaiter = (currentUser && currentUser.name) || (cmd && cmd.waiterName) || '';
+        const preferredWaiter = (currentUser && currentUser.name) || (consolidated && consolidated.waiterName) || '';
         let staffOptions = staffList;
         if (!staffOptions || staffOptions.length === 0) {
             staffOptions = [{ id: 'm1', name: preferredWaiter || 'Mozo', role: 'Mozo' }];
@@ -2863,16 +3032,16 @@ async function confirmPaymentAndFinish() {
         generalTipsPool += tip;
     }
 
-    const tableOrder = ordersByTable[activePaymentTable];
-    const cmd = kitchenOrders.find(o => o.table === activePaymentTable && o.status !== 'paid');
-    let itemsList = (tableOrder && tableOrder.items.length > 0) ? tableOrder.items : (cmd ? cmd.items : []);
+    const consolidated = getTableConsolidatedOrder(activePaymentTable);
+    const cmd = consolidated.activeCmd;
+    let itemsList = consolidated.items;
     const itemsSummary = itemsList.map(i => `${i.qty}x ${i.name}`).join(', ') || 'Consumo salón';
 
     // Mozo que cobró la mesa (desde selector de modal o usuario activo)
     const waiterSelect = document.getElementById('pay-waiter-select');
     const waiterName = (waiterSelect && waiterSelect.value)
         ? waiterSelect.value
-        : (currentUser ? currentUser.name : (cmd ? cmd.waiterName : 'Mozo'));
+        : (currentUser ? currentUser.name : ((consolidated && consolidated.waiterName) ? consolidated.waiterName : 'Mozo'));
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -3603,7 +3772,7 @@ function formatBillItemName(item) {
 }
 
 function filterBillItems(items) {
-    return (items || [])
+    const validItems = (items || [])
         .filter(i => {
             const price = Number(i.price || 0);
             const isFreeRound = price === 0 && (i.isPizzaLibre || /ronda/i.test(String(i.name || '')));
@@ -3612,8 +3781,23 @@ function filterBillItems(items) {
         .map(i => ({
             ...i,
             name: formatBillItemName(i),
+            price: Number(i.price || 0),
+            qty: Number(i.qty || 1),
             note: ''
         }));
+
+    // Consolidar ítems con mismo nombre y precio para que el ticket del cliente salga limpio (ej: 2x Coca Cola en vez de dos renglones separados)
+    const grouped = new Map();
+    validItems.forEach(i => {
+        const key = `${(i.name || '').trim().toLowerCase()}___${i.price}`;
+        if (grouped.has(key)) {
+            grouped.get(key).qty += i.qty;
+        } else {
+            grouped.set(key, { ...i });
+        }
+    });
+
+    return Array.from(grouped.values());
 }
 
 function markKitchenOrderPrinted(cmdId) {
@@ -3755,18 +3939,10 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
         return;
     }
 
-    const tableOrder = ordersByTable[table] || { items: [], note: "" };
-    const activeCmd = kitchenOrders.find(o => o.table === table && o.status !== 'paid');
-    const anyTableCmd = activeCmd || kitchenOrders.find(o => o.table === table);
+    const consolidated = getTableConsolidatedOrder(table);
+    const rawItems = consolidated.items;
 
-    let rawItems = [];
-    if (tableOrder.items && tableOrder.items.length > 0) {
-        rawItems = tableOrder.items;
-    } else if (activeCmd && activeCmd.items && activeCmd.items.length > 0) {
-        rawItems = activeCmd.items;
-    }
-
-    if (rawItems.length === 0) {
+    if (!rawItems || rawItems.length === 0) {
         showToast(`La ${table} no tiene productos registrados`, 'info');
         return;
     }
@@ -3780,11 +3956,7 @@ function openTableBillTicketPrint(tableName, explicitWaiterName = '') {
     // Siempre a nombre del mozo asociado a la mesa
     const waiterName = (explicitWaiterName && String(explicitWaiterName).trim())
         ? String(explicitWaiterName).trim()
-        : ((anyTableCmd && anyTableCmd.waiterName)
-            ? anyTableCmd.waiterName
-            : ((tableOrder && tableOrder.waiterName)
-                ? tableOrder.waiterName
-                : (currentUser ? currentUser.name : "Mozo")));
+        : consolidated.waiterName;
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
