@@ -404,6 +404,16 @@ function handleRealtimeMessage(msg) {
             refreshActiveViews();
             break;
 
+        case 'KITCHEN_ORDER_DELETED':
+            kitchenOrders = kitchenOrders.filter(o => o.id !== msg.id);
+            if (msg.table && ordersByTable[msg.table]) {
+                ordersByTable[msg.table] = { items: [], note: "" };
+            }
+            waiterNotifications = waiterNotifications.filter(n => n.id !== msg.id);
+            saveLocalState();
+            refreshActiveViews();
+            break;
+
         case 'TABLE_ADDED':
             if (msg.tableName && !availableTables.includes(msg.tableName)) {
                 availableTables = sortTablesNaturally([...availableTables, msg.tableName]);
@@ -2651,12 +2661,65 @@ function addToOrder(itemId) {
     renderMenuGrid();
 }
 
-function updateQuantity(itemId, delta) {
+async function updateQuantity(itemId, delta) {
+    if (!ordersByTable[currentTable]) return;
     const tableItems = ordersByTable[currentTable].items;
     const itemIndex = tableItems.findIndex(i => i.id === itemId);
     if (itemIndex < 0) return;
 
     const item = tableItems[itemIndex];
+
+    if (delta < 0) {
+        const sent = Number(item.sentQty) || 0;
+        const currentQty = Number(item.qty) || 1;
+        const isReducingSentItem = currentQty <= sent;
+
+        if (isReducingSentItem && sent > 0) {
+            const confirmed = confirm(`¿Deseas descontar 1x "${item.name}" de la comanda de cocina y de la cuenta de ${currentTable}?`);
+            if (!confirmed) return;
+
+            // Descontar de la comanda activa de cocina si existe
+            const activeCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
+            if (activeCmd) {
+                try {
+                    await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            itemId: item.id,
+                            name: item.name,
+                            price: item.price,
+                            qty: 1
+                        })
+                    });
+                } catch (e) {
+                    console.warn('Error al descontar ítem de comanda en backend:', e);
+                }
+
+                // Ajustar comanda activa local
+                const kIdx = (activeCmd.items || []).findIndex(it =>
+                    it.id === item.id ||
+                    (it.name || '').trim().toLowerCase() === (item.name || '').trim().toLowerCase()
+                );
+                if (kIdx >= 0) {
+                    const kIt = activeCmd.items[kIdx];
+                    if (kIt.qty > 1) {
+                        kIt.qty -= 1;
+                    } else {
+                        activeCmd.items.splice(kIdx, 1);
+                    }
+                    activeCmd.total = activeCmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+                    if (activeCmd.items.length === 0) {
+                        kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
+                    }
+                }
+            }
+
+            item.sentQty = Math.max(0, sent - 1);
+            showToast(`1x ${item.name} descontado de la comanda y de la cuenta`, 'info');
+        }
+    }
+
     item.qty += delta;
 
     if (item.qty <= 0) {
@@ -2668,6 +2731,86 @@ function updateQuantity(itemId, delta) {
     saveCurrentTableState();
     renderOrderList();
     renderMenuGrid();
+    renderTablesGrid();
+}
+
+async function promptDeleteItemFromTable(itemId) {
+    if (!ordersByTable[currentTable]) return;
+    const tableItems = ordersByTable[currentTable].items;
+    const itemIndex = tableItems.findIndex(i => i.id === itemId);
+    if (itemIndex < 0) return;
+
+    const item = tableItems[itemIndex];
+    const sent = Number(item.sentQty) || 0;
+    const currentQty = Number(item.qty) || 1;
+
+    const confirmed = confirm(`¿Estás seguro de eliminar completamente "${item.name}" (${currentQty}x) de la cuenta de ${currentTable}?`);
+    if (!confirmed) return;
+
+    if (sent > 0) {
+        const activeCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
+        if (activeCmd) {
+            try {
+                await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        itemId: item.id,
+                        name: item.name,
+                        price: item.price,
+                        qty: currentQty
+                    })
+                });
+            } catch (e) {
+                console.warn('Error al eliminar ítem de comanda en backend:', e);
+            }
+
+            activeCmd.items = (activeCmd.items || []).filter(it =>
+                it.id !== item.id &&
+                (it.name || '').trim().toLowerCase() !== (item.name || '').trim().toLowerCase()
+            );
+            activeCmd.total = activeCmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+            if (activeCmd.items.length === 0) {
+                kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
+            }
+        }
+    }
+
+    tableItems.splice(itemIndex, 1);
+    saveCurrentTableState();
+    renderOrderList();
+    renderMenuGrid();
+    renderTablesGrid();
+    showToast(`"${item.name}" eliminado de la mesa`, 'info');
+}
+
+async function cancelCurrentTableOrderPrompt() {
+    const table = currentTable;
+    if (!table) return;
+
+    const consolidated = getTableConsolidatedOrder(table);
+    if (!consolidated || (consolidated.total === 0 && (!consolidated.items || consolidated.items.length === 0))) {
+        showToast(`La ${table} no tiene pedidos cargados`, 'info');
+        return;
+    }
+
+    const confirmed = confirm(`¿Estás seguro de anular todo el pedido de ${table}? Se cancelará la comanda de cocina y la mesa quedará liberada.`);
+    if (!confirmed) return;
+
+    try {
+        await fetch(`/api/tables/${encodeURIComponent(table)}/cancel-order`, {
+            method: 'POST'
+        });
+    } catch (e) {
+        console.warn('Error al anular pedido en servidor:', e);
+    }
+
+    ordersByTable[table] = { items: [], note: "" };
+    kitchenOrders = kitchenOrders.filter(o => o.table !== table || o.status === 'paid');
+
+    saveLocalState();
+    backToTablesView();
+    showToast(`Pedido de ${table} anulado. Mesa liberada.`, 'success');
 }
 
 function saveCurrentNote(val) {
@@ -2817,13 +2960,16 @@ function renderOrderList() {
                     <span class="text-slate-400 text-[11px]">$${item.price.toLocaleString()} c/u</span>
                 </div>
 
-                <div class="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
-                    <button onclick="updateQuantity('${item.id}', -1)" class="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer">
+                <div class="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
+                    <button onclick="updateQuantity('${item.id}', -1)" class="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer" title="Restar 1 unidad">
                         <i class="fa-solid fa-minus text-[9px]"></i>
                     </button>
                     <span class="font-bold w-5 text-center text-slate-800 text-xs">${item.qty}</span>
-                    <button onclick="updateQuantity('${item.id}', 1)" class="w-6 h-6 rounded-lg bg-white text-[#2563eb] hover:bg-blue-50 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer">
+                    <button onclick="updateQuantity('${item.id}', 1)" class="w-6 h-6 rounded-lg bg-white text-[#2563eb] hover:bg-blue-50 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer" title="Sumar 1 unidad">
                         <i class="fa-solid fa-plus text-[9px]"></i>
+                    </button>
+                    <button onclick="promptDeleteItemFromTable('${item.id}')" class="w-6 h-6 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-all cursor-pointer ml-0.5" title="Eliminar este plato de la cuenta">
+                        <i class="fa-solid fa-trash-can text-[9px]"></i>
                     </button>
                 </div>
 
@@ -3402,7 +3548,13 @@ function renderKitchenOrders() {
                     <!-- Encabezado de la comanda de la mesa -->
                     <div class="flex items-start justify-between border-b border-slate-100 pb-2.5 gap-2">
                         <div class="min-w-0">
-                            <span class="text-[11px] font-bold text-slate-400 block">${cmd.id}</span>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="text-[11px] font-bold text-slate-400 block">${cmd.id}</span>
+                                <button onclick="cancelEntireKitchenOrderPrompt('${cmd.id}', '${cmd.table}')" class="text-rose-600 hover:text-rose-800 hover:bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1" title="Anular comanda completa enviada por error">
+                                    <i class="fa-solid fa-trash-can text-[9px]"></i>
+                                    <span>Anular Pedido</span>
+                                </button>
+                            </div>
                             <h3 class="text-lg font-black text-slate-900 truncate">${cmd.table}</h3>
                             <span class="text-[11px] text-slate-500 font-medium">Mozo: <strong class="text-slate-800">${cmd.waiterName}</strong></span>
                         </div>
@@ -3433,10 +3585,15 @@ function renderKitchenOrders() {
                                             </div>
                                             ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0">Agregado</span>' : ''}
                                         </div>
-                                        <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}')" title="Marcar este plato como entregado" class="ml-2 px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
-                                            <i class="fa-solid fa-check"></i>
-                                            <span class="hidden sm:inline">Entregar</span>
-                                        </button>
+                                        <div class="flex items-center space-x-1 shrink-0 ml-2">
+                                            <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}')" title="Marcar este plato como entregado" class="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
+                                                <i class="fa-solid fa-check"></i>
+                                                <span class="hidden sm:inline">Entregar</span>
+                                            </button>
+                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0})" title="Quitar este plato de la comanda y de la cuenta de la mesa" class="p-1 hover:bg-rose-50 text-slate-300 hover:text-rose-600 rounded-lg text-[11px] transition-all cursor-pointer">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 `).join('')}
                             </div>
@@ -3454,12 +3611,17 @@ function renderKitchenOrders() {
                             </div>
                             <div class="space-y-1 max-h-36 overflow-y-auto pr-1">
                                 ${deliveredItems.map(item => `
-                                    <div class="flex items-center justify-between py-0.5 px-1 text-[11px]">
-                                        <span class="flex items-center space-x-1.5 text-slate-600 truncate">
+                                    <div class="flex items-center justify-between py-1 px-1 text-[11px] border-b border-slate-100 last:border-b-0">
+                                        <span class="flex items-center space-x-1.5 text-slate-600 truncate min-w-0">
                                             <i class="fa-solid fa-check text-emerald-500 text-[10px] shrink-0"></i>
                                             <span class="truncate"><strong>${item.qty}x</strong> ${item.name}</span>
                                         </span>
-                                        <span class="text-slate-400 text-[10px] shrink-0 ml-1">$${((item.price || 0) * (item.qty || 1)).toLocaleString()}</span>
+                                        <div class="flex items-center space-x-1.5 shrink-0 ml-1">
+                                            <span class="text-slate-400 text-[10px]">$${((item.price || 0) * (item.qty || 1)).toLocaleString()}</span>
+                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0})" title="Quitar este plato de la comanda y de la cuenta de la mesa" class="p-1 hover:bg-rose-50 text-slate-300 hover:text-rose-600 rounded-lg text-[10px] transition-all cursor-pointer">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 `).join('')}
                             </div>
@@ -3649,6 +3811,102 @@ async function reopenTableOrderToPending(cmdId) {
     } catch (e) {
         console.warn('Error reabriendo comanda:', e);
     }
+}
+
+async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice) {
+    const cmd = kitchenOrders.find(o => o.id === cmdId);
+    if (!cmd) return;
+
+    const confirmed = confirm(`¿Eliminar 1x "${itemName}" de la comanda ${cmd.id} (${cmd.table})? Se descontará automáticamente de la cuenta de la mesa.`);
+    if (!confirmed) return;
+
+    try {
+        const res = await fetch(`/api/orders/${cmdId}/remove-item`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                itemId,
+                name: itemName,
+                price: Number(itemPrice) || 0,
+                qty: 1
+            })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            if (data.orderDeleted) {
+                kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
+                if (ordersByTable[cmd.table]) {
+                    ordersByTable[cmd.table] = { items: [], note: "" };
+                }
+            } else if (data.order) {
+                const idx = kitchenOrders.findIndex(o => o.id === cmdId);
+                if (idx >= 0) kitchenOrders[idx] = data.order;
+            }
+        }
+    } catch (e) {
+        console.warn('Error al quitar plato de cocina:', e);
+    }
+
+    // Sincronizar comanda en memoria
+    const kIdx = (cmd.items || []).findIndex(it =>
+        (itemId && it.id === itemId) ||
+        (it.name || '').trim().toLowerCase() === (itemName || '').trim().toLowerCase()
+    );
+    if (kIdx >= 0) {
+        if (cmd.items[kIdx].qty > 1) {
+            cmd.items[kIdx].qty -= 1;
+        } else {
+            cmd.items.splice(kIdx, 1);
+        }
+        cmd.total = cmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+        if (cmd.items.length === 0) {
+            kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
+        }
+    }
+
+    // Sincronizar mesa local
+    if (ordersByTable[cmd.table] && Array.isArray(ordersByTable[cmd.table].items)) {
+        const tItems = ordersByTable[cmd.table].items;
+        const tIdx = tItems.findIndex(it =>
+            (itemId && it.id === itemId) ||
+            (it.name || '').trim().toLowerCase() === (itemName || '').trim().toLowerCase()
+        );
+        if (tIdx >= 0) {
+            if (tItems[tIdx].qty > 1) {
+                tItems[tIdx].qty -= 1;
+                tItems[tIdx].sentQty = Math.max(0, (tItems[tIdx].sentQty || 1) - 1);
+            } else {
+                tItems.splice(tIdx, 1);
+            }
+        }
+    }
+
+    saveLocalState();
+    refreshActiveViews();
+    showToast(`1x ${itemName} eliminado de la comanda y de la cuenta`, 'success');
+}
+
+async function cancelEntireKitchenOrderPrompt(cmdId, tableName) {
+    const confirmed = confirm(`¿Estás seguro de anular y borrar completamente el pedido ${cmdId} de ${tableName}? La comanda se eliminará de cocina y la mesa quedará liberada.`);
+    if (!confirmed) return;
+
+    try {
+        await fetch(`/api/orders/${cmdId}`, {
+            method: 'DELETE'
+        });
+    } catch (e) {
+        console.warn('Error al anular comanda en servidor:', e);
+    }
+
+    kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
+    if (tableName && ordersByTable[tableName]) {
+        ordersByTable[tableName] = { items: [], note: "" };
+    }
+
+    saveLocalState();
+    refreshActiveViews();
+    showToast(`Pedido ${cmdId} de ${tableName} anulado y borrado`, 'success');
 }
 
 // ================= IMPRESIÓN DE TICKET TÉRMICO (DIRECTA USB/SERIAL/RAWBT + 80MM/58MM) =================

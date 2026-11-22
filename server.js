@@ -566,6 +566,265 @@ app.put('/api/orders/:id/print', async (req, res) => {
   }
 });
 
+// 5.1 Anular y borrar comanda completa enviada sin querer
+app.delete('/api/orders/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const orderRes = await pool.query("SELECT * FROM pos_kitchen_orders WHERE id = $1", [id]);
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Comanda no encontrada' });
+    }
+
+    const order = orderRes.rows[0];
+    const tableName = order.table_name;
+
+    // Eliminar la comanda
+    await pool.query("DELETE FROM pos_kitchen_orders WHERE id = $1", [id]);
+
+    // Verificar si quedan otras comandas activas para esta mesa
+    const remainingRes = await pool.query(
+      "SELECT * FROM pos_kitchen_orders WHERE table_name = $1 AND status != 'paid' ORDER BY created_at DESC",
+      [tableName]
+    );
+
+    let tableItemsForDb = [];
+    let noteForDb = '';
+
+    if (remainingRes.rows.length > 0) {
+      const tableItemsMap = new Map();
+      remainingRes.rows.forEach(r => {
+        (r.items || []).forEach(it => {
+          const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+          if (tableItemsMap.has(key)) {
+            tableItemsMap.get(key).qty += Number(it.qty) || 1;
+            tableItemsMap.get(key).sentQty += Number(it.qty) || 1;
+          } else {
+            tableItemsMap.set(key, {
+              id: it.id,
+              name: it.name,
+              price: Number(it.price) || 0,
+              qty: Number(it.qty) || 1,
+              sentQty: Number(it.qty) || 1,
+              note: it.note || '',
+              isPizzaLibre: Boolean(it.isPizzaLibre),
+              libreRound: it.libreRound || null
+            });
+          }
+        });
+      });
+      tableItemsForDb = Array.from(tableItemsMap.values());
+      noteForDb = remainingRes.rows[0].note || '';
+    }
+
+    await pool.query(`
+      INSERT INTO pos_table_orders (table_name, items, note, updated_at)
+      VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (table_name)
+      DO UPDATE SET items = EXCLUDED.items, note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP
+    `, [tableName, JSON.stringify(tableItemsForDb), noteForDb]);
+
+    broadcast({
+      type: 'KITCHEN_ORDER_DELETED',
+      id,
+      table: tableName
+    });
+
+    broadcast({
+      type: 'TABLE_UPDATED',
+      tableName,
+      items: tableItemsForDb,
+      note: noteForDb
+    });
+
+    res.json({ success: true, id, table: tableName });
+  } catch (err) {
+    console.error('Error al anular comanda:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5.2 Quitar o decrementar un plato individual de la comanda y de la cuenta de la mesa
+app.post('/api/orders/:id/remove-item', async (req, res) => {
+  const { id } = req.params;
+  const { itemId, name, price, qty } = req.body;
+  const qtyToRemove = Number(qty) || 1;
+
+  try {
+    const orderRes = await pool.query("SELECT * FROM pos_kitchen_orders WHERE id = $1", [id]);
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Comanda no encontrada' });
+    }
+
+    const order = orderRes.rows[0];
+    const tableName = order.table_name;
+    const items = Array.isArray(order.items) ? [...order.items] : [];
+
+    // Buscar ítem en la comanda (por id o por nombre y precio)
+    const targetIdx = items.findIndex(it => {
+      if (itemId && it.id === itemId) return true;
+      if (name && (it.name || '').trim().toLowerCase() === name.trim().toLowerCase()) {
+        if (price === undefined || Number(it.price) === Number(price)) return true;
+      }
+      return false;
+    });
+
+    if (targetIdx === -1) {
+      return res.status(404).json({ success: false, error: 'Plato no encontrado en la comanda' });
+    }
+
+    const targetItem = items[targetIdx];
+    const currentQty = Number(targetItem.qty) || 1;
+
+    if (currentQty > qtyToRemove) {
+      targetItem.qty = currentQty - qtyToRemove;
+    } else {
+      items.splice(targetIdx, 1);
+    }
+
+    if (items.length === 0) {
+      // Si la comanda se quedó sin ítems, anularla completa
+      await pool.query("DELETE FROM pos_kitchen_orders WHERE id = $1", [id]);
+
+      await pool.query(`
+        INSERT INTO pos_table_orders (table_name, items, note, updated_at)
+        VALUES ($1, '[]'::jsonb, '', CURRENT_TIMESTAMP)
+        ON CONFLICT (table_name)
+        DO UPDATE SET items = '[]'::jsonb, note = '', updated_at = CURRENT_TIMESTAMP
+      `, [tableName]);
+
+      broadcast({
+        type: 'KITCHEN_ORDER_DELETED',
+        id,
+        table: tableName
+      });
+
+      broadcast({
+        type: 'TABLE_UPDATED',
+        tableName,
+        items: [],
+        note: ''
+      });
+
+      return res.json({ success: true, orderDeleted: true, id, table: tableName });
+    }
+
+    const newTotal = items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+
+    const updateRes = await pool.query(`
+      UPDATE pos_kitchen_orders
+      SET items = $1::jsonb, total = $2
+      WHERE id = $3
+      RETURNING id, table_name, waiter_name, time, status, printed, items, total, note
+    `, [JSON.stringify(items), newTotal, id]);
+
+    const updated = updateRes.rows[0];
+    const orderData = {
+      id: updated.id,
+      table: updated.table_name,
+      waiterName: updated.waiter_name,
+      time: updated.time,
+      status: updated.status,
+      printed: updated.printed,
+      items: updated.items,
+      total: Number(updated.total),
+      note: updated.note || ''
+    };
+
+    // Sincronizar pos_table_orders con los ítems consolidados
+    const tableItemsMap = new Map();
+    items.forEach(it => {
+      const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+      if (tableItemsMap.has(key)) {
+        tableItemsMap.get(key).qty += Number(it.qty) || 1;
+        tableItemsMap.get(key).sentQty += Number(it.qty) || 1;
+      } else {
+        tableItemsMap.set(key, {
+          id: it.id,
+          name: it.name,
+          price: Number(it.price) || 0,
+          qty: Number(it.qty) || 1,
+          sentQty: Number(it.qty) || 1,
+          note: it.note || '',
+          isPizzaLibre: Boolean(it.isPizzaLibre),
+          libreRound: it.libreRound || null
+        });
+      }
+    });
+    const tableItemsForDb = Array.from(tableItemsMap.values());
+
+    await pool.query(`
+      INSERT INTO pos_table_orders (table_name, items, note, updated_at)
+      VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (table_name)
+      DO UPDATE SET items = EXCLUDED.items, note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP
+    `, [tableName, JSON.stringify(tableItemsForDb), updated.note || '']);
+
+    broadcast({
+      type: 'ORDER_STATUS_CHANGED',
+      id,
+      status: updated.status,
+      order: orderData
+    });
+
+    broadcast({
+      type: 'TABLE_UPDATED',
+      tableName,
+      items: tableItemsForDb,
+      note: updated.note || ''
+    });
+
+    res.json({ success: true, order: orderData });
+  } catch (err) {
+    console.error('Error al quitar plato de la comanda:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5.3 Anular / vaciar mesa completa y sus pedidos activos
+app.post('/api/tables/:tableName/cancel-order', async (req, res) => {
+  const { tableName } = req.params;
+
+  try {
+    const cmdRes = await pool.query(
+      "SELECT id FROM pos_kitchen_orders WHERE table_name = $1 AND status != 'paid'",
+      [tableName]
+    );
+
+    await pool.query(
+      "DELETE FROM pos_kitchen_orders WHERE table_name = $1 AND status != 'paid'",
+      [tableName]
+    );
+
+    await pool.query(`
+      INSERT INTO pos_table_orders (table_name, items, note, updated_at)
+      VALUES ($1, '[]'::jsonb, '', CURRENT_TIMESTAMP)
+      ON CONFLICT (table_name)
+      DO UPDATE SET items = '[]'::jsonb, note = '', updated_at = CURRENT_TIMESTAMP
+    `, [tableName]);
+
+    cmdRes.rows.forEach(r => {
+      broadcast({
+        type: 'KITCHEN_ORDER_DELETED',
+        id: r.id,
+        table: tableName
+      });
+    });
+
+    broadcast({
+      type: 'TABLE_UPDATED',
+      tableName,
+      items: [],
+      note: ''
+    });
+
+    res.json({ success: true, table: tableName });
+  } catch (err) {
+    console.error('Error al anular pedido de mesa:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 6. Cobro de mesa (Checkout con propina voluntaria)
 app.post('/api/checkout', async (req, res) => {
   const { table, waiter, time, method, total, paidWith, tip, itemsSummary, items } = req.body;
