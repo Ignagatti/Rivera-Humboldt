@@ -191,7 +191,7 @@ app.get('/api/state', async (req, res) => {
     }));
 
     // Registro de Pagos
-    const payRes = await pool.query("SELECT id, table_name, waiter, time, method, total, paid_with, tip, items_summary, items FROM pos_payment_history ORDER BY created_at DESC LIMIT 200");
+    const payRes = await pool.query("SELECT id, table_name, waiter, time, method, total, paid_with, tip, items_summary, items, waiter_tips FROM pos_payment_history ORDER BY created_at DESC LIMIT 200");
     const paymentHistory = payRes.rows.map(r => ({
       id: r.id,
       table: r.table_name,
@@ -202,7 +202,8 @@ app.get('/api/state', async (req, res) => {
       paidWith: Number(r.paid_with),
       tip: Number(r.tip),
       itemsSummary: r.items_summary,
-      items: r.items
+      items: r.items,
+      waiterTips: r.waiter_tips || null
     }));
 
     // Cierres de noche archivados
@@ -844,7 +845,7 @@ app.post('/api/tables/:tableName/cancel-order', async (req, res) => {
 
 // 6. Cobro de mesa (Checkout con propina voluntaria)
 app.post('/api/checkout', async (req, res) => {
-  const { table, waiter, time, method, total, paidWith, tip, itemsSummary, items } = req.body;
+  const { table, waiter, time, method, total, paidWith, tip, itemsSummary, items, waiterTips } = req.body;
 
   const client = await pool.connect();
   try {
@@ -858,7 +859,7 @@ app.post('/api/checkout', async (req, res) => {
     let resolvedWaiter = waiter;
     const isIncomingEncargado = !waiter || String(waiter).toLowerCase().includes('encargado');
 
-    if (isIncomingEncargado) {
+    if (isIncomingEncargado && (!waiterTips || Object.keys(waiterTips).length === 0)) {
       const orderRes = await client.query(`
         SELECT waiter_name 
         FROM pos_kitchen_orders 
@@ -877,9 +878,9 @@ app.post('/api/checkout', async (req, res) => {
 
     // Guardar en historial de pagos asignando al mozo correspondiente
     await client.query(`
-      INSERT INTO pos_payment_history (id, table_name, waiter, time, method, total, paid_with, tip, items_summary, items, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, CURRENT_TIMESTAMP)
-    `, [paymentId, table, resolvedWaiter, time, method, total, paidWith, tip || 0, itemsSummary || '', JSON.stringify(items || [])]);
+      INSERT INTO pos_payment_history (id, table_name, waiter, time, method, total, paid_with, tip, items_summary, items, waiter_tips, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, CURRENT_TIMESTAMP)
+    `, [paymentId, table, resolvedWaiter, time, method, total, paidWith, tip || 0, itemsSummary || '', JSON.stringify(items || []), waiterTips ? JSON.stringify(waiterTips) : null]);
 
     // Limpiar mesa
     await client.query(`

@@ -3131,6 +3131,67 @@ async function sendOrderToKitchen() {
 
 // ================= CHECKOUT Y PROPINA A VOLUNTAD (POR RESTA) =================
 
+let isSplitTipActive = false;
+
+function toggleSplitTipMode() {
+    isSplitTipActive = !isSplitTipActive;
+    updateSplitTipUI();
+}
+
+function updateSplitTipUI() {
+    const singleView = document.getElementById('tip-single-waiter-view');
+    const splitView = document.getElementById('tip-split-waiters-view');
+    const toggleLabel = document.getElementById('label-toggle-split-tip');
+    const singleName = document.getElementById('tip-single-waiter-name');
+    const waiterSelect = document.getElementById('pay-waiter-select');
+
+    if (singleName && waiterSelect) {
+        singleName.innerText = waiterSelect.value || 'Mozo seleccionado';
+    }
+
+    if (isSplitTipActive) {
+        if (singleView) singleView.classList.add('hidden');
+        if (splitView) splitView.classList.remove('hidden');
+        if (toggleLabel) toggleLabel.innerText = "Volver a un solo mozo";
+    } else {
+        if (singleView) singleView.classList.remove('hidden');
+        if (splitView) splitView.classList.add('hidden');
+        if (toggleLabel) toggleLabel.innerText = "¿Dividir entre varios mozos?";
+    }
+    updateSplitTipCalculation();
+}
+
+function onPayWaiterSelectChange() {
+    const singleName = document.getElementById('tip-single-waiter-name');
+    const waiterSelect = document.getElementById('pay-waiter-select');
+    if (singleName && waiterSelect) {
+        singleName.innerText = waiterSelect.value || 'Mozo seleccionado';
+    }
+}
+
+function onSplitWaiterCheckboxChange() {
+    updateSplitTipCalculation();
+}
+
+function updateSplitTipCalculation() {
+    const paid = parseFloat(document.getElementById('cash-paid-input').value) || 0;
+    const tip = Math.max(0, paid - activePaymentTotal);
+    const tipDisplay = document.getElementById('tip-calculated-display');
+    if (tipDisplay) tipDisplay.innerText = `$${tip.toLocaleString()}`;
+
+    const checkboxes = document.querySelectorAll('.split-waiter-checkbox:checked');
+    const count = checkboxes.length;
+    const splitPerWaiterElem = document.getElementById('tip-split-per-waiter');
+    if (splitPerWaiterElem) {
+        if (count === 0) {
+            splitPerWaiterElem.innerText = "Seleccioná al menos 1 mozo";
+        } else {
+            const part = Math.round(tip / count);
+            splitPerWaiterElem.innerText = `$${part.toLocaleString()} c/u (${count} mozo${count === 1 ? '' : 's'})`;
+        }
+    }
+}
+
 function openPaymentByTable(tableName) {
     activePaymentTable = tableName;
     const consolidated = getTableConsolidatedOrder(tableName);
@@ -3164,6 +3225,23 @@ function openPaymentByTable(tableName) {
         }).join('');
     }
 
+    // Preparar lista de mozos para división de propina
+    isSplitTipActive = false;
+    const splitList = document.getElementById('tip-split-waiters-list');
+    if (splitList) {
+        const mozos = staffList.filter(s => s.role.includes('Mozo'));
+        splitList.innerHTML = mozos.map(m => {
+            const isChecked = (m.name === preferredWaiter) || (!preferredWaiter && !m.name.includes('Perello'));
+            return `
+                <label class="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-all text-xs">
+                    <input type="checkbox" value="${m.name}" ${isChecked ? 'checked' : ''} onchange="onSplitWaiterCheckboxChange()" class="split-waiter-checkbox rounded text-blue-600 focus:ring-0">
+                    <span class="font-bold text-slate-800">${m.name}</span>
+                </label>
+            `;
+        }).join('');
+    }
+    updateSplitTipUI();
+
     selectPaymentMethod('Efectivo');
     document.getElementById('payment-modal').classList.remove('hidden');
 }
@@ -3189,9 +3267,7 @@ function selectPaymentMethod(method) {
 }
 
 function onCashPaidInput() {
-    const paid = parseFloat(document.getElementById('cash-paid-input').value) || 0;
-    const tip = Math.max(0, paid - activePaymentTotal);
-    document.getElementById('tip-calculated-display').innerText = `$${tip.toLocaleString()}`;
+    updateSplitTipCalculation();
 }
 
 function closePaymentModal() {
@@ -3226,12 +3302,35 @@ async function confirmPaymentAndFinish() {
         finalWaiter = tableWaiter;
     }
 
+    // Asignación de propina: Individual o Dividida
+    let waiterTipsMap = null;
+    if (tip > 0) {
+        if (isSplitTipActive) {
+            const checkedBoxes = Array.from(document.querySelectorAll('.split-waiter-checkbox:checked')).map(cb => cb.value);
+            if (checkedBoxes.length > 0) {
+                waiterTipsMap = {};
+                const basePart = Math.floor(tip / checkedBoxes.length);
+                let remainder = tip - (basePart * checkedBoxes.length);
+                checkedBoxes.forEach((w, idx) => {
+                    const extra = idx === 0 ? remainder : 0;
+                    waiterTipsMap[w] = basePart + extra;
+                });
+                finalWaiter = checkedBoxes.join(' / ');
+            } else {
+                waiterTipsMap = { [finalWaiter]: tip };
+            }
+        } else {
+            waiterTipsMap = { [finalWaiter]: tip };
+        }
+    }
+
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const paymentRecord = {
         id: `PAG-${101 + paymentHistory.length}`,
         table: activePaymentTable,
-        waiter: finalWaiter, // Mozo asociado que recibe la propina
+        waiter: finalWaiter, // Mozo(s) asociado(s)
+        waiterTips: waiterTipsMap, // Desglose si fue dividida
         time: timeStr,
         method: selectedPaymentMethod,
         total: activePaymentTotal,
@@ -3278,9 +3377,13 @@ async function confirmPaymentAndFinish() {
 
     refreshActiveViews();
 
+    const tipDetailText = waiterTipsMap && Object.keys(waiterTipsMap).length > 1
+        ? `Propina dividida: $${tip.toLocaleString()} (${Object.entries(waiterTipsMap).map(([w, a]) => `${w}: $${a.toLocaleString()}`).join(', ')})`
+        : `Propina: $${tip.toLocaleString()} para ${finalWaiter}`;
+
     showModal(
         `${closedTable} Pagada (${methodUsed})`,
-        `Cobró: ${waiterName} • Total: $${totalAmount.toLocaleString()} • Pagó: $${paidWith.toLocaleString()} • Propina: $${tip.toLocaleString()}. Mesa liberada.`
+        `Atendió / Cobró: ${finalWaiter} • Total: $${totalAmount.toLocaleString()} • Pagó: $${paidWith.toLocaleString()} • ${tipDetailText}. Mesa liberada.`
     );
 }
 
@@ -3407,7 +3510,10 @@ function renderPaymentHistoryList() {
                     <div class="text-[11px] space-x-2">
                         <span class="text-slate-600">Pagó: <strong class="text-slate-800">$${paidAmount.toLocaleString()}</strong></span>
                         <span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">
-                            Propina: $${(p.tip || 0).toLocaleString()}
+                            ${p.waiterTips && Object.keys(p.waiterTips).length > 1
+                                ? `Propina: $${(p.tip || 0).toLocaleString()} (Div.: ${Object.entries(p.waiterTips).map(([w, a]) => `${w} $${Number(a).toLocaleString()}`).join(', ')})`
+                                : `Propina: $${(p.tip || 0).toLocaleString()}`
+                            }
                         </span>
                     </div>
                 </div>
@@ -3428,11 +3534,22 @@ function openTipsModal() {
     });
 
     paymentHistory.forEach(p => {
-        const w = p.waiter || 'Otro';
-        if (!waiterTips[w]) waiterTips[w] = { tips: 0, tables: 0, sales: 0 };
-        waiterTips[w].tips += (p.tip || 0);
-        waiterTips[w].tables += 1;
-        waiterTips[w].sales += p.total;
+        if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
+            for (const [w, wTip] of Object.entries(p.waiterTips)) {
+                if (!waiterTips[w]) waiterTips[w] = { tips: 0, tables: 0, sales: 0 };
+                waiterTips[w].tips += Number(wTip) || 0;
+            }
+            const primary = p.waiter ? p.waiter.split('/')[0].trim() : 'Otro';
+            if (!waiterTips[primary]) waiterTips[primary] = { tips: 0, tables: 0, sales: 0 };
+            waiterTips[primary].tables += 1;
+            waiterTips[primary].sales += p.total;
+        } else {
+            const w = p.waiter || 'Otro';
+            if (!waiterTips[w]) waiterTips[w] = { tips: 0, tables: 0, sales: 0 };
+            waiterTips[w].tips += (p.tip || 0);
+            waiterTips[w].tables += 1;
+            waiterTips[w].sales += p.total;
+        }
     });
 
     const breakdownElem = document.getElementById('tips-waiter-breakdown');
@@ -6711,26 +6828,30 @@ function getSoldItemBaseName(it) {
 function resolveSoldItemCategory(it) {
     const loc = findMenuItemLocation(it.menuItemId) || findMenuItemLocation(it.id);
     let catKey = it.categoryId || (loc ? loc.catKey : '');
-    const rawName = String(it.name || '').trim();
-    if (!catKey) {
-        if (/parrilla/i.test(rawName)) {
-            catKey = 'parrilla';
-        } else if (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_'))) {
+    const rawName = String(it.baseName || it.name || '').trim();
+
+    // Normalizar todas las variantes de parrilla y parrillada bajo una sola categoría 'parrilla'
+    if (/parrill/i.test(rawName) || /parrill/i.test(catKey)) {
+        catKey = 'parrilla';
+    } else if (!catKey) {
+        if (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_'))) {
             catKey = 'pizzas';
         } else {
             catKey = 'otros';
         }
     }
-    const cat = menuData[catKey];
+
+    const cat = menuData[catKey] || (catKey === 'parrilla' ? (menuData['parrilla'] || menuData['parrillada']) : null);
     let subcategory = String(it.subcategory || (loc && loc.item.subcategory) || '').trim();
-    if (/parrilla/i.test(rawName)) {
+    if (/parrill/i.test(rawName)) {
         subcategory = /menor/i.test(rawName) ? 'Parrilla Menores' : 'Parrilla';
     } else if (isPizzaLibreSoldItem(it)) {
         subcategory = 'Pizza Libre';
     }
+
     return {
         catKey,
-        catName: cat ? cat.name : (catKey === 'parrilla' ? 'Parrilla' : (catKey === 'pizzas' ? 'Pizzas' : 'Otros')),
+        catName: catKey === 'parrilla' ? 'Parrilla' : (cat ? cat.name : (catKey === 'pizzas' ? 'Pizzas' : 'Otros')),
         icon: (cat && cat.icon) ? cat.icon : (catKey === 'parrilla' ? 'fa-fire' : (catKey === 'pizzas' ? 'fa-pizza-slice' : 'fa-utensils')),
         subcategory
     };
@@ -6999,29 +7120,40 @@ function renderNightReportView() {
     });
 
     paymentHistory.forEach(p => {
-        let wName = p.waiter || 'Otro';
-        const isWAdmin = wName.toLowerCase().includes('encargado') || wName.toLowerCase().includes('admin');
-        if (isWAdmin && p.table) {
-            const matchCmd = kitchenOrders.find(k => k.table === p.table && k.waiterName && !k.waiterName.toLowerCase().includes('encargado') && !k.waiterName.toLowerCase().includes('admin'));
-            if (matchCmd) {
-                wName = matchCmd.waiterName;
-                p.waiter = matchCmd.waiterName;
+        if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
+            for (const [w, wTip] of Object.entries(p.waiterTips)) {
+                if (!waiterStats[w]) waiterStats[w] = { closed: 0, sales: 0, tips: 0 };
+                waiterStats[w].tips += Number(wTip) || 0;
             }
-        }
+            const primaryWaiter = p.waiter ? p.waiter.split('/')[0].trim() : 'Otro';
+            if (!waiterStats[primaryWaiter]) waiterStats[primaryWaiter] = { closed: 0, sales: 0, tips: 0 };
+            waiterStats[primaryWaiter].closed += 1;
+            waiterStats[primaryWaiter].sales += p.total;
+        } else {
+            let wName = p.waiter || 'Otro';
+            const isWAdmin = wName.toLowerCase().includes('encargado') || wName.toLowerCase().includes('admin');
+            if (isWAdmin && p.table) {
+                const matchCmd = kitchenOrders.find(k => k.table === p.table && k.waiterName && !k.waiterName.toLowerCase().includes('encargado') && !k.waiterName.toLowerCase().includes('admin'));
+                if (matchCmd) {
+                    wName = matchCmd.waiterName;
+                    p.waiter = matchCmd.waiterName;
+                }
+            }
 
-        if (!waiterStats[wName]) {
-            waiterStats[wName] = { closed: 0, sales: 0, tips: 0 };
+            if (!waiterStats[wName]) {
+                waiterStats[wName] = { closed: 0, sales: 0, tips: 0 };
+            }
+            waiterStats[wName].closed += 1;
+            waiterStats[wName].sales += p.total;
+            waiterStats[wName].tips += (p.tip || 0);
         }
-        waiterStats[wName].closed += 1;
-        waiterStats[wName].sales += p.total;
-        waiterStats[wName].tips += (p.tip || 0);
     });
 
     const waiterContainer = document.getElementById('rep-waiter-breakdown');
     waiterContainer.innerHTML = Object.keys(waiterStats).map(wName => {
         const ws = waiterStats[wName];
         return `
-            <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center">
+            <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center avoid-break">
                 <div>
                     <h6 class="font-bold text-slate-900">${wName}</h6>
                     <span class="text-[11px] text-slate-400">${ws.closed} mesa${ws.closed === 1 ? '' : 's'} cerrada${ws.closed === 1 ? '' : 's'}</span>
@@ -7050,7 +7182,7 @@ function renderNightReportView() {
             const paidAmount = p.paidWith || p.total;
 
             return `
-                <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs border-b border-slate-100 last:border-b-0">
+                <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs border-b border-slate-100 last:border-b-0 avoid-break">
                     <div class="space-y-1 min-w-0">
                         <div class="flex flex-wrap items-center gap-1.5">
                             <strong class="text-slate-900 text-sm">${p.table}</strong>
@@ -7059,7 +7191,7 @@ function renderNightReportView() {
                             </span>
                             <span class="text-[10px] text-slate-400">${p.time}</span>
                             <span class="bg-blue-50 text-[#2563eb] border border-blue-200 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
-                                <i class="fa-solid fa-user-check text-[9px]"></i> Cobró: ${p.waiter}
+                                <i class="fa-solid fa-user-check text-[9px]"></i> Atendió: ${p.waiter}
                             </span>
                         </div>
                         <p class="text-[11px] text-slate-500 break-words">${p.itemsSummary}</p>
@@ -7071,7 +7203,10 @@ function renderNightReportView() {
                         <div class="text-[11px] space-x-2">
                             <span class="text-slate-600">Pagó: <strong class="text-slate-800">$${paidAmount.toLocaleString()}</strong></span>
                             <span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">
-                                Propina: $${(p.tip || 0).toLocaleString()}
+                                ${p.waiterTips && Object.keys(p.waiterTips).length > 1
+                                    ? `Propina: $${(p.tip || 0).toLocaleString()} (Div.: ${Object.entries(p.waiterTips).map(([w, a]) => `${w} $${Number(a).toLocaleString()}`).join(', ')})`
+                                    : `Propina: $${(p.tip || 0).toLocaleString()}`
+                                }
                             </span>
                         </div>
                     </div>
@@ -7126,11 +7261,12 @@ function downloadNightReportPDF() {
     });
 
     const opt = {
-        margin: [6, 6, 6, 6],
+        margin: [8, 8, 8, 8],
         filename: `Reporte_Turno_${new Date().toISOString().slice(0, 10)}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     };
 
     const restoreStyles = () => {
@@ -7174,11 +7310,22 @@ function copyNightReportText() {
         waiterStats[m.name] = { tips: 0, tables: 0, sales: 0 };
     });
     paymentHistory.forEach(p => {
-        const w = p.waiter || 'Otro';
-        if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
-        waiterStats[w].tips += (p.tip || 0);
-        waiterStats[w].tables += 1;
-        waiterStats[w].sales += p.total;
+        if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
+            for (const [w, wTip] of Object.entries(p.waiterTips)) {
+                if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
+                waiterStats[w].tips += Number(wTip) || 0;
+            }
+            const primaryWaiter = p.waiter ? p.waiter.split('/')[0].trim() : 'Otro';
+            if (!waiterStats[primaryWaiter]) waiterStats[primaryWaiter] = { tips: 0, tables: 0, sales: 0 };
+            waiterStats[primaryWaiter].tables += 1;
+            waiterStats[primaryWaiter].sales += p.total;
+        } else {
+            const w = p.waiter || 'Otro';
+            if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
+            waiterStats[w].tips += (p.tip || 0);
+            waiterStats[w].tables += 1;
+            waiterStats[w].sales += p.total;
+        }
     });
     const waiterTipLines = Object.keys(waiterStats)
         .map(w => `- ${w}: $${waiterStats[w].tips.toLocaleString()} propinas (${waiterStats[w].tables} mesas cobradas | $${waiterStats[w].sales.toLocaleString()})`)
@@ -7204,7 +7351,10 @@ function copyNightReportText() {
 
     const tablesBreakdown = paymentHistory.map(p => {
         const dayTag = getPaymentDayTag(p);
-        return `- ${p.table} [${dayTag} ${p.time}] (${p.method}): Atendió ${p.waiter} | Total: $${p.total.toLocaleString()} | Propina: $${(p.tip || 0).toLocaleString()}`;
+        const tipStr = p.waiterTips && Object.keys(p.waiterTips).length > 1
+            ? `Propina: $${(p.tip || 0).toLocaleString()} (Div.: ${Object.entries(p.waiterTips).map(([w, a]) => `${w} $${Number(a).toLocaleString()}`).join(', ')})`
+            : `Propina: $${(p.tip || 0).toLocaleString()}`;
+        return `- ${p.table} [${dayTag} ${p.time}] (${p.method}): Atendió ${p.waiter} | Total: $${p.total.toLocaleString()} | ${tipStr}`;
     }).join('\n');
 
     const text = `*RESUMEN OPERATIVO - SARMIENTO POS*\n` +

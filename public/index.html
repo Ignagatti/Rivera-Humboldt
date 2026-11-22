@@ -121,6 +121,28 @@
                 overflow: visible !important;
                 height: auto !important;
             }
+
+            /* Evitar cortes a la mitad en impresión y PDF */
+            #rep-payments-table > div,
+            #rep-waiter-breakdown > div,
+            #rep-top-products-list > div,
+            #rep-top-flavors-list > div,
+            #rep-category-breakdown > div,
+            .avoid-break {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+        }
+
+        /* Regla global anti-corte para generación de PDF */
+        #rep-payments-table > div,
+        #rep-waiter-breakdown > div,
+        #rep-top-products-list > div,
+        #rep-top-flavors-list > div,
+        #rep-category-breakdown > div,
+        .avoid-break {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
         }
     </style>
 </head>
@@ -1274,9 +1296,41 @@
                     <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
                         <i class="fa-solid fa-user-check text-xs"></i>
                     </span>
-                    <select id="pay-waiter-select"
+                    <select id="pay-waiter-select" onchange="onPayWaiterSelectChange()"
                         class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-[#2563eb]">
                     </select>
+                </div>
+            </div>
+
+            <!-- Asignación / División de Propina -->
+            <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <i class="fa-solid fa-hand-holding-dollar text-emerald-600"></i>
+                        <span>Destino de la Propina</span>
+                    </label>
+                    <button type="button" id="btn-toggle-split-tip" onclick="toggleSplitTipMode()"
+                        class="text-[11px] font-bold text-[#2563eb] hover:underline flex items-center gap-1">
+                        <i class="fa-solid fa-users text-xs"></i>
+                        <span id="label-toggle-split-tip">¿Dividir entre varios mozos?</span>
+                    </button>
+                </div>
+
+                <!-- Modo 1: Asignado a un solo mozo (por defecto) -->
+                <div id="tip-single-waiter-view" class="text-[11px] text-slate-500">
+                    La propina irá asignada al mozo seleccionado arriba (<strong id="tip-single-waiter-name" class="text-slate-800">Mozo</strong>).
+                </div>
+
+                <!-- Modo 2: Dividir entre varios mozos (con checkboxes y cálculo dinámico) -->
+                <div id="tip-split-waiters-view" class="hidden space-y-2 pt-1 border-t border-slate-200/80">
+                    <div class="text-[11px] text-slate-600 font-semibold">Seleccioná los mozos entre quienes dividir:</div>
+                    <div id="tip-split-waiters-list" class="grid grid-cols-2 gap-1.5">
+                        <!-- Checkboxes generados dinámicamente -->
+                    </div>
+                    <div id="tip-split-summary" class="bg-white p-2 rounded-xl border border-emerald-200 text-xs text-emerald-800 font-bold flex justify-between items-center">
+                        <span>Reparto por mozo:</span>
+                        <span id="tip-split-per-waiter">$0 c/u</span>
+                    </div>
                 </div>
             </div>
 
