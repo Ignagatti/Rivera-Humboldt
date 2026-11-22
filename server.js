@@ -344,6 +344,7 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
       }));
 
       const newItemsFormatted = (items || []).map(it => ({
+        ...it,
         id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: it.name,
         note: it.note || '',
@@ -378,7 +379,7 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
       incomingList.forEach(inc => mergedItems.push(inc));
       const mergedTotal = mergedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
       const mergedNote = note
-        ? (existing.note ? `${existing.note} | ${note}` : note)
+        ? (existing.note && existing.note !== note ? `${existing.note} | ${note}` : note)
         : (existing.note || '');
 
       // Conservar el mozo original de la mesa si un encargado agrega un plato adicional
@@ -413,6 +414,7 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
     } else {
       const cmdId = id || `CMD-${Math.floor(100 + Math.random() * 900)}`;
       const formattedItems = (items || []).map(it => ({
+        ...it,
         id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: it.name,
         note: it.note || '',
@@ -447,14 +449,16 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
     // Sincronizar pos_table_orders para que la mesa contenga todos los platos enviados consolidados
     const tableItemsMap = new Map();
     (finalOrder.items || []).forEach(it => {
-      const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+      const cleanName = String(it.name || '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+      const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
       if (tableItemsMap.has(key)) {
         tableItemsMap.get(key).qty += Number(it.qty) || 1;
         tableItemsMap.get(key).sentQty += Number(it.qty) || 1;
       } else {
         tableItemsMap.set(key, {
+          ...it,
           id: it.id,
-          name: it.name,
+          name: cleanName,
           price: Number(it.price) || 0,
           qty: Number(it.qty) || 1,
           sentQty: Number(it.qty) || 1,
@@ -665,8 +669,11 @@ app.delete('/api/orders/:id', async (req, res) => {
 // 5.2 Quitar o decrementar un plato individual de la comanda y de la cuenta de la mesa
 app.post('/api/orders/:id/remove-item', async (req, res) => {
   const { id } = req.params;
-  const { itemId, name, price, qty } = req.body;
-  const qtyToRemove = Number(qty) || 1;
+  const { itemId, name, price, qty, targetStatus } = req.body;
+  let remainingToRemove = Number(qty) || 1;
+
+  const cleanStr = (s) => String(s || '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  const targetCleanName = cleanStr(name);
 
   try {
     const orderRes = await pool.query("SELECT * FROM pos_kitchen_orders WHERE id = $1", [id]);
@@ -678,27 +685,58 @@ app.post('/api/orders/:id/remove-item', async (req, res) => {
     const tableName = order.table_name;
     const items = Array.isArray(order.items) ? [...order.items] : [];
 
-    // Buscar ítem en la comanda (por id o por nombre y precio)
-    const targetIdx = items.findIndex(it => {
-      if (itemId && it.id === itemId) return true;
-      if (name && (it.name || '').trim().toLowerCase() === name.trim().toLowerCase()) {
-        if (price === undefined || Number(it.price) === Number(price)) return true;
+    const matchesItem = (it) => {
+      if (itemId && it.id === itemId) {
+        if (!targetCleanName || cleanStr(it.name) === targetCleanName) return true;
+      }
+      if (targetCleanName && cleanStr(it.name) === targetCleanName) {
+        if (price === undefined || price === null || Number(it.price) === Number(price)) return true;
       }
       return false;
-    });
+    };
 
-    if (targetIdx === -1) {
+    const candidateIndices = [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (matchesItem(items[i])) {
+        candidateIndices.push(i);
+      }
+    }
+
+    if (candidateIndices.length === 0) {
       return res.status(404).json({ success: false, error: 'Plato no encontrado en la comanda' });
     }
 
-    const targetItem = items[targetIdx];
-    const currentQty = Number(targetItem.qty) || 1;
+    // Priorizar el estado solicitado ('pending' al borrar desde "Por Preparar", 'delivered' desde "Ya Entregados")
+    const prefStatus = targetStatus === 'delivered' ? 'delivered' : 'pending';
+    candidateIndices.sort((a, b) => {
+      const stA = (items[a].status || order.status) === 'delivered' ? 'delivered' : 'pending';
+      const stB = (items[b].status || order.status) === 'delivered' ? 'delivered' : 'pending';
+      if (stA === prefStatus && stB !== prefStatus) return -1;
+      if (stA !== prefStatus && stB === prefStatus) return 1;
+      return b - a;
+    });
 
-    if (currentQty > qtyToRemove) {
-      targetItem.qty = currentQty - qtyToRemove;
-    } else {
-      items.splice(targetIdx, 1);
+    const indicesToSplice = [];
+    for (const idx of candidateIndices) {
+      if (remainingToRemove <= 0) break;
+      const targetItem = items[idx];
+      const currentQty = Number(targetItem.qty) || 1;
+      if (currentQty > remainingToRemove) {
+        targetItem.qty = currentQty - remainingToRemove;
+        if (targetItem.perPerson && targetItem.baseName) {
+          targetItem.name = `${targetItem.baseName} (${targetItem.qty} persona${targetItem.qty === 1 ? '' : 's'})`;
+          targetItem.personsCount = targetItem.qty;
+        }
+        remainingToRemove = 0;
+      } else {
+        remainingToRemove -= currentQty;
+        indicesToSplice.push(idx);
+      }
     }
+
+    indicesToSplice.sort((a, b) => b - a).forEach(idx => {
+      items.splice(idx, 1);
+    });
 
     if (items.length === 0) {
       // Si la comanda se quedó sin ítems, anularla completa
@@ -728,13 +766,15 @@ app.post('/api/orders/:id/remove-item', async (req, res) => {
     }
 
     const newTotal = items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+    const hasPendingLeft = items.some(it => (it.status || order.status) !== 'delivered');
+    const nextOrderStatus = hasPendingLeft ? (order.status === 'delivered' ? 'pending' : order.status) : 'delivered';
 
     const updateRes = await pool.query(`
       UPDATE pos_kitchen_orders
-      SET items = $1::jsonb, total = $2
-      WHERE id = $3
+      SET items = $1::jsonb, total = $2, status = $3
+      WHERE id = $4
       RETURNING id, table_name, waiter_name, time, status, printed, items, total, note
-    `, [JSON.stringify(items), newTotal, id]);
+    `, [JSON.stringify(items), newTotal, nextOrderStatus, id]);
 
     const updated = updateRes.rows[0];
     const orderData = {
@@ -752,14 +792,16 @@ app.post('/api/orders/:id/remove-item', async (req, res) => {
     // Sincronizar pos_table_orders con los ítems consolidados
     const tableItemsMap = new Map();
     items.forEach(it => {
-      const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
+      const cleanName = String(it.name || '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+      const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
       if (tableItemsMap.has(key)) {
         tableItemsMap.get(key).qty += Number(it.qty) || 1;
         tableItemsMap.get(key).sentQty += Number(it.qty) || 1;
       } else {
         tableItemsMap.set(key, {
+          ...it,
           id: it.id,
-          name: it.name,
+          name: cleanName,
           price: Number(it.price) || 0,
           qty: Number(it.qty) || 1,
           sentQty: Number(it.qty) || 1,

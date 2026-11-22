@@ -216,6 +216,13 @@ function sortTablesNaturally(tables) {
     });
 }
 
+let tableSaveInFlightCount = 0;
+let lastLocalTableEditAt = 0;
+
+function markLocalTableEdited() {
+    lastLocalTableEditAt = Date.now();
+}
+
 // Cargar estado directamente desde la API de Neon DB
 async function fetchServerState(silent = false) {
     try {
@@ -234,7 +241,16 @@ async function fetchServerState(silent = false) {
             if (Array.isArray(d.availableTables) && d.availableTables.length > 0) {
                 availableTables = sortTablesNaturally(d.availableTables);
             }
-            if (d.ordersByTable) ordersByTable = d.ordersByTable;
+            const isActivelyEditingTable = tableSaveInFlightCount > 0 || (Date.now() - lastLocalTableEditAt < 3500);
+            if (d.ordersByTable) {
+                if (silent && isActivelyEditingTable && currentTable && ordersByTable[currentTable]) {
+                    const preservedCurrent = ordersByTable[currentTable];
+                    ordersByTable = d.ordersByTable;
+                    ordersByTable[currentTable] = preservedCurrent;
+                } else {
+                    ordersByTable = d.ordersByTable;
+                }
+            }
             if (Array.isArray(d.paymentHistory)) paymentHistory = d.paymentHistory;
             if (Array.isArray(d.savedNightReports)) savedNightReports = d.savedNightReports;
 
@@ -263,11 +279,10 @@ async function fetchServerState(silent = false) {
                     }
                 }
 
-                // Sincronizar mesas activas con sus comandas de cocina
-                kitchenOrders.forEach(ko => {
-                    if (ko.status !== 'paid' && ko.table) {
-                        syncTableWithActiveKitchenOrder(ko.table);
-                    }
+                // Sincronizar mesas activas con sus comandas de cocina (respetando edición local en vuelo)
+                availableTables.forEach(tName => {
+                    if (silent && isActivelyEditingTable && tName === currentTable) return;
+                    syncTableWithActiveKitchenOrder(tName);
                 });
             }
 
@@ -530,6 +545,12 @@ function refreshActiveViewsQuietly() {
         else if (activeAdminTab === 'staff') renderAdminStaffList();
     } else if (!document.getElementById('waiter-tables-view').classList.contains('hidden')) {
         renderTablesGrid();
+    } else if (!document.getElementById('waiter-order-view').classList.contains('hidden')) {
+        const isActivelyEditingTable = tableSaveInFlightCount > 0 || (Date.now() - lastLocalTableEditAt < 3500);
+        if (!isActivelyEditingTable) {
+            renderOrderList();
+            renderMenuGrid();
+        }
     } else if (!document.getElementById('login-view').classList.contains('hidden')) {
         renderStaffLoginList();
     }
@@ -949,67 +970,90 @@ async function markOrderDeliveredFromNotif(cmdId) {
 
 function syncTableWithActiveKitchenOrder(tableName) {
     if (!tableName) return;
-    const activeCmd = kitchenOrders.find(o => o.table === tableName && o.status !== 'paid');
+    const activeCmds = kitchenOrders.filter(o => o.table === tableName && o.status !== 'paid');
+    const activeCmd = activeCmds[0] || null;
     if (!ordersByTable[tableName]) {
         ordersByTable[tableName] = { items: [], note: "" };
     }
     const tableOrder = ordersByTable[tableName];
 
-    if (!activeCmd || !Array.isArray(activeCmd.items) || activeCmd.items.length === 0) {
-        return;
-    }
-
     if (!Array.isArray(tableOrder.items)) {
         tableOrder.items = [];
     }
 
-    // Si la mesa no tiene ítems locales, hidratar directamente desde la comanda de cocina
-    if (tableOrder.items.length === 0) {
-        tableOrder.items = activeCmd.items.map(it => ({
-            id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            menuItemId: it.menuItemId || it.id,
-            name: it.name,
-            price: Number(it.price) || 0,
-            qty: Number(it.qty) || 1,
-            sentQty: Number(it.qty) || 1,
-            note: it.note || '',
-            isPizzaLibre: Boolean(it.isPizzaLibre),
-            libreRound: it.libreRound || null
-        }));
-        if (!tableOrder.note && activeCmd.note) {
-            tableOrder.note = activeCmd.note;
-        }
+    // Si NO hay comanda activa en cocina, limpiar cualquier ítem fantasma que figuraba como ya enviado (sentQty > 0)
+    // y conservar únicamente borradores nuevos que aún no habían sido enviados (unsent > 0)
+    if (activeCmds.length === 0) {
+        tableOrder.items = tableOrder.items
+            .map(it => {
+                const sent = Number(it.sentQty) || 0;
+                const unsent = Math.max(0, (Number(it.qty) || 0) - sent);
+                return { ...it, qty: unsent, sentQty: 0 };
+            })
+            .filter(it => it.qty > 0);
         return;
     }
 
-    // Si la mesa YA tiene ítems, sumar por nombre + precio en activeCmd
+    // 1. Consolidar totales reales en cocina (fuente única de verdad para lo enviado)
     const kitchenTotals = new Map();
-    activeCmd.items.forEach(it => {
-        const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
-        const current = kitchenTotals.get(key) || { qty: 0, sample: it };
-        current.qty += Number(it.qty) || 1;
-        kitchenTotals.set(key, current);
+    activeCmds.forEach(cmd => {
+        (cmd.items || []).forEach(it => {
+            const cleanName = stripBracketNotes(it.name || '').trim();
+            const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
+            const current = kitchenTotals.get(key) || { qty: 0, sample: { ...it, name: cleanName } };
+            current.qty += Number(it.qty) || 1;
+            kitchenTotals.set(key, current);
+        });
     });
 
-    const seenKeys = new Set();
+    // 2. Deduplicar ítems locales en tableOrder por clave normalizada antes de sincronizar
+    const localConsolidated = new Map();
     tableOrder.items.forEach(it => {
-        const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}`;
-        seenKeys.add(key);
-        if (kitchenTotals.has(key)) {
-            const kData = kitchenTotals.get(key);
-            it.sentQty = Math.max(Number(it.sentQty) || 0, kData.qty);
-            if (it.qty < it.sentQty) {
-                it.qty = it.sentQty;
-            }
+        const cleanName = stripBracketNotes(it.name || '').trim();
+        const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
+        if (localConsolidated.has(key)) {
+            const existing = localConsolidated.get(key);
+            existing.qty = (Number(existing.qty) || 0) + (Number(it.qty) || 0);
+            existing.sentQty = (Number(existing.sentQty) || 0) + (Number(it.sentQty) || 0);
+        } else {
+            localConsolidated.set(key, {
+                ...it,
+                name: cleanName,
+                qty: Number(it.qty) || 0,
+                sentQty: Number(it.sentQty) || 0
+            });
         }
     });
 
-    // Agregar platos que están en cocina pero que faltaban en el borrador local de la mesa
+    // 3. Ajustar sentQty exactamente a lo que existe hoy en cocina (permitiendo bajas/eliminaciones) + unsent local
+    const syncedItems = [];
+    const seenKeys = new Set();
+
+    localConsolidated.forEach((it, key) => {
+        seenKeys.add(key);
+        const unsent = Math.max(0, (Number(it.qty) || 0) - (Number(it.sentQty) || 0));
+        const kData = kitchenTotals.get(key);
+        const actualKitchenQty = kData ? kData.qty : 0;
+
+        it.sentQty = actualKitchenQty;
+        it.qty = actualKitchenQty + unsent;
+
+        if (it.qty > 0) {
+            if (it.perPerson && it.baseName) {
+                it.name = `${it.baseName} (${it.qty} persona${it.qty === 1 ? '' : 's'})`;
+                it.personsCount = it.qty;
+            }
+            syncedItems.push(it);
+        }
+    });
+
+    // 4. Agregar platos que están en cocina pero que faltaban en el borrador local de la mesa
     kitchenTotals.forEach((kData, key) => {
-        if (!seenKeys.has(key)) {
+        if (!seenKeys.has(key) && kData.qty > 0) {
             seenKeys.add(key);
             const it = kData.sample;
-            tableOrder.items.push({
+            syncedItems.push({
+                ...it,
                 id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 menuItemId: it.menuItemId || it.id,
                 name: it.name,
@@ -1023,7 +1067,9 @@ function syncTableWithActiveKitchenOrder(tableName) {
         }
     });
 
-    if (!tableOrder.note && activeCmd.note) {
+    tableOrder.items = syncedItems;
+
+    if (!tableOrder.note && activeCmd && activeCmd.note) {
         tableOrder.note = activeCmd.note;
     }
 }
@@ -1031,36 +1077,40 @@ function syncTableWithActiveKitchenOrder(tableName) {
 function getTableConsolidatedOrder(tableName) {
     const table = tableName || currentTable;
     const tableOrder = ordersByTable[table] || { items: [], note: "" };
-    const activeCmd = kitchenOrders.find(o => o.table === table && o.status !== 'paid');
+    const activeCmds = kitchenOrders.filter(o => o.table === table && o.status !== 'paid');
+    const activeCmd = activeCmds[0] || null;
 
     const consolidatedMap = new Map();
 
-    // 1. Agregar todos los ítems de la comanda activa de cocina como base confiable
-    if (activeCmd && Array.isArray(activeCmd.items)) {
-        activeCmd.items.forEach(it => {
-            const cleanName = stripBracketNotes(it.name || '').trim();
-            const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
-            if (consolidatedMap.has(key)) {
-                consolidatedMap.get(key).qty += Number(it.qty) || 1;
-                consolidatedMap.get(key).sentQty += Number(it.qty) || 1;
-                if (it.note && !consolidatedMap.get(key).note) {
-                    consolidatedMap.get(key).note = it.note;
+    // 1. Agregar todos los ítems de las comandas activas de cocina como base confiable
+    activeCmds.forEach(cmd => {
+        if (Array.isArray(cmd.items)) {
+            cmd.items.forEach(it => {
+                const cleanName = stripBracketNotes(it.name || '').trim();
+                const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
+                if (consolidatedMap.has(key)) {
+                    consolidatedMap.get(key).qty += Number(it.qty) || 1;
+                    consolidatedMap.get(key).sentQty += Number(it.qty) || 1;
+                    if (it.note && !consolidatedMap.get(key).note) {
+                        consolidatedMap.get(key).note = it.note;
+                    }
+                } else {
+                    consolidatedMap.set(key, {
+                        ...it,
+                        id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        menuItemId: it.menuItemId || it.id,
+                        name: cleanName,
+                        price: Number(it.price) || 0,
+                        qty: Number(it.qty) || 1,
+                        sentQty: Number(it.qty) || 1,
+                        note: it.note || '',
+                        isPizzaLibre: Boolean(it.isPizzaLibre),
+                        libreRound: it.libreRound || null
+                    });
                 }
-            } else {
-                consolidatedMap.set(key, {
-                    id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                    menuItemId: it.menuItemId || it.id,
-                    name: cleanName,
-                    price: Number(it.price) || 0,
-                    qty: Number(it.qty) || 1,
-                    sentQty: Number(it.qty) || 1,
-                    note: it.note || '',
-                    isPizzaLibre: Boolean(it.isPizzaLibre),
-                    libreRound: it.libreRound || null
-                });
-            }
-        });
-    }
+            });
+        }
+    });
 
     // 2. Sumar ítems de tableOrder (si no hay cocina, se suman todos; si hay cocina, solo la diferencia pendiente)
     if (Array.isArray(tableOrder.items)) {
@@ -1529,26 +1579,42 @@ function confirmAddPerPersonItem() {
     const tableItems = ordersByTable[currentTable].items;
     const subcat = getEffectiveItemSubcategory(item, catKey);
 
-    tableItems.push({
-        id: `${item.id}_p_${Date.now().toString().slice(-5)}`,
-        menuItemId: item.id,
-        categoryId: catKey,
-        subcategory: subcat,
-        baseName: item.name,
-        name: `${item.name} (${persons} persona${persons === 1 ? '' : 's'})`,
-        price: Number(item.price),
-        qty: persons,
-        sentQty: 0,
-        perPerson: true,
-        personsCount: persons,
-        note: noteText
-    });
+    // Si ya existe el mismo ítem por persona (con misma nota y precio) en la mesa, acumular personas en una sola línea
+    const existing = tableItems.find(i =>
+        (i.menuItemId === item.id || i.baseName === item.name || getSoldItemBaseName(i).toLowerCase() === item.name.trim().toLowerCase()) &&
+        Number(i.price) === Number(item.price) &&
+        (i.note || '').trim().toLowerCase() === noteText.toLowerCase()
+    );
 
+    if (existing) {
+        existing.qty = (Number(existing.qty) || 0) + persons;
+        existing.personsCount = existing.qty;
+        existing.perPerson = true;
+        existing.baseName = existing.baseName || item.name;
+        existing.name = `${existing.baseName} (${existing.qty} persona${existing.qty === 1 ? '' : 's'})`;
+    } else {
+        tableItems.push({
+            id: `${item.id}_p_${Date.now().toString().slice(-5)}`,
+            menuItemId: item.id,
+            categoryId: catKey,
+            subcategory: subcat,
+            baseName: item.name,
+            name: `${item.name} (${persons} persona${persons === 1 ? '' : 's'})`,
+            price: Number(item.price),
+            qty: persons,
+            sentQty: 0,
+            perPerson: true,
+            personsCount: persons,
+            note: noteText
+        });
+    }
+
+    markLocalTableEdited();
     closePerPersonItemModal();
     saveCurrentTableState();
     renderOrderList();
     renderMenuGrid();
-    showToast(`${item.name} (${persons} persona${persons === 1 ? '' : 's'}) agregado a ${currentTable}`, 'success');
+    showToast(`${item.name} (+${persons} persona${persons === 1 ? '' : 's'}) agregado a ${currentTable}`, 'success');
 }
 
 async function toggleItemPerPerson(catKey, itemId) {
@@ -1987,16 +2053,23 @@ function onPizzaItemClicked(itemId) {
     }
     const tableItems = ordersByTable[currentTable].items;
 
-    // MODO 1: Entera y se va agregando directamente
+    // MODO 1: Entera y se va agregando directamente (acumulando si ya existe en la mesa)
     if (pizzaSelectionMode === 1) {
-        tableItems.push({
-            id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
-            name: `Pizza ${item.name} (Entera)`,
-            price: item.price,
-            qty: 1,
-            sentQty: 0,
-            isPizza: true
-        });
+        const pizzaTitle = `Pizza ${item.name} (Entera)`;
+        const existing = tableItems.find(i => i.name === pizzaTitle && Number(i.price) === Number(item.price) && !(i.note || '').trim());
+        if (existing) {
+            existing.qty += 1;
+        } else {
+            tableItems.push({
+                id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+                name: pizzaTitle,
+                price: item.price,
+                qty: 1,
+                sentQty: 0,
+                isPizza: true
+            });
+        }
+        markLocalTableEdited();
         saveCurrentTableState();
         renderOrderList();
         renderMenuGrid();
@@ -2016,16 +2089,22 @@ function onPizzaItemClicked(itemId) {
             const avgPrice = Math.round((f1.price + f2.price) / 2);
             const pizzaTitle = `Pizza: ${f1.name} / ${f2.name}`;
 
-            tableItems.push({
-                id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
-                name: pizzaTitle,
-                price: avgPrice,
-                qty: 1,
-                sentQty: 0,
-                isPizza: true
-            });
+            const existing = tableItems.find(i => i.name === pizzaTitle && Number(i.price) === Number(avgPrice) && !(i.note || '').trim());
+            if (existing) {
+                existing.qty += 1;
+            } else {
+                tableItems.push({
+                    id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+                    name: pizzaTitle,
+                    price: avgPrice,
+                    qty: 1,
+                    sentQty: 0,
+                    isPizza: true
+                });
+            }
 
             selectedPizzaFlavors = [];
+            markLocalTableEdited();
             saveCurrentTableState();
             renderOrderList();
             renderMenuGrid();
@@ -2051,16 +2130,22 @@ function onPizzaItemClicked(itemId) {
             const pizzaTitle = `Pizza: ${f1.name} / ${f2.name} / ${f3.name}`;
             const fixedPrice = 20000; // Precio fijo sin importar los sabores
 
-            tableItems.push({
-                id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
-                name: pizzaTitle,
-                price: fixedPrice,
-                qty: 1,
-                sentQty: 0,
-                isPizza: true
-            });
+            const existing = tableItems.find(i => i.name === pizzaTitle && Number(i.price) === Number(fixedPrice) && !(i.note || '').trim());
+            if (existing) {
+                existing.qty += 1;
+            } else {
+                tableItems.push({
+                    id: `pz_${Date.now().toString().slice(-6)}_${Math.floor(Math.random() * 1000)}`,
+                    name: pizzaTitle,
+                    price: fixedPrice,
+                    qty: 1,
+                    sentQty: 0,
+                    isPizza: true
+                });
+            }
 
             selectedPizzaFlavors = [];
+            markLocalTableEdited();
             saveCurrentTableState();
             renderOrderList();
             renderMenuGrid();
@@ -2276,7 +2361,7 @@ function confirmAddPizzaToOrder() {
 
     const tableItems = ordersByTable[currentTable].items;
 
-    const existing = tableItems.find(i => i.name === title && (i.note || '') === kitchenNote && (i.qty > (i.sentQty || 0)));
+    const existing = tableItems.find(i => i.name === title && Number(i.price) === Number(unitPrice) && (i.note || '') === kitchenNote);
     if (existing) {
         existing.qty += qty;
     } else {
@@ -2292,6 +2377,7 @@ function confirmAddPizzaToOrder() {
         });
     }
 
+    markLocalTableEdited();
     closePizzaBuilderModal();
     saveCurrentTableState();
     renderOrderList();
@@ -2585,7 +2671,7 @@ function renderMenuGrid() {
         }
 
         return `
-            <div onclick="${isPizza ? `onPizzaItemClicked('${item.id}')` : `addToOrder('${item.id}')`}" class="bg-white border ${cardBorderClass} rounded-2xl p-3.5 shadow-sm transition-all flex flex-col justify-between min-h-[128px] cursor-pointer group">
+            <div onclick="${isPizza ? `onPizzaItemClicked('${item.id}')` : ''}" class="bg-white border ${cardBorderClass} rounded-2xl p-3.5 shadow-sm transition-all flex flex-col justify-between min-h-[128px] ${isPizza ? 'cursor-pointer' : ''} group">
                 <div>
                     <div class="flex items-start justify-between gap-1">
                         <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
@@ -2601,9 +2687,14 @@ function renderMenuGrid() {
 
                 <div class="flex items-center justify-between pt-2 border-t border-slate-50" onclick="event.stopPropagation()">
                     ${qty > 0 ? `
-                        <span class="bg-blue-50 text-[#2563eb] border border-blue-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
-                            ${qty} en comanda
-                        </span>
+                        <div class="flex items-center space-x-1">
+                            <button type="button" onclick="updateQuantity('${orderMatches[0].id}', -1)" class="w-6 h-6 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer" title="Quitar 1 unidad">
+                                <i class="fa-solid fa-minus text-[9px]"></i>
+                            </button>
+                            <span class="bg-blue-50 text-[#2563eb] border border-blue-200 text-xs px-2 py-0.5 rounded-full font-bold">
+                                ${qty} en mesa
+                            </span>
+                        </div>
                     ` : (item.isOffToday ? `
                         <span class="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] px-2 py-0.5 rounded-full font-bold">
                             Fuera de hoy
@@ -2677,9 +2768,11 @@ function addToOrder(itemId) {
         });
     }
 
+    markLocalTableEdited();
     saveCurrentTableState();
     renderOrderList();
     renderMenuGrid();
+    showToast(`+1 ${item.name} agregado a ${currentTable}`, 'success');
 }
 
 async function updateQuantity(itemId, delta) {
@@ -2699,40 +2792,34 @@ async function updateQuantity(itemId, delta) {
             const confirmed = confirm(`¿Deseas descontar 1x "${item.name}" de la comanda de cocina y de la cuenta de ${currentTable}?`);
             if (!confirmed) return;
 
+            markLocalTableEdited();
+
             // Descontar de la comanda activa de cocina si existe
             const activeCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
             if (activeCmd) {
                 try {
-                    await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
+                    const res = await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             itemId: item.id,
                             name: item.name,
                             price: item.price,
-                            qty: 1
+                            qty: 1,
+                            targetStatus: 'pending'
                         })
                     });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.orderDeleted) {
+                            kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
+                        } else if (data.order) {
+                            const idx = kitchenOrders.findIndex(o => o.id === activeCmd.id);
+                            if (idx >= 0) kitchenOrders[idx] = data.order;
+                        }
+                    }
                 } catch (e) {
                     console.warn('Error al descontar ítem de comanda en backend:', e);
-                }
-
-                // Ajustar comanda activa local
-                const kIdx = (activeCmd.items || []).findIndex(it =>
-                    it.id === item.id ||
-                    (it.name || '').trim().toLowerCase() === (item.name || '').trim().toLowerCase()
-                );
-                if (kIdx >= 0) {
-                    const kIt = activeCmd.items[kIdx];
-                    if (kIt.qty > 1) {
-                        kIt.qty -= 1;
-                    } else {
-                        activeCmd.items.splice(kIdx, 1);
-                    }
-                    activeCmd.total = activeCmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
-                    if (activeCmd.items.length === 0) {
-                        kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
-                    }
                 }
             }
 
@@ -2741,12 +2828,19 @@ async function updateQuantity(itemId, delta) {
         }
     }
 
+    markLocalTableEdited();
     item.qty += delta;
 
     if (item.qty <= 0) {
         tableItems.splice(itemIndex, 1);
-    } else if (item.sentQty && item.qty < item.sentQty) {
-        item.sentQty = item.qty;
+    } else {
+        if (item.sentQty && item.qty < item.sentQty) {
+            item.sentQty = item.qty;
+        }
+        if (item.perPerson && item.baseName) {
+            item.name = `${item.baseName} (${item.qty} persona${item.qty === 1 ? '' : 's'})`;
+            item.personsCount = item.qty;
+        }
     }
 
     saveCurrentTableState();
@@ -2768,36 +2862,41 @@ async function promptDeleteItemFromTable(itemId) {
     const confirmed = confirm(`¿Estás seguro de eliminar completamente "${item.name}" (${currentQty}x) de la cuenta de ${currentTable}?`);
     if (!confirmed) return;
 
+    markLocalTableEdited();
+
     if (sent > 0) {
         const activeCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
         if (activeCmd) {
             try {
-                await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
+                const res = await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         itemId: item.id,
                         name: item.name,
                         price: item.price,
-                        qty: currentQty
+                        qty: sent,
+                        targetStatus: 'pending'
                     })
                 });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.orderDeleted) {
+                        kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
+                    } else if (data.order) {
+                        const idx = kitchenOrders.findIndex(o => o.id === activeCmd.id);
+                        if (idx >= 0) kitchenOrders[idx] = data.order;
+                    }
+                }
             } catch (e) {
                 console.warn('Error al eliminar ítem de comanda en backend:', e);
-            }
-
-            activeCmd.items = (activeCmd.items || []).filter(it =>
-                it.id !== item.id &&
-                (it.name || '').trim().toLowerCase() !== (item.name || '').trim().toLowerCase()
-            );
-            activeCmd.total = activeCmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
-            if (activeCmd.items.length === 0) {
-                kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
             }
         }
     }
 
-    tableItems.splice(itemIndex, 1);
+    const idxNow = tableItems.findIndex(i => i.id === itemId);
+    if (idxNow >= 0) tableItems.splice(idxNow, 1);
+
     saveCurrentTableState();
     renderOrderList();
     renderMenuGrid();
@@ -2817,6 +2916,8 @@ async function cancelCurrentTableOrderPrompt() {
 
     const confirmed = confirm(`¿Estás seguro de anular todo el pedido de ${table}? Se cancelará la comanda de cocina y la mesa quedará liberada.`);
     if (!confirmed) return;
+
+    markLocalTableEdited();
 
     try {
         await fetch(`/api/tables/${encodeURIComponent(table)}/cancel-order`, {
@@ -2839,16 +2940,21 @@ function saveCurrentNote(val) {
         ordersByTable[currentTable] = { items: [], note: "" };
     }
     ordersByTable[currentTable].note = val;
+    markLocalTableEdited();
     saveCurrentTableState();
 }
 
 async function saveCurrentTableState() {
     saveLocalState();
+    markLocalTableEdited();
+    const targetTable = currentTable;
+    const payload = ordersByTable[targetTable];
+    tableSaveInFlightCount++;
     try {
-        const res = await fetch(`/api/tables/${encodeURIComponent(currentTable)}/save`, {
+        const res = await fetch(`/api/tables/${encodeURIComponent(targetTable)}/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ordersByTable[currentTable])
+            body: JSON.stringify(payload)
         });
         if (res.ok) {
             isOnlineWithServer = true;
@@ -2856,6 +2962,8 @@ async function saveCurrentTableState() {
         }
     } catch (e) {
         console.warn('Sincronización diferida en mesa:', e);
+    } finally {
+        tableSaveInFlightCount = Math.max(0, tableSaveInFlightCount - 1);
     }
 }
 
@@ -3005,7 +3113,10 @@ function renderOrderList() {
     }).join('');
 }
 
+let isSendingOrderInFlight = false;
+
 async function sendOrderToKitchen() {
+    if (isSendingOrderInFlight) return;
     const tableOrder = ordersByTable[currentTable];
     if (!tableOrder || tableOrder.items.length === 0) return;
 
@@ -3016,6 +3127,7 @@ async function sendOrderToKitchen() {
         const diff = item.qty - sent;
         if (diff > 0) {
             newItemsToSend.push({
+                ...item,
                 id: item.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 name: item.name,
                 note: item.note || '',
@@ -3033,6 +3145,9 @@ async function sendOrderToKitchen() {
         showToast('Todos los platos de esta mesa ya fueron enviados a cocina', 'info');
         return;
     }
+
+    isSendingOrderInFlight = true;
+    markLocalTableEdited();
 
     // Buscar si ya existe una comanda activa para esta mesa
     const existingCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
@@ -3059,9 +3174,6 @@ async function sendOrderToKitchen() {
     tableOrder.items.forEach(item => {
         item.sentQty = item.qty;
     });
-
-    // Guardar mesa actualizada (con los sentQty) en Neon DB
-    saveCurrentTableState();
 
     if (existingCmd) {
         // Unificar en la comanda activa existente preservando la bandera printed de los ítems previos
@@ -3098,6 +3210,7 @@ async function sendOrderToKitchen() {
     refreshActiveViews();
 
     try {
+        tableSaveInFlightCount++;
         const res = await fetch('/api/orders/send-kitchen', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3109,6 +3222,7 @@ async function sendOrderToKitchen() {
                 const idx = kitchenOrders.findIndex(o => o.id === data.order.id || (o.table === data.order.table && o.status !== 'paid'));
                 if (idx >= 0) kitchenOrders[idx] = data.order;
                 else kitchenOrders.unshift(data.order);
+                syncTableWithActiveKitchenOrder(data.order.table);
                 saveLocalState();
                 refreshActiveViews();
             }
@@ -3117,6 +3231,9 @@ async function sendOrderToKitchen() {
         }
     } catch (e) {
         console.warn('Error enviando comanda a la base de datos:', e);
+    } finally {
+        tableSaveInFlightCount = Math.max(0, tableSaveInFlightCount - 1);
+        isSendingOrderInFlight = false;
     }
 
     // Regresar de inmediato al menú de mesas en el salón (sin alertas bloqueantes)
@@ -3275,8 +3392,12 @@ function closePaymentModal() {
     activePaymentTable = null;
 }
 
+let isCheckoutInFlight = false;
+
 async function confirmPaymentAndFinish() {
-    if (!activePaymentTable) return;
+    if (!activePaymentTable || isCheckoutInFlight) return;
+    isCheckoutInFlight = true;
+    markLocalTableEdited();
 
     const paidWith = parseFloat(document.getElementById('cash-paid-input').value) || activePaymentTotal;
     const tip = Math.max(0, paidWith - activePaymentTotal);
@@ -3362,6 +3483,7 @@ async function confirmPaymentAndFinish() {
 
     // Sincronizar con servidor Neon DB
     try {
+        tableSaveInFlightCount++;
         const res = await fetch('/api/checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3373,6 +3495,9 @@ async function confirmPaymentAndFinish() {
         }
     } catch (e) {
         console.warn('Error sincronizando cobro con Neon DB:', e);
+    } finally {
+        tableSaveInFlightCount = Math.max(0, tableSaveInFlightCount - 1);
+        isCheckoutInFlight = false;
     }
 
     refreshActiveViews();
@@ -3963,12 +4088,13 @@ function renderKitchenOrders() {
                                             ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0">Agregado</span>' : ''}
                                         </div>
                                         <div class="flex items-center space-x-1 shrink-0 ml-2">
-                                            <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}')" title="Marcar este plato como entregado" class="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
+                                            <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}', '${(item.name || '').replace(/'/g, "\\'")}')" title="Marcar este plato como entregado" class="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
                                                 <i class="fa-solid fa-check"></i>
-                                                <span class="hidden sm:inline">Entregar</span>
+                                                <span>Entregar</span>
                                             </button>
-                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0})" title="Quitar este plato de la comanda y de la cuenta de la mesa" class="p-1 hover:bg-rose-50 text-slate-300 hover:text-rose-600 rounded-lg text-[11px] transition-all cursor-pointer">
+                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0}, 'pending')" title="Borrar 1 unidad de este pedido y descontarla de la cuenta de la mesa" class="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
                                                 <i class="fa-solid fa-trash-can"></i>
+                                                <span>Borrar</span>
                                             </button>
                                         </div>
                                     </div>
@@ -3995,8 +4121,9 @@ function renderKitchenOrders() {
                                         </span>
                                         <div class="flex items-center space-x-1.5 shrink-0 ml-1">
                                             <span class="text-slate-400 text-[10px]">$${((item.price || 0) * (item.qty || 1)).toLocaleString()}</span>
-                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0})" title="Quitar este plato de la comanda y de la cuenta de la mesa" class="p-1 hover:bg-rose-50 text-slate-300 hover:text-rose-600 rounded-lg text-[10px] transition-all cursor-pointer">
-                                                <i class="fa-solid fa-trash-can"></i>
+                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0}, 'delivered')" title="Quitar 1 unidad entregada de la comanda y de la cuenta de la mesa" class="px-1.5 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer">
+                                                <i class="fa-solid fa-trash-can text-[9px]"></i>
+                                                <span>Borrar</span>
                                             </button>
                                         </div>
                                     </div>
@@ -4105,14 +4232,24 @@ async function updateOrderStatus(id, newStatus) {
     }
 }
 
-async function deliverIndividualKitchenItem(cmdId, itemIdOrName) {
+async function deliverIndividualKitchenItem(cmdId, itemIdOrName, explicitName = '') {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd || !cmd.items) return;
 
-    const item = cmd.items.find(i => (i.id === itemIdOrName || i.name === itemIdOrName) && (i.status || cmd.status) !== 'delivered');
-    if (!item) return;
+    const targetClean = stripBracketNotes(explicitName || itemIdOrName || '').trim().toLowerCase();
+    let matchedAny = false;
 
-    item.status = 'delivered';
+    cmd.items.forEach(i => {
+        if ((i.status || cmd.status) !== 'delivered') {
+            const cleanIName = stripBracketNotes(i.name || '').trim().toLowerCase();
+            if (i.id === itemIdOrName || cleanIName === targetClean) {
+                i.status = 'delivered';
+                matchedAny = true;
+            }
+        }
+    });
+
+    if (!matchedAny) return;
 
     const hasRemainingPending = cmd.items.some(i => (i.status || cmd.status) !== 'delivered');
     cmd.status = hasRemainingPending ? 'pending' : 'delivered';
@@ -4190,12 +4327,15 @@ async function reopenTableOrderToPending(cmdId) {
     }
 }
 
-async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice) {
+async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice, targetStatus = 'pending') {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd) return;
 
     const confirmed = confirm(`¿Eliminar 1x "${itemName}" de la comanda ${cmd.id} (${cmd.table})? Se descontará automáticamente de la cuenta de la mesa.`);
     if (!confirmed) return;
+
+    markLocalTableEdited();
+    let updatedFromServer = false;
 
     try {
         const res = await fetch(`/api/orders/${cmdId}/remove-item`, {
@@ -4205,12 +4345,14 @@ async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice) {
                 itemId,
                 name: itemName,
                 price: Number(itemPrice) || 0,
-                qty: 1
+                qty: 1,
+                targetStatus
             })
         });
 
         if (res.ok) {
             const data = await res.json();
+            updatedFromServer = true;
             if (data.orderDeleted) {
                 kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
                 if (ordersByTable[cmd.table]) {
@@ -4219,44 +4361,43 @@ async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice) {
             } else if (data.order) {
                 const idx = kitchenOrders.findIndex(o => o.id === cmdId);
                 if (idx >= 0) kitchenOrders[idx] = data.order;
+                syncTableWithActiveKitchenOrder(cmd.table);
             }
         }
     } catch (e) {
         console.warn('Error al quitar plato de cocina:', e);
     }
 
-    // Sincronizar comanda en memoria
-    const kIdx = (cmd.items || []).findIndex(it =>
-        (itemId && it.id === itemId) ||
-        (it.name || '').trim().toLowerCase() === (itemName || '').trim().toLowerCase()
-    );
-    if (kIdx >= 0) {
-        if (cmd.items[kIdx].qty > 1) {
-            cmd.items[kIdx].qty -= 1;
-        } else {
-            cmd.items.splice(kIdx, 1);
-        }
-        cmd.total = cmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
-        if (cmd.items.length === 0) {
-            kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
-        }
-    }
-
-    // Sincronizar mesa local
-    if (ordersByTable[cmd.table] && Array.isArray(ordersByTable[cmd.table].items)) {
-        const tItems = ordersByTable[cmd.table].items;
-        const tIdx = tItems.findIndex(it =>
-            (itemId && it.id === itemId) ||
-            (it.name || '').trim().toLowerCase() === (itemName || '').trim().toLowerCase()
-        );
-        if (tIdx >= 0) {
-            if (tItems[tIdx].qty > 1) {
-                tItems[tIdx].qty -= 1;
-                tItems[tIdx].sentQty = Math.max(0, (tItems[tIdx].sentQty || 1) - 1);
-            } else {
-                tItems.splice(tIdx, 1);
+    if (!updatedFromServer) {
+        const targetClean = stripBracketNotes(itemName || '').trim().toLowerCase();
+        // Buscar priorizando el estado solicitado ('pending' o 'delivered') desde el último agregado
+        let kIdx = -1;
+        for (let i = (cmd.items || []).length - 1; i >= 0; i--) {
+            const it = cmd.items[i];
+            const cleanItName = stripBracketNotes(it.name || '').trim().toLowerCase();
+            const isMatch = (itemId && it.id === itemId && (!targetClean || cleanItName === targetClean)) || (targetClean && cleanItName === targetClean);
+            if (isMatch) {
+                const st = (it.status || cmd.status) === 'delivered' ? 'delivered' : 'pending';
+                if (st === targetStatus) {
+                    kIdx = i;
+                    break;
+                }
+                if (kIdx === -1) kIdx = i;
             }
         }
+
+        if (kIdx >= 0) {
+            if (cmd.items[kIdx].qty > 1) {
+                cmd.items[kIdx].qty -= 1;
+            } else {
+                cmd.items.splice(kIdx, 1);
+            }
+            cmd.total = cmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+            if (cmd.items.length === 0) {
+                kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
+            }
+        }
+        syncTableWithActiveKitchenOrder(cmd.table);
     }
 
     saveLocalState();
@@ -4402,6 +4543,9 @@ function formatBillItemName(item) {
     const isLibre = item.isPizzaLibre || /^pizza\s+libre\b/i.test(clean);
     if (isLibre) {
         return 'Pizza libre';
+    }
+    if (item.perPerson || /parrill/i.test(clean)) {
+        clean = clean.replace(/\s*\(\d+\s*personas?\)\s*$/i, '').trim();
     }
     return clean;
 }
