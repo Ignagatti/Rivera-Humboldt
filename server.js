@@ -131,7 +131,7 @@ app.get('/api/state', async (req, res) => {
               price = EXCLUDED.price,
               description = EXCLUDED.description
           `, [p.id, p.name, p.price, p.desc]);
-        } catch (_) {}
+        } catch (_) { }
       }
       menuData['pizzas'].items = (officialPizzas || []).map(p => ({
         id: p.id,
@@ -850,13 +850,33 @@ app.post('/api/checkout', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Resolver mozo asociado a la mesa:
+    // Si la comanda fue tomada por un mozo, la propina y cobro van a ese mozo, sin importar que haya cobrado el Encargado/Admin
+    let resolvedWaiter = waiter;
+    const isIncomingAdmin = !waiter || String(waiter).toLowerCase().includes('encargado') || String(waiter).toLowerCase().includes('admin');
+    const orderRes = await client.query(`
+      SELECT waiter_name 
+      FROM pos_kitchen_orders 
+      WHERE table_name = $1 AND waiter_name IS NOT NULL AND waiter_name != ''
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `, [table]);
+
+    if (orderRes.rows.length > 0 && orderRes.rows[0].waiter_name) {
+      const orderMozo = orderRes.rows[0].waiter_name;
+      const isOrderMozoAdmin = orderMozo.toLowerCase().includes('encargado') || orderMozo.toLowerCase().includes('admin');
+      if (!isOrderMozoAdmin || isIncomingAdmin) {
+        resolvedWaiter = orderMozo;
+      }
+    }
+
     const paymentId = `PAG-${Date.now().toString().slice(-4)}`;
 
-    // Guardar en historial de pagos
+    // Guardar en historial de pagos asignando al mozo correspondiente
     await client.query(`
       INSERT INTO pos_payment_history (id, table_name, waiter, time, method, total, paid_with, tip, items_summary, items, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, CURRENT_TIMESTAMP)
-    `, [paymentId, table, waiter, time, method, total, paidWith, tip || 0, itemsSummary || '', JSON.stringify(items || [])]);
+    `, [paymentId, table, resolvedWaiter, time, method, total, paidWith, tip || 0, itemsSummary || '', JSON.stringify(items || [])]);
 
     // Limpiar mesa
     await client.query(`
@@ -894,7 +914,7 @@ app.post('/api/checkout', async (req, res) => {
     const paymentRecord = {
       id: paymentId,
       table,
-      waiter,
+      waiter: resolvedWaiter,
       time,
       method,
       total,
@@ -988,7 +1008,7 @@ app.post('/api/menu/item', async (req, res) => {
           SET precio_entera = $1, updated_at = CURRENT_TIMESTAMP
           WHERE LOWER(name) = LOWER($2)
         `, [price, name]);
-      } catch (_) {}
+      } catch (_) { }
     }
 
     broadcast({ type: 'MENU_REFRESH_REQUESTED' });

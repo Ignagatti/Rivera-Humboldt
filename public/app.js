@@ -3129,17 +3129,24 @@ function openPaymentByTable(tableName) {
     document.getElementById('pay-modal-subtitle').innerText = `${tableName}${cmd ? ' • ' + cmd.id : ''}`;
     document.getElementById('pay-modal-total').innerText = `$${total.toLocaleString()}`;
 
-    // Poblar y seleccionar mozo que cobra la mesa
+    // Mozo asociado a la mesa: SIEMPRE tiene la prioridad para la propina y cobro
+    const tableWaiter = (consolidated && consolidated.waiterName) ? consolidated.waiterName : '';
+    const isCurrentAdmin = currentUser && (currentUser.role.includes('Admin') || currentUser.role.includes('Cocina') || currentUser.role.includes('Encargado'));
+    
+    // Si quien cobra es el Encargado/Admin pero la mesa la atendió un mozo, el mozo asociado es el seleccionado por defecto
+    const preferredWaiter = (!isCurrentAdmin && currentUser && currentUser.name)
+        ? currentUser.name
+        : (tableWaiter || (currentUser ? currentUser.name : 'Mozo'));
+
     const waiterSelect = document.getElementById('pay-waiter-select');
     if (waiterSelect) {
-        const preferredWaiter = (currentUser && currentUser.name) || (consolidated && consolidated.waiterName) || '';
         let staffOptions = staffList;
         if (!staffOptions || staffOptions.length === 0) {
             staffOptions = [{ id: 'm1', name: preferredWaiter || 'Mozo', role: 'Mozo' }];
         }
         waiterSelect.innerHTML = staffOptions.map(s => {
-            const isSelected = (preferredWaiter === s.name) || (!preferredWaiter && s.role !== 'Cocina / Admin');
-            return `<option value="${s.name}" ${isSelected ? 'selected' : ''}>${s.name} (${s.role || 'Personal'})</option>`;
+            const isSelected = (s.name === preferredWaiter) || (!preferredWaiter && s.role !== 'Cocina / Admin');
+            return `<option value="${s.name}" ${isSelected ? 'selected' : ''}>${s.name} (${s.role || 'Personal'})${s.name === tableWaiter ? ' • Atendió esta mesa' : ''}</option>`;
         }).join('');
     }
 
@@ -3193,18 +3200,28 @@ async function confirmPaymentAndFinish() {
     let itemsList = consolidated.items;
     const itemsSummary = itemsList.map(i => `${i.qty}x ${i.name}`).join(', ') || 'Consumo salón';
 
-    // Mozo que cobró la mesa (desde selector de modal o usuario activo)
+    // Mozo asociado a la mesa (quien atendió)
+    const tableWaiter = (consolidated && consolidated.waiterName) ? consolidated.waiterName : '';
     const waiterSelect = document.getElementById('pay-waiter-select');
-    const waiterName = (waiterSelect && waiterSelect.value)
-        ? waiterSelect.value
-        : (currentUser ? currentUser.name : ((consolidated && consolidated.waiterName) ? consolidated.waiterName : 'Mozo'));
+    const selectedWaiter = waiterSelect ? waiterSelect.value : '';
+
+    // Si el usuario seleccionado o activo es Encargado/Admin, pero la mesa fue atendida por un mozo,
+    // la propina y venta se asocian SIEMPRE al mozo que atendió la mesa
+    let finalWaiter = selectedWaiter;
+    const isSelectedAdmin = !selectedWaiter || selectedWaiter.toLowerCase().includes('encargado') || selectedWaiter.toLowerCase().includes('admin');
+    if (isSelectedAdmin && tableWaiter && !tableWaiter.toLowerCase().includes('encargado') && !tableWaiter.toLowerCase().includes('admin')) {
+        finalWaiter = tableWaiter;
+    }
+    if (!finalWaiter) {
+        finalWaiter = tableWaiter || (currentUser ? currentUser.name : 'Mozo');
+    }
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const paymentRecord = {
         id: `PAG-${101 + paymentHistory.length}`,
         table: activePaymentTable,
-        waiter: waiterName, // Mozo que realizó el cobro
+        waiter: finalWaiter, // Mozo asociado que recibe la propina
         time: timeStr,
         method: selectedPaymentMethod,
         total: activePaymentTotal,
@@ -6665,13 +6682,22 @@ function renderNightReportView() {
     });
 
     paymentHistory.forEach(p => {
-        const wName = p.waiter || 'Otro';
+        let wName = p.waiter || 'Otro';
+        const isWAdmin = wName.toLowerCase().includes('encargado') || wName.toLowerCase().includes('admin');
+        if (isWAdmin && p.table) {
+            const matchCmd = kitchenOrders.find(k => k.table === p.table && k.waiterName && !k.waiterName.toLowerCase().includes('encargado') && !k.waiterName.toLowerCase().includes('admin'));
+            if (matchCmd) {
+                wName = matchCmd.waiterName;
+                p.waiter = matchCmd.waiterName;
+            }
+        }
+
         if (!waiterStats[wName]) {
             waiterStats[wName] = { closed: 0, sales: 0, tips: 0 };
         }
         waiterStats[wName].closed += 1;
         waiterStats[wName].sales += p.total;
-        waiterStats[wName].tips += p.tip;
+        waiterStats[wName].tips += (p.tip || 0);
     });
 
     const waiterContainer = document.getElementById('rep-waiter-breakdown');
