@@ -356,8 +356,25 @@ app.post('/api/orders/send-kitchen', async (req, res) => {
         libreRound: it.libreRound || null
       }));
 
-      // Mantener los existentes (con su estado actual y bandera printed) y agregar los nuevos con printed: false
-      const mergedItems = [...existingItems, ...newItemsFormatted];
+      // Mantener los existentes acumulando cantidades si ambos están pendientes y sin imprimir
+      const mergedItems = [];
+      const incomingList = [...newItemsFormatted];
+
+      existingItems.forEach(ex => {
+        if (!ex.printed && ex.status === 'pending') {
+          const incIdx = incomingList.findIndex(inc =>
+            (inc.name || '').trim().toLowerCase() === (ex.name || '').trim().toLowerCase() &&
+            Number(inc.price) === Number(ex.price) &&
+            (inc.note || '').trim().toLowerCase() === (ex.note || '').trim().toLowerCase()
+          );
+          if (incIdx >= 0) {
+            ex.qty = (Number(ex.qty) || 1) + (Number(incomingList[incIdx].qty) || 1);
+            incomingList.splice(incIdx, 1);
+          }
+        }
+        mergedItems.push(ex);
+      });
+      incomingList.forEach(inc => mergedItems.push(inc));
       const mergedTotal = mergedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
       const mergedNote = note
         ? (existing.note ? `${existing.note} | ${note}` : note)

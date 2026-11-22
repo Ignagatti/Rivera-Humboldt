@@ -1038,15 +1038,19 @@ function getTableConsolidatedOrder(tableName) {
     // 1. Agregar todos los ítems de la comanda activa de cocina como base confiable
     if (activeCmd && Array.isArray(activeCmd.items)) {
         activeCmd.items.forEach(it => {
-            const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}___${(it.note || '').trim().toLowerCase()}`;
+            const cleanName = stripBracketNotes(it.name || '').trim();
+            const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
             if (consolidatedMap.has(key)) {
                 consolidatedMap.get(key).qty += Number(it.qty) || 1;
                 consolidatedMap.get(key).sentQty += Number(it.qty) || 1;
+                if (it.note && !consolidatedMap.get(key).note) {
+                    consolidatedMap.get(key).note = it.note;
+                }
             } else {
                 consolidatedMap.set(key, {
                     id: it.id || `item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                     menuItemId: it.menuItemId || it.id,
-                    name: it.name,
+                    name: cleanName,
                     price: Number(it.price) || 0,
                     qty: Number(it.qty) || 1,
                     sentQty: Number(it.qty) || 1,
@@ -1063,25 +1067,27 @@ function getTableConsolidatedOrder(tableName) {
         tableOrder.items.forEach(it => {
             const sent = Number(it.sentQty) || 0;
             const unsent = Math.max(0, (Number(it.qty) || 0) - sent);
+            const cleanName = stripBracketNotes(it.name || '').trim();
+            const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
 
             if (!activeCmd) {
-                const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}___${(it.note || '').trim().toLowerCase()}`;
                 if (consolidatedMap.has(key)) {
                     consolidatedMap.get(key).qty += Number(it.qty) || 1;
                 } else {
                     consolidatedMap.set(key, {
                         ...it,
+                        name: cleanName,
                         price: Number(it.price) || 0,
                         qty: Number(it.qty) || 1
                     });
                 }
             } else if (unsent > 0) {
-                const key = `${(it.name || '').trim().toLowerCase()}___${Number(it.price) || 0}___${(it.note || '').trim().toLowerCase()}`;
                 if (consolidatedMap.has(key)) {
                     consolidatedMap.get(key).qty += unsent;
                 } else {
                     consolidatedMap.set(key, {
                         ...it,
+                        name: cleanName,
                         price: Number(it.price) || 0,
                         qty: unsent,
                         sentQty: 0
@@ -3513,6 +3519,40 @@ function renderKitchenOrders() {
             ? 'text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded-lg text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-all'
             : 'text-slate-600 hover:text-slate-900 text-[11px] font-semibold flex items-center space-x-1 cursor-pointer';
 
+        // Acumular platos idénticos en pantalla de cocina para no mostrar tarjetas gigantes
+        const groupedPendingMap = new Map();
+        pendingItems.forEach(it => {
+            const cleanName = stripBracketNotes(it.name || '').trim();
+            const key = `${cleanName.toLowerCase()}___${(it.note || '').trim().toLowerCase()}`;
+            if (groupedPendingMap.has(key)) {
+                groupedPendingMap.get(key).qty += Number(it.qty) || 1;
+                if (it.isAddon) groupedPendingMap.get(key).isAddon = true;
+            } else {
+                groupedPendingMap.set(key, {
+                    ...it,
+                    name: cleanName,
+                    qty: Number(it.qty) || 1
+                });
+            }
+        });
+        const displayPending = Array.from(groupedPendingMap.values());
+
+        const groupedDeliveredMap = new Map();
+        deliveredItems.forEach(it => {
+            const cleanName = stripBracketNotes(it.name || '').trim();
+            const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
+            if (groupedDeliveredMap.has(key)) {
+                groupedDeliveredMap.get(key).qty += Number(it.qty) || 1;
+            } else {
+                groupedDeliveredMap.set(key, {
+                    ...it,
+                    name: cleanName,
+                    qty: Number(it.qty) || 1
+                });
+            }
+        });
+        const displayDelivered = Array.from(groupedDeliveredMap.values());
+
         let statusBadge = "";
         let cardBorder = "border-slate-200 bg-white";
 
@@ -3575,7 +3615,7 @@ function renderKitchenOrders() {
                                 <span class="text-[10px] text-amber-700 font-semibold">${cmd.time} hs</span>
                             </div>
                             <div class="space-y-1.5">
-                                ${pendingItems.map((item, idx) => `
+                                ${displayPending.map((item, idx) => `
                                     <div class="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg bg-white/70 border border-amber-100">
                                         <div class="flex items-center space-x-2 min-w-0">
                                             <span class="inline-block bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md font-black text-xs shrink-0">${item.qty}x</span>
@@ -3610,7 +3650,7 @@ function renderKitchenOrders() {
                                 </span>
                             </div>
                             <div class="space-y-1 max-h-36 overflow-y-auto pr-1">
-                                ${deliveredItems.map(item => `
+                                ${displayDelivered.map(item => `
                                     <div class="flex items-center justify-between py-1 px-1 text-[11px] border-b border-slate-100 last:border-b-0">
                                         <span class="flex items-center space-x-1.5 text-slate-600 truncate min-w-0">
                                             <i class="fa-solid fa-check text-emerald-500 text-[10px] shrink-0"></i>
@@ -4091,8 +4131,23 @@ function openKitchenTicketPrint(cmdId) {
         ? unprintedPending
         : (pendingItems.length > 0 ? pendingItems : (cmd.items || []));
 
-    // Limpiar notas incrustadas entre [corchetes] para que nunca se repitan en nombre y OBS
-    const itemsToPrint = rawItemsToPrint.map(normalizeKitchenItemForPrint);
+    // Limpiar notas incrustadas entre [corchetes] y acumular ítems idénticos para no generar tickets gigantes
+    const normalizedRaw = rawItemsToPrint.map(normalizeKitchenItemForPrint);
+    const groupedKitchen = new Map();
+    normalizedRaw.forEach(it => {
+        const cleanName = stripBracketNotes(it.name || '').trim();
+        const normKey = `${cleanName.toLowerCase()}___${(it.note || '').trim().toLowerCase()}`;
+        if (groupedKitchen.has(normKey)) {
+            groupedKitchen.get(normKey).qty += Number(it.qty) || 1;
+        } else {
+            groupedKitchen.set(normKey, {
+                ...it,
+                name: cleanName,
+                qty: Number(it.qty) || 1
+            });
+        }
+    });
+    const itemsToPrint = Array.from(groupedKitchen.values());
 
     // Evitar repetir la nota general si ya está contenida en las observaciones de un plato
     const rawCmdNote = (cmd.note || '').trim();
