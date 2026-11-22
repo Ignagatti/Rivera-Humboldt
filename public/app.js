@@ -3155,12 +3155,12 @@ function openPaymentByTable(tableName) {
     document.getElementById('pay-modal-subtitle').innerText = `${tableName}${cmd ? ' • ' + cmd.id : ''}`;
     document.getElementById('pay-modal-total').innerText = `$${total.toLocaleString()}`;
 
-    // Mozo asociado a la mesa: SIEMPRE tiene la prioridad para la propina y cobro
+    // Mozo asociado a la mesa:
     const tableWaiter = (consolidated && consolidated.waiterName) ? consolidated.waiterName : '';
-    const isCurrentAdmin = currentUser && (currentUser.role.includes('Admin') || currentUser.role.includes('Cocina') || currentUser.role.includes('Encargado'));
+    const isEncargadoOnly = currentUser && (currentUser.name.includes('Perello') || currentUser.name.toLowerCase().includes('encargado'));
     
-    // Si quien cobra es el Encargado/Admin pero la mesa la atendió un mozo, el mozo asociado es el seleccionado por defecto
-    const preferredWaiter = (!isCurrentAdmin && currentUser && currentUser.name)
+    // Si quien cobra es Perello (Encargado), se sugiere el mozo que atendió. Si es cualquier otro usuario (ej. Ignacio, Sol, Paula), se respeta el usuario actual
+    const preferredWaiter = (!isEncargadoOnly && currentUser && currentUser.name)
         ? currentUser.name
         : (tableWaiter || (currentUser ? currentUser.name : 'Mozo'));
 
@@ -3171,7 +3171,7 @@ function openPaymentByTable(tableName) {
             staffOptions = [{ id: 'm1', name: preferredWaiter || 'Mozo', role: 'Mozo' }];
         }
         waiterSelect.innerHTML = staffOptions.map(s => {
-            const isSelected = (s.name === preferredWaiter) || (!preferredWaiter && s.role !== 'Cocina / Admin');
+            const isSelected = (s.name === preferredWaiter) || (!preferredWaiter && !s.name.includes('Perello'));
             return `<option value="${s.name}" ${isSelected ? 'selected' : ''}>${s.name} (${s.role || 'Personal'})${s.name === tableWaiter ? ' • Atendió esta mesa' : ''}</option>`;
         }).join('');
     }
@@ -3231,15 +3231,11 @@ async function confirmPaymentAndFinish() {
     const waiterSelect = document.getElementById('pay-waiter-select');
     const selectedWaiter = waiterSelect ? waiterSelect.value : '';
 
-    // Si el usuario seleccionado o activo es Encargado/Admin, pero la mesa fue atendida por un mozo,
-    // la propina y venta se asocian SIEMPRE al mozo que atendió la mesa
-    let finalWaiter = selectedWaiter;
-    const isSelectedAdmin = !selectedWaiter || selectedWaiter.toLowerCase().includes('encargado') || selectedWaiter.toLowerCase().includes('admin');
-    if (isSelectedAdmin && tableWaiter && !tableWaiter.toLowerCase().includes('encargado') && !tableWaiter.toLowerCase().includes('admin')) {
+    // El mozo seleccionado en el desplegable tiene máxima prioridad:
+    let finalWaiter = selectedWaiter || (currentUser ? currentUser.name : 'Mozo');
+    // Solo si el seleccionado es Perello (Encargado) y la mesa fue atendida por un mozo, se asocia al mozo de la mesa:
+    if ((finalWaiter.includes('Perello') || finalWaiter.toLowerCase().includes('encargado')) && tableWaiter && !tableWaiter.includes('Perello') && !tableWaiter.toLowerCase().includes('encargado')) {
         finalWaiter = tableWaiter;
-    }
-    if (!finalWaiter) {
-        finalWaiter = tableWaiter || (currentUser ? currentUser.name : 'Mozo');
     }
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

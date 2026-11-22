@@ -851,22 +851,25 @@ app.post('/api/checkout', async (req, res) => {
     await client.query('BEGIN');
 
     // Resolver mozo asociado a la mesa:
-    // Si la comanda fue tomada por un mozo, la propina y cobro van a ese mozo, sin importar que haya cobrado el Encargado/Admin
+    // Solo si quien cobra es explícitamente "Perello (Encargado)" o no seleccionó a nadie (vacío),
+    // se le asocia la propina al mozo que tomó la comanda.
+    // Si se seleccionó a cualquier mozo o persona específica (ej. Ignacio, Gonzalo, Paula, Sol, Matias, etc.),
+    // SE RESPETA SIEMPRE ESA ELECCIÓN y NO se sobreescribe.
     let resolvedWaiter = waiter;
-    const isIncomingAdmin = !waiter || String(waiter).toLowerCase().includes('encargado') || String(waiter).toLowerCase().includes('admin');
-    const orderRes = await client.query(`
-      SELECT waiter_name 
-      FROM pos_kitchen_orders 
-      WHERE table_name = $1 AND waiter_name IS NOT NULL AND waiter_name != ''
-      ORDER BY created_at DESC 
-      LIMIT 1
-    `, [table]);
+    const isIncomingEncargado = !waiter || String(waiter).toLowerCase().includes('encargado');
 
-    if (orderRes.rows.length > 0 && orderRes.rows[0].waiter_name) {
-      const orderMozo = orderRes.rows[0].waiter_name;
-      const isOrderMozoAdmin = orderMozo.toLowerCase().includes('encargado') || orderMozo.toLowerCase().includes('admin');
-      if (!isOrderMozoAdmin || isIncomingAdmin) {
-        resolvedWaiter = orderMozo;
+    if (isIncomingEncargado) {
+      const orderRes = await client.query(`
+        SELECT waiter_name 
+        FROM pos_kitchen_orders 
+        WHERE table_name = $1 AND waiter_name IS NOT NULL AND waiter_name != ''
+          AND waiter_name NOT ILIKE '%encargado%'
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `, [table]);
+
+      if (orderRes.rows.length > 0 && orderRes.rows[0].waiter_name) {
+        resolvedWaiter = orderRes.rows[0].waiter_name;
       }
     }
 
