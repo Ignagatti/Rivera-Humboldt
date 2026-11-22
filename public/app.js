@@ -1242,6 +1242,7 @@ function selectTable(tableName) {
 
     document.getElementById('waiter-tables-view').classList.add('hidden');
     document.getElementById('waiter-order-view').classList.remove('hidden');
+    setMobileDrawerState(false);
 
     searchQuery = "";
     showFullMenuOverride = false;
@@ -2851,16 +2852,19 @@ function toggleOrderDrawer() {
 }
 
 function setMobileDrawerState(open) {
-    isDrawerOpen = open;
+    isDrawerOpen = !!open;
     const content = document.getElementById('order-drawer-content');
     const chevron = document.getElementById('drawer-chevron');
+    const backdrop = document.getElementById('order-drawer-backdrop');
 
     if (open) {
-        content.classList.remove('hidden');
+        if (content) content.classList.remove('hidden');
         if (chevron) chevron.classList.add('rotate-180');
+        if (backdrop) backdrop.classList.remove('hidden');
     } else {
-        content.classList.add('hidden');
+        if (content) content.classList.add('hidden');
         if (chevron) chevron.classList.remove('rotate-180');
+        if (backdrop) backdrop.classList.add('hidden');
     }
 }
 
@@ -2899,7 +2903,7 @@ function renderOrderList() {
                         <p class="text-[11px] text-amber-800">Tienes <strong>${newItemsCount}</strong> plato${newItemsCount === 1 ? '' : 's'} pendiente${newItemsCount === 1 ? '' : 's'} de enviar a cocina.</p>
                     </div>
                 </div>
-                <button onclick="sendOrderToKitchen()" class="bg-amber-500 hover:bg-amber-600 text-white font-black px-3.5 py-2 rounded-xl text-xs shadow-md transition-all shrink-0 cursor-pointer flex items-center space-x-1.5">
+                <button onclick="sendOrderToKitchen()" class="bg-amber-500 hover:bg-amber-600 text-white font-black px-3.5 py-2 rounded-xl text-xs shadow-md transition-all shrink-0 cursor-pointer flex items-center space-x-1.5 active:scale-95">
                     <i class="fa-solid fa-paper-plane"></i>
                     <span>Enviar Ya</span>
                 </button>
@@ -2919,8 +2923,8 @@ function renderOrderList() {
         `;
         if (sendBtn) {
             sendBtn.disabled = true;
-            sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 cursor-not-allowed";
-            sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina</span>';
+            sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 px-2 rounded-xl text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed";
+            sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i><span>Enviar</span>';
         }
         if (payBtn) payBtn.disabled = true;
         if (ticketBtn) ticketBtn.disabled = true;
@@ -2933,12 +2937,12 @@ function renderOrderList() {
     if (sendBtn) {
         if (newItemsCount > 0) {
             sendBtn.disabled = false;
-            sendBtn.className = "w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/30 flex items-center justify-center space-x-2 cursor-pointer ring-2 ring-amber-400 ring-offset-1 animate-pulse";
-            sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Enviar a Cocina (${newItemsCount} pendiente${newItemsCount === 1 ? '' : 's'})</span>`;
+            sendBtn.className = "w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-2.5 px-2 rounded-xl text-xs transition-all shadow-md shadow-amber-500/25 flex items-center justify-center space-x-1.5 cursor-pointer ring-2 ring-amber-400 ring-offset-1 animate-pulse active:scale-95";
+            sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Enviar (${newItemsCount})</span>`;
         } else {
             sendBtn.disabled = true;
-            sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 cursor-not-allowed";
-            sendBtn.innerHTML = '<i class="fa-solid fa-check-double text-emerald-500"></i><span>Todo enviado a cocina</span>';
+            sendBtn.className = "w-full bg-slate-100 text-slate-400 font-bold py-2.5 px-2 rounded-xl text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed";
+            sendBtn.innerHTML = '<i class="fa-solid fa-check-double text-emerald-500"></i><span>Enviado</span>';
         }
     }
 
@@ -3364,6 +3368,7 @@ function switchAdminTab(tabName) {
 }
 
 function switchToWaiterTables() {
+    setMobileDrawerState(false);
     document.getElementById('admin-workspace').classList.add('hidden');
     document.getElementById('waiter-order-view').classList.add('hidden');
     document.getElementById('waiter-tables-view').classList.remove('hidden');
@@ -3372,6 +3377,7 @@ function switchToWaiterTables() {
 }
 
 function switchToAdminWorkspace(tab = 'kitchen') {
+    setMobileDrawerState(false);
     document.getElementById('waiter-tables-view').classList.add('hidden');
     document.getElementById('waiter-order-view').classList.add('hidden');
     document.getElementById('admin-workspace').classList.remove('hidden');
