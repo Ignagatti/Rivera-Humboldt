@@ -1284,34 +1284,23 @@ const WEEK_DAYS_ORDERED = [
 let showFullMenuOverride = false;
 let expandedAdminItemDaysId = null;
 
-function getShiftDate() {
-    const now = new Date();
-    // Entre las 00:00 y las 06:00 AM, el turno operativo pertenece a la noche iniciada el día anterior (ej. Sábado)
-    if (now.getHours() < 6) {
-        const prev = new Date(now);
-        prev.setDate(prev.getDate() - 1);
-        return prev;
-    }
-    return now;
-}
-
 function getShiftDateInfo() {
-    const now = new Date();
-    const isOvernight = now.getHours() < 6;
-    const shiftDate = getShiftDate();
+    let shiftDate = new Date();
+    if (Array.isArray(paymentHistory) && paymentHistory.length > 0) {
+        const lastPay = paymentHistory[paymentHistory.length - 1];
+        if (lastPay.created_at) {
+            shiftDate = new Date(lastPay.created_at);
+        }
+    }
     const dayName = shiftDate.toLocaleDateString('es-AR', { weekday: 'long' });
     const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
-    const dateNumStr = shiftDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
-    
-    const shiftTitle = isOvernight 
-        ? `Turno Noche: ${capitalizedDay} ${shiftDate.getDate()} / Madrugada Domingo ${now.getDate()}`
-        : `Turno: ${capitalizedDay}, ${dateNumStr}`;
-    return { isOvernight, shiftDate, shiftTitle, capitalizedDay };
+    const dateNumStr = shiftDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' });
+    const shiftTitle = `Turno en Curso: ${capitalizedDay} ${dateNumStr}`;
+    return { shiftDate, shiftTitle, capitalizedDay };
 }
 
 function getTodayDayIndex() {
-    // Si son entre las 00:00 y las 06:00 AM, seguimos en el turno gastronómico de la noche anterior (ej. Sábado)
-    return getShiftDate().getDay();
+    return new Date().getDay();
 }
 
 function getTodayDayName() {
@@ -1328,15 +1317,14 @@ function getCategoryDays(cat) {
 function isCategoryAvailableToday(cat) {
     if (!cat) return false;
     if (cat.isActive === false) return false;
-    return getCategoryDays(cat).includes(getTodayDayIndex());
+    // Las categorías activas no se ocultan jamás por cambio de día en un turno en curso
+    return true;
 }
 
 function isItemAvailableToday(item, cat) {
     if (!item) return false;
     if (item.isAvailable === false) return false;
-    if (Array.isArray(item.availableDays)) {
-        return item.availableDays.map(Number).includes(getTodayDayIndex());
-    }
+    // Los ítems activos se mantienen siempre disponibles durante todo el turno
     return isCategoryAvailableToday(cat);
 }
 
@@ -5236,6 +5224,18 @@ function buildEscPosBytes(data) {
             pushLine(sepDash);
         }
 
+        if (Array.isArray(data.payments) && data.payments.length > 0) {
+            pushBytes(ALIGN_CENTER);
+            pushLine('DETALLE DE MESAS COBRADAS');
+            pushBytes(ALIGN_LEFT);
+            data.payments.forEach(p => {
+                const dayTag = getPaymentDayTag(p);
+                pushLeftRight(`${p.table} [${dayTag} ${p.time}]`, `$${Number(p.total).toLocaleString('es-AR')}`, cols1x);
+                pushLine(`  Mozo: ${p.waiter || 'Sin mozo'} | ${p.method}${p.tip ? ' | Prop: $' + Number(p.tip).toLocaleString('es-AR') : ''}`);
+            });
+            pushLine(sepDash);
+        }
+
         pushBytes(ALIGN_CENTER);
         pushLine('SARMIENTO POS');
     } else {
@@ -5454,6 +5454,24 @@ function buildThermalPrintHtml(data) {
                 <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">TOP GUSTOS DE PIZZA</div>
                 ${topFlavorsHtml}
             </div>
+
+            ${Array.isArray(data.payments) && data.payments.length > 0 ? `
+                <div class="meta-block">
+                    <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">DETALLE DE MESAS COBRADAS</div>
+                    ${data.payments.map(p => {
+                        const dayTag = getPaymentDayTag(p);
+                        return `
+                            <div class="meta-row strong-row" style="margin-top: 1mm;">
+                                <span>${escapeHtmlSafe(p.table)} [${escapeHtmlSafe(dayTag)} ${escapeHtmlSafe(p.time)}]</span>
+                                <span>$${Number(p.total).toLocaleString('es-AR')}</span>
+                            </div>
+                            <div class="meta-row" style="font-size: 8pt; color: #555;">
+                                <span>Mozo: ${escapeHtmlSafe(p.waiter || 'Sin mozo')} | ${escapeHtmlSafe(p.method)}${p.tip ? ' | Prop: $' + Number(p.tip).toLocaleString('es-AR') : ''}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            ` : ''}
 
             <div class="footer-block">
                 <div class="legal-note" style="text-align:center;">Sarmiento POS - Resumen de Turno</div>
@@ -6679,23 +6697,42 @@ function isPizzaLibreSoldItem(it) {
 }
 
 function getSoldItemBaseName(it) {
-    if (it.baseName) return it.baseName;
-    return String(it.name || '').replace(/\s*\(\d+\s*personas?\)\s*$/i, '').trim();
+    const rawName = String(it.baseName || it.name || '').trim();
+    if (/parrilla/i.test(rawName)) {
+        if (/menor/i.test(rawName)) return 'Parrilla Menores';
+        return 'Parrilla';
+    }
+    if (/pizza\s*libre/i.test(rawName)) {
+        return 'Pizza Libre';
+    }
+    return rawName.replace(/\s*\(\d+\s*personas?\)\s*$/i, '').trim();
 }
 
 function resolveSoldItemCategory(it) {
     const loc = findMenuItemLocation(it.menuItemId) || findMenuItemLocation(it.id);
     let catKey = it.categoryId || (loc ? loc.catKey : '');
-    if (!catKey && (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_')))) {
-        catKey = 'pizzas';
+    const rawName = String(it.name || '').trim();
+    if (!catKey) {
+        if (/parrilla/i.test(rawName)) {
+            catKey = 'parrilla';
+        } else if (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_'))) {
+            catKey = 'pizzas';
+        } else {
+            catKey = 'otros';
+        }
     }
-    if (!catKey) catKey = 'otros';
     const cat = menuData[catKey];
+    let subcategory = String(it.subcategory || (loc && loc.item.subcategory) || '').trim();
+    if (/parrilla/i.test(rawName)) {
+        subcategory = /menor/i.test(rawName) ? 'Parrilla Menores' : 'Parrilla';
+    } else if (isPizzaLibreSoldItem(it)) {
+        subcategory = 'Pizza Libre';
+    }
     return {
         catKey,
-        catName: cat ? cat.name : (catKey === 'pizzas' ? 'Pizzas' : 'Otros'),
-        icon: (cat && cat.icon) ? cat.icon : (catKey === 'pizzas' ? 'fa-pizza-slice' : 'fa-utensils'),
-        subcategory: String(it.subcategory || (loc && loc.item.subcategory) || '').trim()
+        catName: cat ? cat.name : (catKey === 'parrilla' ? 'Parrilla' : (catKey === 'pizzas' ? 'Pizzas' : 'Otros')),
+        icon: (cat && cat.icon) ? cat.icon : (catKey === 'parrilla' ? 'fa-fire' : (catKey === 'pizzas' ? 'fa-pizza-slice' : 'fa-utensils')),
+        subcategory
     };
 }
 
@@ -6717,6 +6754,7 @@ function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
             const price = Number(it.price) || 0;
             const revenue = qty * price;
             const info = resolveSoldItemCategory(it);
+            const rawName = String(it.baseName || it.name || '').trim();
 
             if (!cats[info.catKey]) {
                 cats[info.catKey] = { key: info.catKey, name: info.catName, icon: info.icon, units: 0, persons: 0, revenue: 0, extraRounds: 0, subs: {} };
@@ -6728,7 +6766,7 @@ function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
             if (isPizzaLibreSoldItem(it)) {
                 if (price > 0) persons = Number(it.librePersons) || qty || 1;
                 else c.extraRounds += 1;
-            } else if (it.perPerson) {
+            } else if (it.perPerson || /parrilla/i.test(rawName)) {
                 persons = qty;
             } else {
                 units = qty;
@@ -6739,9 +6777,10 @@ function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
             c.revenue += revenue;
             grandRevenue += revenue;
 
-            if (info.subcategory) {
-                if (!c.subs[info.subcategory]) c.subs[info.subcategory] = { name: info.subcategory, units: 0, persons: 0, revenue: 0 };
-                const s = c.subs[info.subcategory];
+            const subcatName = info.subcategory;
+            if (subcatName) {
+                if (!c.subs[subcatName]) c.subs[subcatName] = { name: subcatName, units: 0, persons: 0, revenue: 0 };
+                const s = c.subs[subcatName];
                 s.units += units;
                 s.persons += persons;
                 s.revenue += revenue;
@@ -6774,9 +6813,18 @@ function computeProductRanking(payments = getAllShiftConsumptionRecords()) {
                 const qty = Number(it.qty) || 0;
                 const price = Number(it.price) || 0;
                 const info = resolveSoldItemCategory(it);
+                const rawName = String(it.baseName || it.name || '').trim();
+
                 if (isPizzaLibreSoldItem(it)) {
                     if (price > 0) {
-                        add('Pizza Libre (por persona)', info.catName, Number(it.librePersons) || qty || 1, price * qty, true);
+                        const persons = Number(it.librePersons) || qty || 1;
+                        add('Pizza Libre', info.catName || 'Pizzas', persons, price * qty, true);
+                    }
+                } else if (/parrilla/i.test(rawName)) {
+                    if (/menor/i.test(rawName)) {
+                        add('Parrilla Menores', info.catName || 'Parrilla', qty, price * qty, true);
+                    } else {
+                        add('Parrilla', info.catName || 'Parrilla', qty, price * qty, true);
                     }
                 } else if (it.perPerson) {
                     add(`${getSoldItemBaseName(it)} (por persona)`, info.catName, qty, price * qty, true);
@@ -6791,7 +6839,13 @@ function computeProductRanking(payments = getAllShiftConsumptionRecords()) {
                 const name = m ? m[2].trim() : part;
                 if (/pizza\s*libre/i.test(name)) {
                     if (/ronda\)/i.test(name) && !/1ra/i.test(name)) return;
-                    add('Pizza Libre (por persona)', 'Pizzas', qty, 0, true);
+                    add('Pizza Libre', 'Pizzas', qty, 0, true);
+                } else if (/parrilla/i.test(name)) {
+                    if (/menor/i.test(name)) {
+                        add('Parrilla Menores', 'Parrilla', qty, 0, true);
+                    } else {
+                        add('Parrilla', 'Parrilla', qty, 0, true);
+                    }
                 } else {
                     add(name, 'Otros', qty, 0, false);
                 }
@@ -7054,14 +7108,48 @@ function renderNightReportView() {
 
 function downloadNightReportPDF() {
     const element = document.getElementById('pdf-report-container');
+    if (!element) return;
+
+    // Expand all scrollable containers so no tables, rankings, or items are cut off
+    const scrollContainers = element.querySelectorAll('.max-h-96, .max-h-72, .overflow-y-auto, [class*="max-h-"]');
+    const savedStyles = [];
+    scrollContainers.forEach(el => {
+        savedStyles.push({
+            el,
+            maxHeight: el.style.maxHeight,
+            overflow: el.style.overflow,
+            height: el.style.height
+        });
+        el.style.maxHeight = 'none';
+        el.style.overflow = 'visible';
+        el.style.height = 'auto';
+    });
+
     const opt = {
-        margin: [8, 8, 8, 8],
+        margin: [6, 6, 6, 6],
         filename: `Reporte_Turno_${new Date().toISOString().slice(0, 10)}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
-    html2pdf().set(opt).from(element).save();
+
+    const restoreStyles = () => {
+        savedStyles.forEach(s => {
+            s.el.style.maxHeight = s.maxHeight;
+            s.el.style.overflow = s.overflow;
+            s.el.style.height = s.height;
+        });
+    };
+
+    try {
+        html2pdf().set(opt).from(element).save().then(restoreStyles).catch(err => {
+            console.error('Error generating PDF:', err);
+            restoreStyles();
+        });
+    } catch (e) {
+        console.error('Error initiating PDF:', e);
+        restoreStyles();
+    }
 }
 
 function copyNightReportText() {
@@ -7216,8 +7304,9 @@ async function printNightReportThermal() {
         tipsPool: generalTipsPool,
         ordersCount,
         categories: catSales.list,
-        topProducts: ranking.slice(0, 10),
-        topFlavors: pizzaStats.sortedFlavors
+        topProducts: ranking.slice(0, 15),
+        topFlavors: pizzaStats.sortedFlavors,
+        payments: paymentHistory
     };
 
     if (winPrintEndpoint && selectedWinPrinter) {
