@@ -893,6 +893,28 @@ app.post('/api/checkout', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Blindaje anti-doble-cobro simultáneo entre dos dispositivos (PC y celular):
+    // Bloquear la fila de la mesa con FOR UPDATE y verificar que siga teniendo ítems o comanda sin pagar.
+    const tableLockRes = await client.query(
+      "SELECT items FROM pos_table_orders WHERE table_name = $1 FOR UPDATE",
+      [table]
+    );
+    const activeCmdCheck = await client.query(
+      "SELECT id FROM pos_kitchen_orders WHERE table_name = $1 AND status != 'paid' LIMIT 1",
+      [table]
+    );
+    const tableHasItems = tableLockRes.rows.length > 0 && Array.isArray(tableLockRes.rows[0].items) && tableLockRes.rows[0].items.length > 0;
+    const hasActiveCmd = activeCmdCheck.rows.length > 0;
+
+    if (!tableHasItems && !hasActiveCmd) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        alreadyPaid: true,
+        error: `La ${table} ya fue cobrada y liberada desde otro dispositivo.`
+      });
+    }
+
     // Resolver mozo asociado a la mesa:
     // Solo si quien cobra es explícitamente "Perello (Encargado)" o no seleccionó a nadie (vacío),
     // se le asocia la propina al mozo que tomó la comanda.
@@ -916,7 +938,7 @@ app.post('/api/checkout', async (req, res) => {
       }
     }
 
-    const paymentId = `PAG-${Date.now().toString().slice(-4)}`;
+    const paymentId = `PAG-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
 
     // Guardar en historial de pagos asignando al mozo correspondiente
     await client.query(`
@@ -961,6 +983,7 @@ app.post('/api/checkout', async (req, res) => {
       id: paymentId,
       table,
       waiter: resolvedWaiter,
+      waiterTips: waiterTips || null,
       time,
       method,
       total,
@@ -1198,7 +1221,7 @@ app.post('/api/night-report/close', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const reportId = id || `CIERRE-${Date.now().toString().slice(-4)}`;
+    const reportId = id || `CIERRE-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
 
     await client.query(`
       INSERT INTO pos_night_reports (id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note)

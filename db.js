@@ -149,8 +149,14 @@ async function initDatabase() {
         tip NUMERIC(12, 2) DEFAULT 0,
         items_summary TEXT DEFAULT '',
         items JSONB DEFAULT '[]'::jsonb,
+        waiter_tips JSONB DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+    `);
+
+    await client.query(`
+      ALTER TABLE pos_payment_history
+      ADD COLUMN IF NOT EXISTS waiter_tips JSONB DEFAULT NULL;
     `);
 
     // 8. Cierres de noche archivados

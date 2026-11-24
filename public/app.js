@@ -218,17 +218,45 @@ function sortTablesNaturally(tables) {
 
 let tableSaveInFlightCount = 0;
 let lastLocalTableEditAt = 0;
+let kitchenMutationInFlightCount = 0;
+let lastLocalKitchenMutationAt = 0;
+let pollSyncGeneration = 0;
 
 function markLocalTableEdited() {
     lastLocalTableEditAt = Date.now();
+    pollSyncGeneration++;
+}
+
+function markLocalKitchenMutated() {
+    lastLocalKitchenMutationAt = Date.now();
+    lastLocalTableEditAt = Date.now();
+    pollSyncGeneration++;
+}
+
+function isLocalMutationProtected() {
+    return (
+        tableSaveInFlightCount > 0 ||
+        kitchenMutationInFlightCount > 0 ||
+        (Date.now() - lastLocalTableEditAt < 3500) ||
+        (Date.now() - lastLocalKitchenMutationAt < 3500)
+    );
 }
 
 // Cargar estado directamente desde la API de Neon DB
 async function fetchServerState(silent = false) {
+    if (silent && isLocalMutationProtected()) {
+        return false;
+    }
+    const fetchGen = pollSyncGeneration;
     try {
         const res = await fetch('/api/state');
         if (!res.ok) throw new Error('Respuesta del servidor no exitosa');
         const data = await res.json();
+        // Si durante el viaje del GET ocurrió una acción local (entregar, borrar, agregar, cobrar),
+        // descartar esta respuesta vieja para evitar parpadeos donde los ítems vuelven a aparecer
+        if (silent && (fetchGen !== pollSyncGeneration || isLocalMutationProtected())) {
+            return false;
+        }
         if (data.success && data.data) {
             const d = data.data;
             if (Array.isArray(d.staffList) && d.staffList.length > 0) staffList = d.staffList;
@@ -241,7 +269,7 @@ async function fetchServerState(silent = false) {
             if (Array.isArray(d.availableTables) && d.availableTables.length > 0) {
                 availableTables = sortTablesNaturally(d.availableTables);
             }
-            const isActivelyEditingTable = tableSaveInFlightCount > 0 || (Date.now() - lastLocalTableEditAt < 3500);
+            const isActivelyEditingTable = isLocalMutationProtected();
             if (d.ordersByTable) {
                 if (silent && isActivelyEditingTable && currentTable && ordersByTable[currentTable]) {
                     const preservedCurrent = ordersByTable[currentTable];
@@ -557,12 +585,25 @@ function refreshActiveViewsQuietly() {
 }
 
 let smartPollingInterval = null;
+let visibilitySyncBound = false;
+
 function initSmartPolling() {
     if (smartPollingInterval) clearInterval(smartPollingInterval);
-    // Cada 2.5 segundos sincroniza con Neon DB de forma transparente para Vercel Serverless
+    // Cada 4.5 segundos sincroniza con Neon DB (ahorra ~70% de datos móviles y batería),
+    // pausando automáticamente cuando el celular está bloqueado o en segundo plano.
     smartPollingInterval = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
         fetchServerState(true);
-    }, 2500);
+    }, 4500);
+
+    if (!visibilitySyncBound && typeof document !== 'undefined') {
+        visibilitySyncBound = true;
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                fetchServerState(true);
+            }
+        });
+    }
 }
 
 // ================= INICIALIZACIÓN =================
@@ -806,12 +847,77 @@ function logoutStaff() {
     updateAdminNavButtons();
 }
 
-function updateHeaderIndicators() {
-    const tipsElem = document.getElementById('header-tips-summary');
-    if (tipsElem) tipsElem.innerText = `Caja Propinas: $${generalTipsPool.toLocaleString()}`;
+function isCurrentUserAdmin() {
+    if (!currentUser || !currentUser.role) return false;
+    return (
+        currentUser.role.includes('Admin') ||
+        currentUser.role.includes('Cocina') ||
+        currentUser.role.includes('Encargado')
+    );
+}
 
+function isPaymentAssociatedWithWaiter(p, waiterName) {
+    if (!p || !waiterName) return false;
+    const target = String(waiterName).trim().toLowerCase();
+    if (!target) return false;
+
+    if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
+        const hasKey = Object.keys(p.waiterTips).some(k => String(k).trim().toLowerCase() === target);
+        if (hasKey) return true;
+    }
+
+    const rawWaiter = String(p.waiter || '').trim();
+    if (!rawWaiter) return false;
+    const parts = rawWaiter.split('/').map(s => s.trim().toLowerCase()).filter(Boolean);
+    return parts.includes(target) || rawWaiter.toLowerCase() === target;
+}
+
+function getWaiterTipFromPayment(p, waiterName) {
+    if (!p || !waiterName) return 0;
+    const target = String(waiterName).trim().toLowerCase();
+    if (!target) return 0;
+
+    if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
+        for (const [k, val] of Object.entries(p.waiterTips)) {
+            if (String(k).trim().toLowerCase() === target) {
+                return Number(val) || 0;
+            }
+        }
+        return 0;
+    }
+
+    return isPaymentAssociatedWithWaiter(p, waiterName) ? (Number(p.tip) || 0) : 0;
+}
+
+function getWaiterOwnStats(waiterName) {
+    const associatedPayments = (paymentHistory || []).filter(p => isPaymentAssociatedWithWaiter(p, waiterName));
+    const totalTips = associatedPayments.reduce((acc, p) => acc + getWaiterTipFromPayment(p, waiterName), 0);
+    return {
+        payments: associatedPayments,
+        tablesClosed: associatedPayments.length,
+        tips: totalTips
+    };
+}
+
+function updateHeaderIndicators() {
+    const isAdmin = isCurrentUserAdmin();
+    const tipsElem = document.getElementById('header-tips-summary');
     const paymentsCountElem = document.getElementById('header-payments-count');
-    if (paymentsCountElem) paymentsCountElem.innerText = paymentHistory.length;
+    const shiftBtn = document.getElementById('header-shift-summary-btn');
+
+    if (shiftBtn) {
+        if (isAdmin) shiftBtn.classList.remove('hidden');
+        else shiftBtn.classList.add('hidden');
+    }
+
+    if (isAdmin || !currentUser) {
+        if (tipsElem) tipsElem.innerText = `Caja Propinas: $${generalTipsPool.toLocaleString()}`;
+        if (paymentsCountElem) paymentsCountElem.innerText = paymentHistory.length;
+    } else {
+        const own = getWaiterOwnStats(currentUser.name);
+        if (tipsElem) tipsElem.innerText = `Mi Propina: $${own.tips.toLocaleString()} • ${own.tablesClosed} mesa${own.tablesClosed === 1 ? '' : 's'}`;
+        if (paymentsCountElem) paymentsCountElem.innerText = own.tablesClosed;
+    }
 }
 
 // ================= NOTIFICACIONES DE COCINA PARA MOZOS =================
@@ -934,7 +1040,8 @@ function closeWaiterNotificationsModal() {
 }
 
 async function markOrderDeliveredFromNotif(cmdId) {
-    // Actualizar estado en servidor y local
+    markLocalKitchenMutated();
+    // Actualizar estado en servidor y local al instante
     const order = kitchenOrders.find(o => o.id === cmdId);
     if (order) {
         order.status = 'delivered';
@@ -948,7 +1055,9 @@ async function markOrderDeliveredFromNotif(cmdId) {
     saveLocalState();
     refreshActiveViews();
     closeWaiterNotificationsModal();
+    showToast(`Pedido de ${order ? order.table : 'mesa'} marcado como entregado`, 'success');
 
+    kitchenMutationInFlightCount++;
     try {
         const res = await fetch(`/api/orders/${cmdId}/status`, {
             method: 'PUT',
@@ -961,9 +1070,10 @@ async function markOrderDeliveredFromNotif(cmdId) {
         }
     } catch (e) {
         console.warn('Sincronización diferida:', e);
+    } finally {
+        kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+        markLocalKitchenMutated();
     }
-
-    showToast(`Pedido de ${order ? order.table : 'mesa'} marcado como entregado`, 'success');
 }
 
 // ================= SINCRONIZACIÓN Y CONSOLIDACIÓN TOTAL DE COMANDAS =================
@@ -1459,19 +1569,19 @@ let perPersonModalCount = 1;
 
 function inferBeverageSubcategory(item) {
     const text = `${item && item.name ? item.name : ''} ${item && item.desc ? item.desc : ''}`.toLowerCase();
-    if (/agua|soda|villavicencio|eco de los andes|glaciar|ivess|saborizada|aquarius|levite|levité|h2oh|ser\b/.test(text)) {
+    if (/agua|soda|villavicencio|eco de los andes|glaciar|ivess|saborizada|aquarius|levite|levité|h2oh|ser\b|sierra de los padres|kin\b|bonaqua/.test(text)) {
         return 'Aguas y Saborizadas';
     }
-    if (/coca|sprite|fanta|pepsi|7up|seven|paso de los toros|tonica|tónica|pomelo|gaseosa|schweppes|mirinda|manaos|pritty|jugo|cepita|limonada|exprimido|monster|red bull|speed/.test(text)) {
+    if (/coca|sprite|fanta|pepsi|7up|seven|paso de los toros|tonica|tónica|pomelo|gaseosa|schweppes|mirinda|manaos|pritty|jugo|cepita|limonada|exprimido|monster|red bull|speed|aquarius|baggio|citric|ades|energizante|lata gaseosa|botella gaseosa/.test(text)) {
         return 'Gaseosas y Jugos';
     }
-    if (/cerveza|liso|pilsen|santa fe|pinta|ipa|apa|stout|honey|golden|quilmes|patagonia|corona|heineken|stella|brahma|andes|imperial|lata|laton|latón|porron|porrón|chopp|schneider|budweiser|amstel|miller|kunstmann|grolsch|warsteiner/.test(text)) {
+    if (/cerveza|liso|pilsen|santa fe|pinta|ipa|apa|stout|honey|golden|quilmes|patagonia|corona|heineken|stella|brahma|andes|imperial|lata|laton|latón|porron|porrón|chopp|schneider|budweiser|amstel|miller|kunstmann|grolsch|warsteiner|barril|birra|rubia|negra|roja/.test(text)) {
         return 'Cervezas';
     }
-    if (/vino|champan|champán|champagne|espumante|sidra|santa julia|navarro correa|dada|dadá|malbec|cabernet|merlot|syrah|tintillo|blanco|rosado|chandon|rutini|trumpeter|luigi bosca|alamos|cosecha|jarra de vino|copa de vino|torrontes|torrontés|alma mora|portillo|valentin|valentín|salentein/.test(text)) {
+    if (/vino|champan|champán|champagne|espumante|sidra|santa julia|navarro correa|dada|dadá|malbec|cabernet|merlot|syrah|tintillo|blanco|rosado|chandon|rutini|trumpeter|luigi bosca|alamos|cosecha|jarra de vino|copa de vino|torrontes|torrontés|alma mora|portillo|valentin|valentín|salentein|benjamin|benjamín|latitud|cafayate|emilia|nieto|pinguino|pingüino|tinto|chenin|chardonnay/.test(text)) {
         return 'Vinos y Espumantes';
     }
-    if (/fernet|campari|gin|gancia|vermut|aperol|cynar|trago|whisky|vodka|ron|caipirinha|mojito|negroni|daikiri|aperitivo|baileys|tequila/.test(text)) {
+    if (/fernet|campari|gin|gancia|vermut|vermouth|aperol|cynar|trago|whisky|vodka|ron|caipirinha|mojito|negroni|daikiri|daiquiri|aperitivo|baileys|tequila|branca|carpano|martini|smirnoff|absolut|jager|jäger|licor|medida/.test(text)) {
         return 'Tragos y Aperitivos';
     }
     return 'Otras Bebidas';
@@ -2775,6 +2885,277 @@ function addToOrder(itemId) {
     showToast(`+1 ${item.name} agregado a ${currentTable}`, 'success');
 }
 
+let deleteQtyModalContext = null;
+
+function openDeleteQtyModal({ title, subtitle, itemName, maxQty, defaultQty, unitPrice, isPerPerson, onConfirmQty }) {
+    const cleanMax = Math.max(1, Number(maxQty) || 1);
+    const cleanDefault = Math.min(cleanMax, Math.max(1, Number(defaultQty) || 1));
+
+    deleteQtyModalContext = {
+        itemName: itemName || 'Producto',
+        maxQty: cleanMax,
+        currentQty: cleanDefault,
+        unitPrice: Number(unitPrice) || 0,
+        isPerPerson: Boolean(isPerPerson),
+        onConfirmQty
+    };
+
+    const titleEl = document.getElementById('delete-qty-modal-title');
+    const subEl = document.getElementById('delete-qty-modal-subtitle');
+    const maxBadge = document.getElementById('delete-qty-max-badge');
+    const selectorWrap = document.getElementById('delete-qty-selector-wrap');
+    const pillsWrap = document.getElementById('delete-qty-quick-pills');
+
+    if (titleEl) titleEl.innerText = title || `Borrar ${itemName}`;
+    if (subEl) subEl.innerText = subtitle || 'Se descontará al instante de la comanda y la cuenta';
+    if (maxBadge) maxBadge.innerText = `Hay ${cleanMax} ${isPerPerson ? (cleanMax === 1 ? 'persona' : 'personas') : (cleanMax === 1 ? 'unidad' : 'unidades')}`;
+
+    if (selectorWrap) {
+        if (cleanMax <= 1) {
+            selectorWrap.classList.add('hidden');
+        } else {
+            selectorWrap.classList.remove('hidden');
+        }
+    }
+
+    if (pillsWrap) {
+        if (cleanMax > 1) {
+            const candidateQtys = [1, 2, 3, 5, cleanMax].filter((v, idx, arr) => v <= cleanMax && arr.indexOf(v) === idx);
+            pillsWrap.innerHTML = candidateQtys.map(q => {
+                const isAll = q === cleanMax;
+                const label = isAll ? `Todo (${cleanMax})` : `${q}`;
+                return `
+                    <button type="button" onclick="setDeleteQtyModalCount(${q})"
+                        data-del-pill="${q}"
+                        class="del-qty-pill px-2.5 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer">
+                        ${label}
+                    </button>
+                `;
+            }).join('');
+        } else {
+            pillsWrap.innerHTML = '';
+        }
+    }
+
+    updateDeleteQtyModalUI();
+
+    const modal = document.getElementById('delete-qty-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeDeleteQtyModal() {
+    const modal = document.getElementById('delete-qty-modal');
+    if (modal) modal.classList.add('hidden');
+    deleteQtyModalContext = null;
+}
+
+function changeDeleteQtyModalCount(delta) {
+    if (!deleteQtyModalContext) return;
+    let next = deleteQtyModalContext.currentQty + delta;
+    if (next < 1) next = 1;
+    if (next > deleteQtyModalContext.maxQty) next = deleteQtyModalContext.maxQty;
+    deleteQtyModalContext.currentQty = next;
+    updateDeleteQtyModalUI();
+}
+
+function setDeleteQtyModalCount(val) {
+    if (!deleteQtyModalContext) return;
+    let next = Number(val) || 1;
+    if (next < 1) next = 1;
+    if (next > deleteQtyModalContext.maxQty) next = deleteQtyModalContext.maxQty;
+    deleteQtyModalContext.currentQty = next;
+    updateDeleteQtyModalUI();
+}
+
+function updateDeleteQtyModalUI() {
+    if (!deleteQtyModalContext) return;
+    const { currentQty, maxQty, unitPrice, isPerPerson, itemName } = deleteQtyModalContext;
+    const countEl = document.getElementById('delete-qty-modal-count');
+    const unitEl = document.getElementById('delete-qty-unit-label');
+    const discountEl = document.getElementById('delete-qty-modal-discount');
+    const confirmLabel = document.getElementById('delete-qty-confirm-label');
+
+    if (countEl) countEl.innerText = currentQty;
+    if (unitEl) {
+        unitEl.innerText = isPerPerson
+            ? (currentQty === 1 ? 'persona a descontar' : 'personas a descontar')
+            : (currentQty === 1 ? 'unidad a borrar' : 'unidades a borrar');
+    }
+    const discount = currentQty * (Number(unitPrice) || 0);
+    if (discountEl) discountEl.innerText = `-$${discount.toLocaleString()}`;
+    if (confirmLabel) {
+        if (maxQty === 1) {
+            confirmLabel.innerText = 'Confirmar y Borrar';
+        } else if (currentQty === maxQty) {
+            confirmLabel.innerText = `Borrar Todo (${currentQty}x)`;
+        } else {
+            confirmLabel.innerText = `Borrar ${currentQty}x`;
+        }
+    }
+
+    document.querySelectorAll('.del-qty-pill').forEach(btn => {
+        const q = Number(btn.getAttribute('data-del-pill'));
+        if (q === currentQty) {
+            btn.className = 'del-qty-pill px-2.5 py-1 rounded-xl text-xs font-bold border border-rose-600 bg-rose-600 text-white shadow-sm transition-all cursor-pointer';
+        } else {
+            btn.className = 'del-qty-pill px-2.5 py-1 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 text-slate-700 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-all cursor-pointer';
+        }
+    });
+}
+
+function confirmDeleteQtyModal() {
+    if (!deleteQtyModalContext) return;
+    const qtyToRemove = deleteQtyModalContext.currentQty;
+    const cb = deleteQtyModalContext.onConfirmQty;
+    closeDeleteQtyModal();
+    if (typeof cb === 'function') {
+        cb(qtyToRemove);
+    }
+}
+
+function removeKitchenItemsLocally(cmd, itemId, itemName, itemPrice, qtyToRemove, targetStatus = 'pending') {
+    if (!cmd || !Array.isArray(cmd.items)) return;
+    let remaining = Math.max(1, Number(qtyToRemove) || 1);
+    const targetClean = stripBracketNotes(itemName || '').trim().toLowerCase();
+
+    const matchesItem = (it) => {
+        const cleanItName = stripBracketNotes(it.name || '').trim().toLowerCase();
+        if (itemId && it.id === itemId && (!targetClean || cleanItName === targetClean)) return true;
+        if (targetClean && cleanItName === targetClean) {
+            if (itemPrice === undefined || itemPrice === null || Number(it.price) === Number(itemPrice)) return true;
+        }
+        return false;
+    };
+
+    const candidateIndices = [];
+    for (let i = cmd.items.length - 1; i >= 0; i--) {
+        if (matchesItem(cmd.items[i])) {
+            candidateIndices.push(i);
+        }
+    }
+
+    const prefStatus = targetStatus === 'delivered' ? 'delivered' : 'pending';
+    candidateIndices.sort((a, b) => {
+        const stA = (cmd.items[a].status || cmd.status) === 'delivered' ? 'delivered' : 'pending';
+        const stB = (cmd.items[b].status || cmd.status) === 'delivered' ? 'delivered' : 'pending';
+        if (stA === prefStatus && stB !== prefStatus) return -1;
+        if (stA !== prefStatus && stB === prefStatus) return 1;
+        return b - a;
+    });
+
+    const indicesToSplice = [];
+    for (const idx of candidateIndices) {
+        if (remaining <= 0) break;
+        const targetItem = cmd.items[idx];
+        const currentQty = Number(targetItem.qty) || 1;
+        if (currentQty > remaining) {
+            targetItem.qty = currentQty - remaining;
+            if (targetItem.perPerson && targetItem.baseName) {
+                targetItem.name = `${targetItem.baseName} (${targetItem.qty} persona${targetItem.qty === 1 ? '' : 's'})`;
+                targetItem.personsCount = targetItem.qty;
+            }
+            remaining = 0;
+        } else {
+            remaining -= currentQty;
+            indicesToSplice.push(idx);
+        }
+    }
+
+    indicesToSplice.sort((a, b) => b - a).forEach(idx => {
+        cmd.items.splice(idx, 1);
+    });
+
+    if (cmd.items.length === 0) {
+        kitchenOrders = kitchenOrders.filter(o => o.id !== cmd.id);
+        waiterNotifications = waiterNotifications.filter(n => n.id !== cmd.id);
+    } else {
+        cmd.total = cmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+        const hasPendingLeft = cmd.items.some(it => (it.status || cmd.status) !== 'delivered');
+        cmd.status = hasPendingLeft ? (cmd.status === 'delivered' ? 'pending' : cmd.status) : 'delivered';
+        if (!hasPendingLeft) {
+            waiterNotifications = waiterNotifications.filter(n => n.id !== cmd.id);
+        }
+    }
+}
+
+async function executeTableItemRemoval(itemId, qtyToRemove) {
+    if (!ordersByTable[currentTable]) return;
+    const tableItems = ordersByTable[currentTable].items;
+    const itemIndex = tableItems.findIndex(i => i.id === itemId);
+    if (itemIndex < 0) return;
+
+    const item = tableItems[itemIndex];
+    const currentQty = Number(item.qty) || 1;
+    const sent = Number(item.sentQty) || 0;
+    const unsent = Math.max(0, currentQty - sent);
+    const cleanRemove = Math.min(currentQty, Math.max(1, Number(qtyToRemove) || 1));
+
+    // Primero descontamos de las unidades que aún no se enviaron a cocina; el resto se descuenta de cocina
+    const removeFromUnsent = Math.min(unsent, cleanRemove);
+    const removeFromSent = Math.max(0, cleanRemove - removeFromUnsent);
+
+    markLocalTableEdited();
+    markLocalKitchenMutated();
+
+    const itemNameForLog = stripBracketNotes(item.baseName || item.name || 'Producto');
+    const itemPriceForSync = item.price;
+    const targetTable = currentTable;
+
+    // 1. Actualizar estado local de inmediato (0ms de demora en pantalla)
+    item.qty = currentQty - cleanRemove;
+    item.sentQty = Math.max(0, sent - removeFromSent);
+
+    if (item.qty <= 0) {
+        tableItems.splice(itemIndex, 1);
+    } else if (item.perPerson && item.baseName) {
+        item.name = `${item.baseName} (${item.qty} persona${item.qty === 1 ? '' : 's'})`;
+        item.personsCount = item.qty;
+    }
+
+    const activeCmd = kitchenOrders.find(o => o.table === targetTable && o.status !== 'paid');
+    if (removeFromSent > 0 && activeCmd) {
+        removeKitchenItemsLocally(activeCmd, item.id, item.name, itemPriceForSync, removeFromSent, 'pending');
+    }
+
+    saveCurrentTableState();
+    renderOrderList();
+    renderMenuGrid();
+    renderTablesGrid();
+    showToast(`${cleanRemove}x "${itemNameForLog}" descontado de ${targetTable}`, 'info');
+
+    // 2. Sincronizar con backend en segundo plano sin bloquear la pantalla
+    if (removeFromSent > 0 && activeCmd) {
+        kitchenMutationInFlightCount++;
+        try {
+            const res = await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    itemId: item.id,
+                    name: item.name,
+                    price: itemPriceForSync,
+                    qty: removeFromSent,
+                    targetStatus: 'pending'
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.orderDeleted) {
+                    kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
+                } else if (data.order) {
+                    const idx = kitchenOrders.findIndex(o => o.id === activeCmd.id);
+                    if (idx >= 0) kitchenOrders[idx] = data.order;
+                }
+            }
+        } catch (e) {
+            console.warn('Error al descontar ítem de comanda en backend:', e);
+        } finally {
+            kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+            markLocalKitchenMutated();
+        }
+    }
+}
+
 async function updateQuantity(itemId, delta) {
     if (!ordersByTable[currentTable]) return;
     const tableItems = ordersByTable[currentTable].items;
@@ -2788,44 +3169,26 @@ async function updateQuantity(itemId, delta) {
         const currentQty = Number(item.qty) || 1;
         const isReducingSentItem = currentQty <= sent;
 
+        // Si todas las unidades ya fueron enviadas a cocina, abrir modal propio con selector de cantidad
         if (isReducingSentItem && sent > 0) {
-            const confirmed = confirm(`¿Deseas descontar 1x "${item.name}" de la comanda de cocina y de la cuenta de ${currentTable}?`);
-            if (!confirmed) return;
-
-            markLocalTableEdited();
-
-            // Descontar de la comanda activa de cocina si existe
-            const activeCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
-            if (activeCmd) {
-                try {
-                    const res = await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            itemId: item.id,
-                            name: item.name,
-                            price: item.price,
-                            qty: 1,
-                            targetStatus: 'pending'
-                        })
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.orderDeleted) {
-                            kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
-                        } else if (data.order) {
-                            const idx = kitchenOrders.findIndex(o => o.id === activeCmd.id);
-                            if (idx >= 0) kitchenOrders[idx] = data.order;
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Error al descontar ítem de comanda en backend:', e);
+            openDeleteQtyModal({
+                title: `Quitar de ${currentTable}`,
+                subtitle: `${stripBracketNotes(item.baseName || item.name)} • Se descontará de cocina y de la cuenta`,
+                itemName: stripBracketNotes(item.baseName || item.name),
+                maxQty: currentQty,
+                defaultQty: 1,
+                unitPrice: item.price,
+                isPerPerson: Boolean(item.perPerson),
+                onConfirmQty: (qtyToRemove) => {
+                    executeTableItemRemoval(itemId, qtyToRemove);
                 }
-            }
-
-            item.sentQty = Math.max(0, sent - 1);
-            showToast(`1x ${item.name} descontado de la comanda y de la cuenta`, 'info');
+            });
+            return;
         }
+
+        // Si había unidades aún sin enviar a cocina, restar 1 al instante sin pedir confirmación
+        executeTableItemRemoval(itemId, 1);
+        return;
     }
 
     markLocalTableEdited();
@@ -2856,52 +3219,20 @@ async function promptDeleteItemFromTable(itemId) {
     if (itemIndex < 0) return;
 
     const item = tableItems[itemIndex];
-    const sent = Number(item.sentQty) || 0;
     const currentQty = Number(item.qty) || 1;
 
-    const confirmed = confirm(`¿Estás seguro de eliminar completamente "${item.name}" (${currentQty}x) de la cuenta de ${currentTable}?`);
-    if (!confirmed) return;
-
-    markLocalTableEdited();
-
-    if (sent > 0) {
-        const activeCmd = kitchenOrders.find(o => o.table === currentTable && o.status !== 'paid');
-        if (activeCmd) {
-            try {
-                const res = await fetch(`/api/orders/${activeCmd.id}/remove-item`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        itemId: item.id,
-                        name: item.name,
-                        price: item.price,
-                        qty: sent,
-                        targetStatus: 'pending'
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.orderDeleted) {
-                        kitchenOrders = kitchenOrders.filter(o => o.id !== activeCmd.id);
-                    } else if (data.order) {
-                        const idx = kitchenOrders.findIndex(o => o.id === activeCmd.id);
-                        if (idx >= 0) kitchenOrders[idx] = data.order;
-                    }
-                }
-            } catch (e) {
-                console.warn('Error al eliminar ítem de comanda en backend:', e);
-            }
+    openDeleteQtyModal({
+        title: `Borrar de ${currentTable}`,
+        subtitle: `${stripBracketNotes(item.baseName || item.name)} • Elegí cuántas unidades quitar`,
+        itemName: stripBracketNotes(item.baseName || item.name),
+        maxQty: currentQty,
+        defaultQty: currentQty,
+        unitPrice: item.price,
+        isPerPerson: Boolean(item.perPerson),
+        onConfirmQty: (qtyToRemove) => {
+            executeTableItemRemoval(itemId, qtyToRemove);
         }
-    }
-
-    const idxNow = tableItems.findIndex(i => i.id === itemId);
-    if (idxNow >= 0) tableItems.splice(idxNow, 1);
-
-    saveCurrentTableState();
-    renderOrderList();
-    renderMenuGrid();
-    renderTablesGrid();
-    showToast(`"${item.name}" eliminado de la mesa`, 'info');
+    });
 }
 
 async function cancelCurrentTableOrderPrompt() {
@@ -2914,25 +3245,34 @@ async function cancelCurrentTableOrderPrompt() {
         return;
     }
 
-    const confirmed = confirm(`¿Estás seguro de anular todo el pedido de ${table}? Se cancelará la comanda de cocina y la mesa quedará liberada.`);
-    if (!confirmed) return;
+    showConfirmModal(
+        `Anular Pedido de ${table}`,
+        `¿Estás seguro de anular todo el pedido de ${table}? Se cancelará la comanda de cocina y la mesa quedará liberada al instante.`,
+        async () => {
+            markLocalTableEdited();
+            markLocalKitchenMutated();
 
-    markLocalTableEdited();
+            ordersByTable[table] = { items: [], note: "" };
+            kitchenOrders = kitchenOrders.filter(o => o.table !== table || o.status === 'paid');
+            waiterNotifications = waiterNotifications.filter(n => n.table !== table);
 
-    try {
-        await fetch(`/api/tables/${encodeURIComponent(table)}/cancel-order`, {
-            method: 'POST'
-        });
-    } catch (e) {
-        console.warn('Error al anular pedido en servidor:', e);
-    }
+            saveLocalState();
+            backToTablesView();
+            showToast(`Pedido de ${table} anulado. Mesa liberada.`, 'success');
 
-    ordersByTable[table] = { items: [], note: "" };
-    kitchenOrders = kitchenOrders.filter(o => o.table !== table || o.status === 'paid');
-
-    saveLocalState();
-    backToTablesView();
-    showToast(`Pedido de ${table} anulado. Mesa liberada.`, 'success');
+            kitchenMutationInFlightCount++;
+            try {
+                await fetch(`/api/tables/${encodeURIComponent(table)}/cancel-order`, {
+                    method: 'POST'
+                });
+            } catch (e) {
+                console.warn('Error al anular pedido en servidor:', e);
+            } finally {
+                kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+                markLocalKitchenMutated();
+            }
+        }
+    );
 }
 
 function saveCurrentNote(val) {
@@ -3251,22 +3591,33 @@ async function sendOrderToKitchen() {
 let isSplitTipActive = false;
 
 function toggleSplitTipMode() {
+    if (!isCurrentUserAdmin()) return;
     isSplitTipActive = !isSplitTipActive;
     updateSplitTipUI();
 }
 
 function updateSplitTipUI() {
+    const isAdmin = isCurrentUserAdmin();
+    if (!isAdmin) {
+        isSplitTipActive = false;
+    }
     const singleView = document.getElementById('tip-single-waiter-view');
     const splitView = document.getElementById('tip-split-waiters-view');
+    const toggleBtn = document.getElementById('btn-toggle-split-tip');
     const toggleLabel = document.getElementById('label-toggle-split-tip');
     const singleName = document.getElementById('tip-single-waiter-name');
     const waiterSelect = document.getElementById('pay-waiter-select');
+
+    if (toggleBtn) {
+        if (isAdmin) toggleBtn.classList.remove('hidden');
+        else toggleBtn.classList.add('hidden');
+    }
 
     if (singleName && waiterSelect) {
         singleName.innerText = waiterSelect.value || 'Mozo seleccionado';
     }
 
-    if (isSplitTipActive) {
+    if (isSplitTipActive && isAdmin) {
         if (singleView) singleView.classList.add('hidden');
         if (splitView) splitView.classList.remove('hidden');
         if (toggleLabel) toggleLabel.innerText = "Volver a un solo mozo";
@@ -3423,10 +3774,10 @@ async function confirmPaymentAndFinish() {
         finalWaiter = tableWaiter;
     }
 
-    // Asignación de propina: Individual o Dividida
+    // Asignación de propina: Individual o Dividida (división solo habilitada para Admin)
     let waiterTipsMap = null;
     if (tip > 0) {
-        if (isSplitTipActive) {
+        if (isSplitTipActive && isCurrentUserAdmin()) {
             const checkedBoxes = Array.from(document.querySelectorAll('.split-waiter-checkbox:checked')).map(cb => cb.value);
             if (checkedBoxes.length > 0) {
                 waiterTipsMap = {};
@@ -3482,6 +3833,7 @@ async function confirmPaymentAndFinish() {
     updateHeaderIndicators();
 
     // Sincronizar con servidor Neon DB
+    let alreadyPaidConflict = false;
     try {
         tableSaveInFlightCount++;
         const res = await fetch('/api/checkout', {
@@ -3489,7 +3841,20 @@ async function confirmPaymentAndFinish() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(paymentRecord)
         });
-        if (res.ok) {
+        if (res.status === 409) {
+            alreadyPaidConflict = true;
+            paymentHistory = paymentHistory.filter(p => p.id !== paymentRecord.id);
+            if (tip > 0) {
+                generalTipsPool = Math.max(0, generalTipsPool - tip);
+            }
+            const errData = await res.json().catch(() => ({}));
+            showToast(errData.error || `${closedTable} ya había sido cobrada desde otro dispositivo.`, 'warning');
+            fetchServerState();
+        } else if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (data && data.payment && data.payment.id) {
+                paymentRecord.id = data.payment.id;
+            }
             isOnlineWithServer = true;
             setConnectionIndicator(true);
         }
@@ -3501,6 +3866,8 @@ async function confirmPaymentAndFinish() {
     }
 
     refreshActiveViews();
+
+    if (alreadyPaidConflict) return;
 
     const tipDetailText = waiterTipsMap && Object.keys(waiterTipsMap).length > 1
         ? `Propina dividida: $${tip.toLocaleString()} (${Object.entries(waiterTipsMap).map(([w, a]) => `${w}: $${a.toLocaleString()}`).join(', ')})`
@@ -3548,57 +3915,93 @@ function getPaymentDayTag(p) {
 }
 
 function renderPaymentHistoryList() {
+    const isAdmin = isCurrentUserAdmin();
     const shiftInfo = getShiftDateInfo();
     const shiftBadge = document.getElementById('reg-shift-badge');
     if (shiftBadge) {
         shiftBadge.innerText = shiftInfo.shiftTitle;
     }
 
-    const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
-    const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
-    const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
-
-    document.getElementById('reg-total-sales').innerText = `$${totalSales.toLocaleString()}`;
-    document.getElementById('reg-total-cash').innerText = `$${totalCash.toLocaleString()}`;
-    document.getElementById('reg-total-transfer').innerText = `$${totalTransfer.toLocaleString()}`;
-    document.getElementById('reg-total-tips').innerText = `$${generalTipsPool.toLocaleString()}`;
-
-    // Barra de Filtros por Mozo
+    const modalTitle = document.getElementById('payment-history-modal-title');
+    const modalSub = document.getElementById('payment-history-modal-subtitle');
+    const adminKpiGrid = document.getElementById('reg-admin-kpi-grid');
+    const waiterKpiGrid = document.getElementById('reg-waiter-kpi-grid');
     const filterBar = document.getElementById('payment-waiter-filter-bar');
-    if (filterBar) {
-        const waiterCounts = {};
-        paymentHistory.forEach(p => {
-            const w = p.waiter || 'Otro';
-            waiterCounts[w] = (waiterCounts[w] || 0) + 1;
-        });
+    const shiftSummaryBtn = document.getElementById('reg-btn-shift-summary');
 
-        const waiters = Object.keys(waiterCounts);
-        let filterHtml = `
-            <button onclick="setPaymentWaiterFilter('all')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${currentPaymentWaiterFilter === 'all' ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
-                Todos (${paymentHistory.length})
-            </button>
-        `;
-        waiters.forEach(w => {
-            const isActive = currentPaymentWaiterFilter === w;
-            filterHtml += `
-                <button onclick="setPaymentWaiterFilter('${w}')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${isActive ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
-                    ${w} (${waiterCounts[w]})
+    if (isAdmin) {
+        if (modalTitle) modalTitle.innerText = 'Registro de Pagos y Cierre de Mesas';
+        if (modalSub) modalSub.innerText = 'Historial completo de cobros por mesa y mozo en este turno nocturno';
+        if (adminKpiGrid) adminKpiGrid.classList.remove('hidden');
+        if (waiterKpiGrid) waiterKpiGrid.classList.add('hidden');
+        if (filterBar) filterBar.classList.remove('hidden');
+        if (shiftSummaryBtn) shiftSummaryBtn.classList.remove('hidden');
+
+        const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
+        const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
+        const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
+
+        document.getElementById('reg-total-sales').innerText = `$${totalSales.toLocaleString()}`;
+        document.getElementById('reg-total-cash').innerText = `$${totalCash.toLocaleString()}`;
+        document.getElementById('reg-total-transfer').innerText = `$${totalTransfer.toLocaleString()}`;
+        document.getElementById('reg-total-tips').innerText = `$${generalTipsPool.toLocaleString()}`;
+
+        // Barra de Filtros por Mozo (Solo Admin)
+        if (filterBar) {
+            const waiterCounts = {};
+            paymentHistory.forEach(p => {
+                const w = p.waiter || 'Otro';
+                waiterCounts[w] = (waiterCounts[w] || 0) + 1;
+            });
+
+            const waiters = Object.keys(waiterCounts);
+            let filterHtml = `
+                <button onclick="setPaymentWaiterFilter('all')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${currentPaymentWaiterFilter === 'all' ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                    Todos (${paymentHistory.length})
                 </button>
             `;
-        });
-        filterBar.innerHTML = filterHtml;
+            waiters.forEach(w => {
+                const isActive = currentPaymentWaiterFilter === w;
+                filterHtml += `
+                    <button onclick="setPaymentWaiterFilter('${w}')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${isActive ? 'bg-[#2563eb] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                        ${w} (${waiterCounts[w]})
+                    </button>
+                `;
+            });
+            filterBar.innerHTML = filterHtml;
+        }
+    } else {
+        const waiterName = currentUser ? currentUser.name : 'Mozo';
+        const own = getWaiterOwnStats(waiterName);
+        if (modalTitle) modalTitle.innerText = `Mis Pagos y Mesas Cerradas (${waiterName})`;
+        if (modalSub) modalSub.innerText = 'Detalle de las mesas que cerraste y tus propinas en este turno';
+        if (adminKpiGrid) adminKpiGrid.classList.add('hidden');
+        if (waiterKpiGrid) waiterKpiGrid.classList.remove('hidden');
+        if (filterBar) {
+            filterBar.classList.add('hidden');
+            filterBar.innerHTML = '';
+        }
+        if (shiftSummaryBtn) shiftSummaryBtn.classList.add('hidden');
+
+        const closedCountEl = document.getElementById('reg-waiter-closed-count');
+        const ownTipsEl = document.getElementById('reg-waiter-own-tips');
+        if (closedCountEl) closedCountEl.innerText = `${own.tablesClosed} mesa${own.tablesClosed === 1 ? '' : 's'}`;
+        if (ownTipsEl) ownTipsEl.innerText = `$${own.tips.toLocaleString()}`;
     }
 
     const container = document.getElementById('payment-history-list');
     let displayedPayments = paymentHistory;
-    if (currentPaymentWaiterFilter !== 'all') {
+    if (!isAdmin) {
+        const waiterName = currentUser ? currentUser.name : '';
+        displayedPayments = paymentHistory.filter(p => isPaymentAssociatedWithWaiter(p, waiterName));
+    } else if (currentPaymentWaiterFilter !== 'all') {
         displayedPayments = paymentHistory.filter(p => p.waiter === currentPaymentWaiterFilter);
     }
 
     if (displayedPayments.length === 0) {
         container.innerHTML = `
             <div class="text-center py-10 text-slate-400">
-                <p class="text-xs">No hay cobros registrados ${currentPaymentWaiterFilter !== 'all' ? `para ${currentPaymentWaiterFilter}` : 'en este turno'}.</p>
+                <p class="text-xs">${!isAdmin ? 'Todavía no tenés mesas cobradas asociadas en este turno.' : `No hay cobros registrados ${currentPaymentWaiterFilter !== 'all' ? `para ${currentPaymentWaiterFilter}` : 'en este turno'}.`}</p>
             </div>
         `;
         return;
@@ -3613,6 +4016,16 @@ function renderPaymentHistoryList() {
         const paidAmount = p.paidWith || p.total;
         const dayTag = getPaymentDayTag(p);
 
+        let tipPillText = '';
+        if (!isAdmin && currentUser) {
+            const myTip = getWaiterTipFromPayment(p, currentUser.name);
+            tipPillText = `Mi Propina: $${myTip.toLocaleString()}`;
+        } else if (p.waiterTips && Object.keys(p.waiterTips).length > 1) {
+            tipPillText = `Propina: $${(p.tip || 0).toLocaleString()} (Div.: ${Object.entries(p.waiterTips).map(([w, a]) => `${w} $${Number(a).toLocaleString()}`).join(', ')})`;
+        } else {
+            tipPillText = `Propina: $${(p.tip || 0).toLocaleString()}`;
+        }
+
         return `
             <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                 <div class="space-y-1 min-w-0">
@@ -3623,22 +4036,19 @@ function renderPaymentHistoryList() {
                         </span>
                         <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${dayTag === 'Sáb' ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-900'}">${dayTag} ${p.time}</span>
                         <span class="bg-blue-50 text-[#2563eb] border border-blue-200 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
-                            <i class="fa-solid fa-user-check text-[9px]"></i> Atendió: ${p.waiter}
+                            <i class="fa-solid fa-user-check text-[9px]"></i> Atendió: ${!isAdmin && currentUser ? currentUser.name : p.waiter}
                         </span>
                     </div>
                     <p class="text-[11px] text-slate-500">${p.itemsSummary}</p>
                 </div>
                 <div class="flex sm:flex-col items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 shrink-0 text-right space-y-0.5">
                     <div class="text-xs">
-                        <span class="text-slate-500 font-medium">Total:</span> <strong class="text-slate-900 text-sm">$${p.total.toLocaleString()}</strong>
+                        <span class="text-slate-500 font-medium">Total mesa:</span> <strong class="text-slate-900 text-sm">$${p.total.toLocaleString()}</strong>
                     </div>
                     <div class="text-[11px] space-x-2">
                         <span class="text-slate-600">Pagó: <strong class="text-slate-800">$${paidAmount.toLocaleString()}</strong></span>
                         <span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">
-                            ${p.waiterTips && Object.keys(p.waiterTips).length > 1
-                                ? `Propina: $${(p.tip || 0).toLocaleString()} (Div.: ${Object.entries(p.waiterTips).map(([w, a]) => `${w} $${Number(a).toLocaleString()}`).join(', ')})`
-                                : `Propina: $${(p.tip || 0).toLocaleString()}`
-                            }
+                            ${tipPillText}
                         </span>
                     </div>
                 </div>
@@ -3650,9 +4060,70 @@ function renderPaymentHistoryList() {
 // ================= CAJA DE PROPINAS =================
 
 function openTipsModal() {
-    document.getElementById('tips-grand-total').innerText = `$${generalTipsPool.toLocaleString()}`;
+    const isAdmin = isCurrentUserAdmin();
+    const modalTitle = document.getElementById('tips-modal-title');
+    const modalSub = document.getElementById('tips-modal-subtitle');
+    const boxLabel = document.getElementById('tips-box-label');
+    const boxHelper = document.getElementById('tips-box-helper');
+    const breakdownHeading = document.getElementById('tips-breakdown-heading');
+    const shiftBtn = document.getElementById('tips-btn-shift-summary');
+    const verMesasLabel = document.getElementById('tips-btn-ver-mesas-label');
+    const grandTotalElem = document.getElementById('tips-grand-total');
+    const breakdownElem = document.getElementById('tips-waiter-breakdown');
 
-    // Desglose dinámico por mozo según mesas cobradas del turno
+    if (!isAdmin && currentUser) {
+        const waiterName = currentUser.name;
+        const own = getWaiterOwnStats(waiterName);
+
+        if (modalTitle) modalTitle.innerText = `Mis Propinas (${waiterName})`;
+        if (modalSub) modalSub.innerText = 'Tu acumulado personal en el turno actual';
+        if (boxLabel) boxLabel.innerText = `Propina Acumulada de ${waiterName}`;
+        if (grandTotalElem) grandTotalElem.innerText = `$${own.tips.toLocaleString()}`;
+        if (boxHelper) boxHelper.innerText = `${own.tablesClosed} mesa${own.tablesClosed === 1 ? '' : 's'} cerrada${own.tablesClosed === 1 ? '' : 's'} por vos en este turno`;
+        if (breakdownHeading) breakdownHeading.innerText = 'Detalle de mis mesas con propina:';
+        if (shiftBtn) shiftBtn.classList.add('hidden');
+        if (verMesasLabel) verMesasLabel.innerText = 'Ver Mis Pagos';
+
+        if (breakdownElem) {
+            if (own.payments.length === 0) {
+                breakdownElem.innerHTML = `<p class="text-xs text-slate-400 py-3 text-center">Todavía no tenés mesas cerradas en este turno.</p>`;
+            } else {
+                breakdownElem.innerHTML = own.payments.map(p => {
+                    const myTip = getWaiterTipFromPayment(p, waiterName);
+                    return `
+                        <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                            <div class="flex items-center space-x-2.5">
+                                <div class="w-7 h-7 rounded-lg bg-blue-100 text-[#2563eb] font-bold flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-receipt text-[10px]"></i>
+                                </div>
+                                <div>
+                                    <strong class="text-slate-900 block">${p.table}</strong>
+                                    <span class="text-[10px] text-slate-500">${p.time} • ${p.method}</span>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-sm font-bold text-emerald-700 block">+$${myTip.toLocaleString()}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        document.getElementById('tips-modal').classList.remove('hidden');
+        return;
+    }
+
+    if (modalTitle) modalTitle.innerText = 'Caja General de Propinas';
+    if (modalSub) modalSub.innerText = 'Acumulado del turno actual por mozo';
+    if (boxLabel) boxLabel.innerText = 'Fondo Acumulado del Turno';
+    if (grandTotalElem) grandTotalElem.innerText = `$${generalTipsPool.toLocaleString()}`;
+    if (boxHelper) boxHelper.innerText = 'Asociado al mozo que atendió la mesa.';
+    if (breakdownHeading) breakdownHeading.innerText = 'Propinas por Mozo:';
+    if (shiftBtn) shiftBtn.classList.remove('hidden');
+    if (verMesasLabel) verMesasLabel.innerText = 'Ver Mesas';
+
+    // Desglose dinámico por mozo según mesas cobradas del turno (Vista Admin)
     const waiterTips = {};
     staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
         waiterTips[m.name] = { tips: 0, tables: 0, sales: 0 };
@@ -3677,7 +4148,6 @@ function openTipsModal() {
         }
     });
 
-    const breakdownElem = document.getElementById('tips-waiter-breakdown');
     if (breakdownElem) {
         const entries = Object.keys(waiterTips)
             .map(w => ({ name: w, ...waiterTips[w] }))
@@ -3716,6 +4186,10 @@ function closeTipsModal() {
 // ================= MODAL: RESUMEN OPERATIVO DEL TURNO =================
 
 function openShiftSummaryModal() {
+    if (!isCurrentUserAdmin()) {
+        openTipsModal();
+        return;
+    }
     const shiftInfo = getShiftDateInfo();
     const titleElem = document.getElementById('shift-modal-title');
     const subElem = document.getElementById('shift-modal-subtitle');
@@ -3738,19 +4212,8 @@ function openShiftSummaryModal() {
     if (kpiSalon) kpiSalon.innerText = `${activeTables.length} mesas ($${activeTablesTotal.toLocaleString()})`;
     if (kpiTips) kpiTips.innerText = `$${generalTipsPool.toLocaleString()}`;
 
-    // Rendimiento y propinas por mozo
-    const waiterStats = {};
-    staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
-        waiterStats[m.name] = { tips: 0, tables: 0, sales: 0 };
-    });
-    paymentHistory.forEach(p => {
-        const w = p.waiter || 'Otro';
-        if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
-        waiterStats[w].tips += (p.tip || 0);
-        waiterStats[w].tables += 1;
-        waiterStats[w].sales += p.total;
-    });
-
+    // Rendimiento y propinas por mozo (unificado con propinas divididas)
+    const waiterStats = computeWaiterReportStats();
     const waiterContainer = document.getElementById('shift-modal-waiter-list');
     if (waiterContainer) {
         const sortedWaiters = Object.keys(waiterStats)
@@ -4092,7 +4555,7 @@ function renderKitchenOrders() {
                                                 <i class="fa-solid fa-check"></i>
                                                 <span>Entregar</span>
                                             </button>
-                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0}, 'pending')" title="Borrar 1 unidad de este pedido y descontarla de la cuenta de la mesa" class="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
+                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0}, 'pending', ${item.qty || 1})" title="Borrar unidades de este pedido y descontarlas de la cuenta de la mesa" class="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
                                                 <i class="fa-solid fa-trash-can"></i>
                                                 <span>Borrar</span>
                                             </button>
@@ -4121,7 +4584,7 @@ function renderKitchenOrders() {
                                         </span>
                                         <div class="flex items-center space-x-1.5 shrink-0 ml-1">
                                             <span class="text-slate-400 text-[10px]">$${((item.price || 0) * (item.qty || 1)).toLocaleString()}</span>
-                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0}, 'delivered')" title="Quitar 1 unidad entregada de la comanda y de la cuenta de la mesa" class="px-1.5 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer">
+                                            <button onclick="deleteIndividualKitchenItem('${cmd.id}', '${item.id || ''}', '${(item.name || '').replace(/'/g, "\\'")}', ${item.price || 0}, 'delivered', ${item.qty || 1})" title="Quitar unidades entregadas de la comanda y de la cuenta de la mesa" class="px-1.5 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-md text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer">
                                                 <i class="fa-solid fa-trash-can text-[9px]"></i>
                                                 <span>Borrar</span>
                                             </button>
@@ -4192,6 +4655,7 @@ async function updateOrderStatus(id, newStatus) {
     const cmd = kitchenOrders.find(o => o.id === id);
     if (!cmd) return;
 
+    markLocalKitchenMutated();
     cmd.status = newStatus;
 
     if (newStatus === 'ready') {
@@ -4217,6 +4681,7 @@ async function updateOrderStatus(id, newStatus) {
     renderKitchenOrders();
     renderTablesGrid();
 
+    kitchenMutationInFlightCount++;
     try {
         const res = await fetch(`/api/orders/${id}/status`, {
             method: 'PUT',
@@ -4229,6 +4694,9 @@ async function updateOrderStatus(id, newStatus) {
         }
     } catch (e) {
         console.warn('Error actualizando comanda en base de datos:', e);
+    } finally {
+        kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+        markLocalKitchenMutated();
     }
 }
 
@@ -4251,6 +4719,8 @@ async function deliverIndividualKitchenItem(cmdId, itemIdOrName, explicitName = 
 
     if (!matchedAny) return;
 
+    markLocalKitchenMutated();
+
     const hasRemainingPending = cmd.items.some(i => (i.status || cmd.status) !== 'delivered');
     cmd.status = hasRemainingPending ? 'pending' : 'delivered';
 
@@ -4263,6 +4733,7 @@ async function deliverIndividualKitchenItem(cmdId, itemIdOrName, explicitName = 
     renderKitchenOrders();
     renderTablesGrid();
 
+    kitchenMutationInFlightCount++;
     try {
         await fetch(`/api/orders/${cmdId}/status`, {
             method: 'PUT',
@@ -4271,12 +4742,17 @@ async function deliverIndividualKitchenItem(cmdId, itemIdOrName, explicitName = 
         });
     } catch (e) {
         console.warn('Error sincronizando plato entregado:', e);
+    } finally {
+        kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+        markLocalKitchenMutated();
     }
 }
 
 async function deliverAllPendingForTable(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd || !cmd.items) return;
+
+    markLocalKitchenMutated();
 
     cmd.items.forEach(i => {
         i.status = 'delivered';
@@ -4289,7 +4765,9 @@ async function deliverAllPendingForTable(cmdId) {
     saveLocalState();
     renderKitchenOrders();
     renderTablesGrid();
+    showToast(`Comanda de ${cmd.table} entregada en mesa`, 'success');
 
+    kitchenMutationInFlightCount++;
     try {
         await fetch(`/api/orders/${cmdId}/status`, {
             method: 'PUT',
@@ -4298,14 +4776,17 @@ async function deliverAllPendingForTable(cmdId) {
         });
     } catch (e) {
         console.warn('Error sincronizando entrega:', e);
+    } finally {
+        kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+        markLocalKitchenMutated();
     }
-
-    showToast(`Comanda de ${cmd.table} entregada en mesa`, 'success');
 }
 
 async function reopenTableOrderToPending(cmdId) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd) return;
+
+    markLocalKitchenMutated();
 
     cmd.status = 'pending';
     if (cmd.items) {
@@ -4316,6 +4797,7 @@ async function reopenTableOrderToPending(cmdId) {
     renderKitchenOrders();
     renderTablesGrid();
 
+    kitchenMutationInFlightCount++;
     try {
         await fetch(`/api/orders/${cmdId}/status`, {
             method: 'PUT',
@@ -4324,107 +4806,123 @@ async function reopenTableOrderToPending(cmdId) {
         });
     } catch (e) {
         console.warn('Error reabriendo comanda:', e);
+    } finally {
+        kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+        markLocalKitchenMutated();
     }
 }
 
-async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice, targetStatus = 'pending') {
+async function deleteIndividualKitchenItem(cmdId, itemId, itemName, itemPrice, targetStatus = 'pending', maxAvailableQty = 1) {
     const cmd = kitchenOrders.find(o => o.id === cmdId);
     if (!cmd) return;
 
-    const confirmed = confirm(`¿Eliminar 1x "${itemName}" de la comanda ${cmd.id} (${cmd.table})? Se descontará automáticamente de la cuenta de la mesa.`);
-    if (!confirmed) return;
+    // Calcular cantidad real disponible de ese ítem en ese estado ('pending' o 'delivered')
+    const targetClean = stripBracketNotes(itemName || '').trim().toLowerCase();
+    const matchingItems = (cmd.items || []).filter(it => {
+        const cleanItName = stripBracketNotes(it.name || '').trim().toLowerCase();
+        const isMatch = (itemId && it.id === itemId && (!targetClean || cleanItName === targetClean)) || (targetClean && cleanItName === targetClean);
+        if (!isMatch) return false;
+        const st = (it.status || cmd.status) === 'delivered' ? 'delivered' : 'pending';
+        return st === targetStatus;
+    });
+    const calculatedMax = matchingItems.reduce((acc, it) => acc + (Number(it.qty) || 1), 0) || Number(maxAvailableQty) || 1;
+    const isPerPerson = matchingItems.some(it => it.perPerson);
 
-    markLocalTableEdited();
-    let updatedFromServer = false;
+    openDeleteQtyModal({
+        title: `Borrar de ${cmd.table} (${cmd.id})`,
+        subtitle: `${stripBracketNotes(itemName)} • Se descontará al instante de cocina y de la cuenta`,
+        itemName: stripBracketNotes(itemName),
+        maxQty: calculatedMax,
+        defaultQty: 1,
+        unitPrice: Number(itemPrice) || 0,
+        isPerPerson,
+        onConfirmQty: async (qtyToRemove) => {
+            const targetCmd = kitchenOrders.find(o => o.id === cmdId);
+            if (!targetCmd) return;
 
-    try {
-        const res = await fetch(`/api/orders/${cmdId}/remove-item`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                itemId,
-                name: itemName,
-                price: Number(itemPrice) || 0,
-                qty: 1,
-                targetStatus
-            })
-        });
+            markLocalTableEdited();
+            markLocalKitchenMutated();
 
-        if (res.ok) {
-            const data = await res.json();
-            updatedFromServer = true;
-            if (data.orderDeleted) {
-                kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
-                if (ordersByTable[cmd.table]) {
-                    ordersByTable[cmd.table] = { items: [], note: "" };
+            // 1. Actualización local instantánea (0ms, sin esperar al servidor)
+            const tableName = targetCmd.table;
+            removeKitchenItemsLocally(targetCmd, itemId, itemName, itemPrice, qtyToRemove, targetStatus);
+            syncTableWithActiveKitchenOrder(tableName);
+
+            saveLocalState();
+            refreshActiveViews();
+            showToast(`${qtyToRemove}x ${stripBracketNotes(itemName)} eliminado de ${tableName}`, 'success');
+
+            // 2. Sincronizar con backend en segundo plano protegiendo contra el polling
+            kitchenMutationInFlightCount++;
+            try {
+                const res = await fetch(`/api/orders/${cmdId}/remove-item`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        itemId,
+                        name: itemName,
+                        price: Number(itemPrice) || 0,
+                        qty: qtyToRemove,
+                        targetStatus
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.orderDeleted) {
+                        kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
+                        if (ordersByTable[tableName]) {
+                            ordersByTable[tableName] = { items: [], note: "" };
+                        }
+                    } else if (data.order) {
+                        const idx = kitchenOrders.findIndex(o => o.id === cmdId);
+                        if (idx >= 0) kitchenOrders[idx] = data.order;
+                        syncTableWithActiveKitchenOrder(tableName);
+                    }
+                    saveLocalState();
+                    refreshActiveViews();
                 }
-            } else if (data.order) {
-                const idx = kitchenOrders.findIndex(o => o.id === cmdId);
-                if (idx >= 0) kitchenOrders[idx] = data.order;
-                syncTableWithActiveKitchenOrder(cmd.table);
+            } catch (e) {
+                console.warn('Error al quitar plato de cocina:', e);
+            } finally {
+                kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+                markLocalKitchenMutated();
             }
         }
-    } catch (e) {
-        console.warn('Error al quitar plato de cocina:', e);
-    }
-
-    if (!updatedFromServer) {
-        const targetClean = stripBracketNotes(itemName || '').trim().toLowerCase();
-        // Buscar priorizando el estado solicitado ('pending' o 'delivered') desde el último agregado
-        let kIdx = -1;
-        for (let i = (cmd.items || []).length - 1; i >= 0; i--) {
-            const it = cmd.items[i];
-            const cleanItName = stripBracketNotes(it.name || '').trim().toLowerCase();
-            const isMatch = (itemId && it.id === itemId && (!targetClean || cleanItName === targetClean)) || (targetClean && cleanItName === targetClean);
-            if (isMatch) {
-                const st = (it.status || cmd.status) === 'delivered' ? 'delivered' : 'pending';
-                if (st === targetStatus) {
-                    kIdx = i;
-                    break;
-                }
-                if (kIdx === -1) kIdx = i;
-            }
-        }
-
-        if (kIdx >= 0) {
-            if (cmd.items[kIdx].qty > 1) {
-                cmd.items[kIdx].qty -= 1;
-            } else {
-                cmd.items.splice(kIdx, 1);
-            }
-            cmd.total = cmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
-            if (cmd.items.length === 0) {
-                kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
-            }
-        }
-        syncTableWithActiveKitchenOrder(cmd.table);
-    }
-
-    saveLocalState();
-    refreshActiveViews();
-    showToast(`1x ${itemName} eliminado de la comanda y de la cuenta`, 'success');
+    });
 }
 
 async function cancelEntireKitchenOrderPrompt(cmdId, tableName) {
-    const confirmed = confirm(`¿Estás seguro de anular y borrar completamente el pedido ${cmdId} de ${tableName}? La comanda se eliminará de cocina y la mesa quedará liberada.`);
-    if (!confirmed) return;
+    showConfirmModal(
+        `Anular Pedido ${cmdId}`,
+        `¿Estás seguro de anular y borrar completamente el pedido de ${tableName}? La comanda se eliminará de cocina y la mesa quedará liberada al instante.`,
+        async () => {
+            markLocalTableEdited();
+            markLocalKitchenMutated();
 
-    try {
-        await fetch(`/api/orders/${cmdId}`, {
-            method: 'DELETE'
-        });
-    } catch (e) {
-        console.warn('Error al anular comanda en servidor:', e);
-    }
+            kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
+            waiterNotifications = waiterNotifications.filter(n => n.id !== cmdId);
+            if (tableName && ordersByTable[tableName]) {
+                ordersByTable[tableName] = { items: [], note: "" };
+            }
 
-    kitchenOrders = kitchenOrders.filter(o => o.id !== cmdId);
-    if (tableName && ordersByTable[tableName]) {
-        ordersByTable[tableName] = { items: [], note: "" };
-    }
+            saveLocalState();
+            refreshActiveViews();
+            showToast(`Pedido ${cmdId} de ${tableName} anulado y borrado`, 'success');
 
-    saveLocalState();
-    refreshActiveViews();
-    showToast(`Pedido ${cmdId} de ${tableName} anulado y borrado`, 'success');
+            kitchenMutationInFlightCount++;
+            try {
+                await fetch(`/api/orders/${cmdId}`, {
+                    method: 'DELETE'
+                });
+            } catch (e) {
+                console.warn('Error al anular comanda en servidor:', e);
+            } finally {
+                kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+                markLocalKitchenMutated();
+            }
+        }
+    );
 }
 
 // ================= IMPRESIÓN DE TICKET TÉRMICO (DIRECTA USB/SERIAL/RAWBT + 80MM/58MM) =================
@@ -5461,9 +5959,25 @@ function buildEscPosBytes(data) {
             pushLine(`  ${formatSalesQtyLabel(c.units, c.persons)} (${c.pct}%)`);
             (c.subList || []).forEach(s => {
                 pushLeftRight(`   - ${s.name}: ${formatSalesQtyLabel(s.units, s.persons)}`, `$${Number(s.revenue).toLocaleString('es-AR')}`, cols1x);
+                const subHasDistinctItems = s.itemList && (s.itemList.length > 1 || (s.itemList.length === 1 && s.itemList[0].name.toLowerCase() !== s.name.toLowerCase()));
+                if (subHasDistinctItems) {
+                    s.itemList.forEach(prod => {
+                        pushLeftRight(`     * ${prod.name}: ${formatSalesQtyLabel(prod.units, prod.persons)}`, `$${Number(prod.revenue).toLocaleString('es-AR')}`, cols1x);
+                    });
+                }
             });
         });
         pushLine(sepDash);
+
+        if (Array.isArray(data.waiterBreakdown) && data.waiterBreakdown.length > 0) {
+            pushBytes(ALIGN_CENTER);
+            pushLine('RENDIMIENTO Y PROPINAS POR MOZO');
+            pushBytes(ALIGN_LEFT);
+            data.waiterBreakdown.forEach(w => {
+                pushLeftRight(`${w.name} (${w.tables} m.)`, `Prop: $${Number(w.tips).toLocaleString('es-AR')}`, cols1x);
+            });
+            pushLine(sepDash);
+        }
 
         if (Array.isArray(data.topProducts) && data.topProducts.length > 0) {
             pushBytes(ALIGN_CENTER);
@@ -5692,14 +6206,35 @@ function buildThermalPrintHtml(data) {
                         <span>${escapeHtmlSafe(c.name)} (${formatSalesQtyLabel(c.units, c.persons)})</span>
                         <span>$${Number(c.revenue).toLocaleString('es-AR')}</span>
                     </div>
-                    ${(c.subList || []).map(s => `
+                    ${(c.subList || []).map(s => {
+                        const subHasDistinctItems = s.itemList && (s.itemList.length > 1 || (s.itemList.length === 1 && s.itemList[0].name.toLowerCase() !== s.name.toLowerCase()));
+                        return `
                         <div class="meta-row">
                             <span>&nbsp;&nbsp;- ${escapeHtmlSafe(s.name)}: ${formatSalesQtyLabel(s.units, s.persons)}</span>
                             <span>$${Number(s.revenue).toLocaleString('es-AR')}</span>
                         </div>
-                    `).join('')}
+                        ${subHasDistinctItems ? s.itemList.map(prod => `
+                            <div class="meta-row" style="font-size: 8pt; color: #444;">
+                                <span>&nbsp;&nbsp;&nbsp;&nbsp;• ${escapeHtmlSafe(prod.name)} (${formatSalesQtyLabel(prod.units, prod.persons)})</span>
+                                <span>$${Number(prod.revenue).toLocaleString('es-AR')}</span>
+                            </div>
+                        `).join('') : ''}
+                        `;
+                    }).join('')}
                 `).join('') || '<div class="legal-note">Sin ventas registradas</div>'}
             </div>
+
+            ${Array.isArray(data.waiterBreakdown) && data.waiterBreakdown.length > 0 ? `
+                <div class="meta-block">
+                    <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">PROPINAS POR MOZO</div>
+                    ${data.waiterBreakdown.map(w => `
+                        <div class="meta-row">
+                            <span>${escapeHtmlSafe(w.name)} (${w.tables} m.)</span>
+                            <span>+$${Number(w.tips).toLocaleString('es-AR')}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
 
             <div class="meta-block">
                 <div class="cmd-id" style="text-align:center; margin-bottom: 1mm;">LO MAS VENDIDO</div>
@@ -6552,23 +7087,31 @@ async function createNewCategory() {
 
 async function deleteCategory(catKey) {
     if (!menuData[catKey]) return;
+    const catName = menuData[catKey].name || catKey;
+    const itemsCount = Array.isArray(menuData[catKey].items) ? menuData[catKey].items.length : 0;
 
-    delete menuData[catKey];
-    saveLocalState();
-    renderAdminMenuManager();
-    renderCategoryTabs();
+    showConfirmModal(
+        `Eliminar Categoría "${catName}"`,
+        `¿Seguro que deseas eliminar toda la categoría "${catName}"${itemsCount > 0 ? ` junto con sus ${itemsCount} productos` : ''}? Esta acción no se puede deshacer.`,
+        async () => {
+            delete menuData[catKey];
+            saveLocalState();
+            renderAdminMenuManager();
+            renderCategoryTabs();
 
-    try {
-        const res = await fetch(`/api/menu/category/${encodeURIComponent(catKey)}`, { method: 'DELETE' });
-        if (res.ok) {
-            isOnlineWithServer = true;
-            setConnectionIndicator(true);
+            try {
+                const res = await fetch(`/api/menu/category/${encodeURIComponent(catKey)}`, { method: 'DELETE' });
+                if (res.ok) {
+                    isOnlineWithServer = true;
+                    setConnectionIndicator(true);
+                }
+            } catch (e) {
+                console.warn('Error eliminando categoría en Neon DB:', e);
+            }
+
+            showToast(`Categoría "${catName}" eliminada de la base de datos`, 'info');
         }
-    } catch (e) {
-        console.warn('Error eliminando categoría en Neon DB:', e);
-    }
-
-    showToast('Categoría eliminada de la base de datos', 'info');
+    );
 }
 
 async function addNewMenuItem() {
@@ -6638,23 +7181,31 @@ async function addNewMenuItem() {
 
 async function deleteMenuItem(catKey, itemId) {
     if (!menuData[catKey]) return;
+    const targetItem = (menuData[catKey].items || []).find(i => i.id === itemId);
+    const itemName = targetItem ? targetItem.name : 'este producto';
 
-    menuData[catKey].items = menuData[catKey].items.filter(i => i.id !== itemId);
-    saveLocalState();
-    renderAdminMenuManager();
-    renderMenuGrid();
+    showConfirmModal(
+        `Eliminar "${itemName}"`,
+        `¿Seguro que deseas quitar "${itemName}" de la carta de ${menuData[catKey].name}?`,
+        async () => {
+            menuData[catKey].items = menuData[catKey].items.filter(i => i.id !== itemId);
+            saveLocalState();
+            renderAdminMenuManager();
+            renderMenuGrid();
 
-    try {
-        const res = await fetch(`/api/menu/item/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
-        if (res.ok) {
-            isOnlineWithServer = true;
-            setConnectionIndicator(true);
+            try {
+                const res = await fetch(`/api/menu/item/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+                if (res.ok) {
+                    isOnlineWithServer = true;
+                    setConnectionIndicator(true);
+                }
+            } catch (e) {
+                console.warn('Error eliminando producto en Neon DB:', e);
+            }
+
+            showToast(`"${itemName}" eliminado de la base de datos`, 'info');
         }
-    } catch (e) {
-        console.warn('Error eliminando producto en Neon DB:', e);
-    }
-
-    showToast('Plato eliminado de la base de datos', 'info');
+    );
 }
 
 function openEditMenuItemModal(catKey, itemId) {
@@ -6939,13 +7490,73 @@ function computePizzaAndFlavorStats(payments = getAllShiftConsumptionRecords()) 
 
 // ================= REPORTES POR CATEGORÍA (TODA LA CARTA) =================
 
+function normalizeSearchToken(str) {
+    return String(str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
 function findMenuItemLocation(itemId) {
     if (!itemId) return null;
+    const rawId = String(itemId).trim();
+    // Si es un ID compuesto por persona (ej: "it_123456_p_98765"), extraer también el ID base del menú
+    const baseId = rawId.includes('_p_') ? rawId.split('_p_')[0] : rawId;
+
     for (const catKey in menuData) {
         const cat = menuData[catKey];
-        const found = (cat && Array.isArray(cat.items)) ? cat.items.find(i => i.id === itemId) : null;
+        if (!cat || !Array.isArray(cat.items)) continue;
+        const found = cat.items.find(i => i.id === rawId || i.id === baseId);
         if (found) return { catKey, cat, item: found };
     }
+    return null;
+}
+
+function findMenuItemLocationByName(rawName, itemPrice = null) {
+    const clean = normalizeSearchToken(
+        stripBracketNotes(String(rawName || ''))
+            .replace(/\s*\(\d+\s*personas?\)\s*$/i, '')
+            .replace(/\s*\(entera\)\s*$/i, '')
+    );
+    if (!clean) return null;
+
+    // 1. Búsqueda por coincidencia exacta de nombre normalizado
+    for (const catKey in menuData) {
+        const cat = menuData[catKey];
+        if (!cat || !Array.isArray(cat.items)) continue;
+        const found = cat.items.find(i => normalizeSearchToken(i.name) === clean);
+        if (found) return { catKey, cat, item: found };
+    }
+
+    // 2. Búsqueda por prefijo/inclusión de nombre en la carta
+    for (const catKey in menuData) {
+        const cat = menuData[catKey];
+        if (!cat || !Array.isArray(cat.items)) continue;
+        const found = cat.items.find(i => {
+            const mName = normalizeSearchToken(i.name);
+            return mName && (clean.includes(mName) || mName.includes(clean));
+        });
+        if (found) return { catKey, cat, item: found };
+    }
+
+    // 3. Si tenemos precio exacto y hay un único ítem en una categoría con ese precio, asociar cuando sea bebida/minuta sin ID
+    if (itemPrice && Number(itemPrice) > 0) {
+        const matchesByPrice = [];
+        for (const catKey in menuData) {
+            const cat = menuData[catKey];
+            if (!cat || !Array.isArray(cat.items)) continue;
+            cat.items.forEach(i => {
+                if (Number(i.price) === Number(itemPrice)) {
+                    matchesByPrice.push({ catKey, cat, item: i });
+                }
+            });
+        }
+        if (matchesByPrice.length === 1) {
+            return matchesByPrice[0];
+        }
+    }
+
     return null;
 }
 
@@ -6953,33 +7564,47 @@ function isPizzaLibreSoldItem(it) {
     return Boolean(
         it && (it.isPizzaLibre ||
         (it.id && String(it.id).startsWith('pz_libre')) ||
+        (it.menuItemId && String(it.menuItemId).startsWith('pz_libre')) ||
         (it.name && /pizza\s*libre/i.test(it.name)))
     );
 }
 
 function getSoldItemBaseName(it) {
     const rawName = String(it.baseName || it.name || '').trim();
-    if (/parrilla/i.test(rawName)) {
+    if (/parrill/i.test(rawName)) {
         if (/menor/i.test(rawName)) return 'Parrilla Menores';
         return 'Parrilla';
     }
     if (/pizza\s*libre/i.test(rawName)) {
         return 'Pizza Libre';
     }
-    return rawName.replace(/\s*\(\d+\s*personas?\)\s*$/i, '').trim();
+    return stripBracketNotes(rawName).replace(/\s*\(\d+\s*personas?\)\s*$/i, '').trim() || 'Producto';
 }
 
 function resolveSoldItemCategory(it) {
-    const loc = findMenuItemLocation(it.menuItemId) || findMenuItemLocation(it.id);
-    let catKey = it.categoryId || (loc ? loc.catKey : '');
     const rawName = String(it.baseName || it.name || '').trim();
+    const cleanBaseName = getSoldItemBaseName(it);
+    const price = Number(it.price) || 0;
+    const loc = findMenuItemLocation(it.menuItemId) || findMenuItemLocation(it.id) || findMenuItemLocationByName(rawName, price);
+    let catKey = it.categoryId || (loc ? loc.catKey : '');
 
-    // Normalizar todas las variantes de parrilla y parrillada bajo una sola categoría 'parrilla'
-    if (/parrill/i.test(rawName) || /parrill/i.test(catKey)) {
+    // Normalizar todas las variantes de parrilla, parrillada y asado bajo una sola categoría 'parrilla'
+    if (/parrill|asado/i.test(rawName) || /parrill/i.test(catKey)) {
         catKey = 'parrilla';
-    } else if (!catKey) {
-        if (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_'))) {
-            catKey = 'pizzas';
+    } else if (isPizzaLibreSoldItem(it) || it.isPizza || (it.id && String(it.id).startsWith('pz_')) || /pizza|muzzarella|napolitana|calabresa|roquefort|fugazz/i.test(rawName)) {
+        catKey = 'pizzas';
+    } else if (!catKey || !menuData[catKey]) {
+        const inferredBev = inferBeverageSubcategory({ name: rawName, desc: it.note || '' });
+        if (inferredBev && inferredBev !== 'Otras Bebidas') {
+            catKey = 'bebidas';
+        } else if (/milanesa|mila\b/i.test(rawName)) {
+            catKey = 'milanesas';
+        } else if (/hamburguesa|burger|papas|fritas|empanada|tostado|carlito|lomo|lomito|picada|rabas|bastones|nuggets/i.test(rawName)) {
+            catKey = 'minutas';
+        } else if (/helado|flan|budin|budín|postre|tiramisu|tiramisú|chocotorta|cafe|café|almendrado|bombon|bombón/i.test(rawName)) {
+            catKey = menuData['postres'] ? 'postres' : 'otros';
+        } else if (loc && loc.catKey) {
+            catKey = loc.catKey;
         } else {
             catKey = 'otros';
         }
@@ -6987,17 +7612,51 @@ function resolveSoldItemCategory(it) {
 
     const cat = menuData[catKey] || (catKey === 'parrilla' ? (menuData['parrilla'] || menuData['parrillada']) : null);
     let subcategory = String(it.subcategory || (loc && loc.item.subcategory) || '').trim();
-    if (/parrill/i.test(rawName)) {
+
+    if (catKey === 'parrilla') {
         subcategory = /menor/i.test(rawName) ? 'Parrilla Menores' : 'Parrilla';
-    } else if (isPizzaLibreSoldItem(it)) {
-        subcategory = 'Pizza Libre';
+    } else if (catKey === 'pizzas') {
+        if (isPizzaLibreSoldItem(it)) {
+            subcategory = 'Pizza Libre';
+        } else if (/\/|1\/2|1\/3|gustos/i.test(rawName)) {
+            subcategory = 'Pizzas Combinadas (2 o 3 gustos)';
+        } else {
+            subcategory = 'Pizzas a la Carta (Enteras)';
+        }
+    } else if (catKey === 'bebidas') {
+        if (!subcategory) {
+            subcategory = inferBeverageSubcategory(loc ? loc.item : { name: rawName, desc: it.note || '' });
+        }
+    } else if (!subcategory) {
+        subcategory = cleanBaseName;
     }
+
+    const resolvedCatName = catKey === 'parrilla'
+        ? 'Parrilla'
+        : (cat ? cat.name : (
+            catKey === 'pizzas' ? 'Pizzas' :
+            catKey === 'bebidas' ? 'Bebidas' :
+            catKey === 'milanesas' ? 'Sándwiches de Milanesa' :
+            catKey === 'minutas' ? 'Hamburguesas y Papas' :
+            catKey === 'postres' ? 'Postres y Café' : 'Otros Consumos'
+        ));
+
+    const resolvedIcon = (cat && cat.icon)
+        ? cat.icon
+        : (
+            catKey === 'parrilla' ? 'fa-fire' :
+            catKey === 'pizzas' ? 'fa-pizza-slice' :
+            catKey === 'bebidas' ? 'fa-wine-glass' :
+            catKey === 'milanesas' ? 'fa-burger' :
+            catKey === 'minutas' ? 'fa-utensils' : 'fa-bowl-food'
+        );
 
     return {
         catKey,
-        catName: catKey === 'parrilla' ? 'Parrilla' : (cat ? cat.name : (catKey === 'pizzas' ? 'Pizzas' : 'Otros')),
-        icon: (cat && cat.icon) ? cat.icon : (catKey === 'parrilla' ? 'fa-fire' : (catKey === 'pizzas' ? 'fa-pizza-slice' : 'fa-utensils')),
-        subcategory
+        catName: resolvedCatName,
+        icon: resolvedIcon,
+        subcategory: subcategory || cleanBaseName,
+        itemDisplayName: loc && loc.item && catKey !== 'pizzas' && catKey !== 'parrilla' ? loc.item.name : cleanBaseName
     };
 }
 
@@ -7008,12 +7667,60 @@ function formatSalesQtyLabel(units, persons) {
     return parts.length > 0 ? parts.join(' + ') : '0 u.';
 }
 
+function extractNormalizedItemsFromRecord(p) {
+    if (Array.isArray(p.items) && p.items.length > 0) {
+        return p.items;
+    }
+    // Si un registro histórico solo tenía itemsSummary en texto, reconstruir los ítems y repartir el total proporcionalmente
+    if (p.itemsSummary && String(p.itemsSummary).trim()) {
+        const rawParts = String(p.itemsSummary).split(',').map(s => s.trim()).filter(Boolean);
+        const parsed = [];
+        let estimatedTotal = 0;
+
+        rawParts.forEach(part => {
+            const m = part.match(/^(\d+)x\s*(.+)$/);
+            const qty = m ? parseInt(m[1], 10) : 1;
+            const name = m ? m[2].trim() : part;
+            if (/pizza\s*libre/i.test(name) && /ronda\)/i.test(name) && !/1ra/i.test(name)) {
+                parsed.push({ name, qty: 1, price: 0, isPizzaLibre: true });
+                return;
+            }
+            const loc = findMenuItemLocationByName(name);
+            const unitPrice = loc && loc.item ? Number(loc.item.price) || 0 : 0;
+            estimatedTotal += unitPrice * qty;
+            parsed.push({
+                id: loc && loc.item ? loc.item.id : '',
+                menuItemId: loc && loc.item ? loc.item.id : '',
+                categoryId: loc ? loc.catKey : '',
+                subcategory: loc && loc.item ? (loc.item.subcategory || '') : '',
+                name,
+                qty,
+                price: unitPrice,
+                perPerson: Boolean((loc && loc.item && loc.item.perPerson) || /parrill/i.test(name))
+            });
+        });
+
+        const recordTotal = Number(p.total) || 0;
+        if (recordTotal > 0 && estimatedTotal === 0 && parsed.length > 0) {
+            const totalUnits = parsed.reduce((a, i) => a + (Number(i.qty) || 1), 0) || 1;
+            const avgUnit = Math.round(recordTotal / totalUnits);
+            parsed.forEach(i => { i.price = avgUnit; });
+        }
+        return parsed;
+    }
+    return [];
+}
+
 function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
     const cats = {};
     let grandRevenue = 0;
+    let paidRevenue = 0;
+    let activeRevenue = 0;
 
     payments.forEach(p => {
-        const items = Array.isArray(p.items) ? p.items : [];
+        const isActiveTable = Boolean(p.isActive);
+        const items = extractNormalizedItemsFromRecord(p);
+
         items.forEach(it => {
             const qty = Number(it.qty) || 0;
             const price = Number(it.price) || 0;
@@ -7022,16 +7729,32 @@ function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
             const rawName = String(it.baseName || it.name || '').trim();
 
             if (!cats[info.catKey]) {
-                cats[info.catKey] = { key: info.catKey, name: info.catName, icon: info.icon, units: 0, persons: 0, revenue: 0, extraRounds: 0, subs: {} };
+                cats[info.catKey] = {
+                    key: info.catKey,
+                    name: info.catName,
+                    icon: info.icon,
+                    units: 0,
+                    persons: 0,
+                    revenue: 0,
+                    paidRevenue: 0,
+                    activeRevenue: 0,
+                    extraRounds: 0,
+                    subs: {},
+                    products: {}
+                };
             }
             const c = cats[info.catKey];
 
             let units = 0;
             let persons = 0;
+            let isPersonBased = false;
+
             if (isPizzaLibreSoldItem(it)) {
+                isPersonBased = true;
                 if (price > 0) persons = Number(it.librePersons) || qty || 1;
                 else c.extraRounds += 1;
-            } else if (it.perPerson || /parrilla/i.test(rawName)) {
+            } else if (it.perPerson || /parrill/i.test(rawName)) {
+                isPersonBased = true;
                 persons = qty;
             } else {
                 units = qty;
@@ -7042,13 +7765,50 @@ function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
             c.revenue += revenue;
             grandRevenue += revenue;
 
+            if (isActiveTable) {
+                c.activeRevenue += revenue;
+                activeRevenue += revenue;
+            } else {
+                c.paidRevenue += revenue;
+                paidRevenue += revenue;
+            }
+
             const subcatName = info.subcategory;
             if (subcatName) {
-                if (!c.subs[subcatName]) c.subs[subcatName] = { name: subcatName, units: 0, persons: 0, revenue: 0 };
+                if (!c.subs[subcatName]) {
+                    c.subs[subcatName] = { name: subcatName, units: 0, persons: 0, revenue: 0, items: {} };
+                }
                 const s = c.subs[subcatName];
                 s.units += units;
                 s.persons += persons;
                 s.revenue += revenue;
+
+                const prodName = info.itemDisplayName || getSoldItemBaseName(it);
+                if (units > 0 || persons > 0) {
+                    if (!s.items[prodName]) {
+                        s.items[prodName] = { name: prodName, units: 0, persons: 0, revenue: 0, isPersonBased };
+                    }
+                    s.items[prodName].units += units;
+                    s.items[prodName].persons += persons;
+                    s.items[prodName].revenue += revenue;
+                }
+            }
+
+            const prodKey = info.itemDisplayName || getSoldItemBaseName(it);
+            if (units > 0 || persons > 0) {
+                if (!c.products[prodKey]) {
+                    c.products[prodKey] = {
+                        name: prodKey,
+                        subName: subcatName,
+                        units: 0,
+                        persons: 0,
+                        revenue: 0,
+                        isPersonBased
+                    };
+                }
+                c.products[prodKey].units += units;
+                c.products[prodKey].persons += persons;
+                c.products[prodKey].revenue += revenue;
             }
         });
     });
@@ -7057,68 +7817,144 @@ function computeCategorySales(payments = getAllShiftConsumptionRecords()) {
         .map(c => ({
             ...c,
             pct: grandRevenue > 0 ? Math.round((c.revenue / grandRevenue) * 1000) / 10 : 0,
-            subList: Object.values(c.subs).sort((a, b) => b.revenue - a.revenue)
+            subList: Object.values(c.subs)
+                .map(s => ({
+                    ...s,
+                    itemList: Object.values(s.items).sort((a, b) => (b.revenue - a.revenue) || ((b.units + b.persons) - (a.units + a.persons)))
+                }))
+                .sort((a, b) => (b.revenue - a.revenue) || ((b.units + b.persons) - (a.units + a.persons))),
+            productList: Object.values(c.products).sort((a, b) => (b.revenue - a.revenue) || ((b.units + b.persons) - (a.units + a.persons)))
         }))
         .sort((a, b) => b.revenue - a.revenue);
 
-    return { list, grandRevenue };
+    return { list, grandRevenue, paidRevenue, activeRevenue };
 }
 
 function computeProductRanking(payments = getAllShiftConsumptionRecords()) {
     const stats = {};
-    const add = (key, catName, qty, revenue, isPersons) => {
-        if (!stats[key]) stats[key] = { name: key, catName, qty: 0, revenue: 0, isPersons };
+    const add = (key, catName, subName, qty, revenue, isPersons) => {
+        if (!stats[key]) stats[key] = { name: key, catName, subName: subName || '', qty: 0, revenue: 0, isPersons };
         stats[key].qty += qty;
         stats[key].revenue += revenue;
     };
 
     payments.forEach(p => {
-        if (Array.isArray(p.items) && p.items.length > 0) {
-            p.items.forEach(it => {
-                const qty = Number(it.qty) || 0;
-                const price = Number(it.price) || 0;
-                const info = resolveSoldItemCategory(it);
-                const rawName = String(it.baseName || it.name || '').trim();
+        const items = extractNormalizedItemsFromRecord(p);
+        items.forEach(it => {
+            const qty = Number(it.qty) || 0;
+            const price = Number(it.price) || 0;
+            const info = resolveSoldItemCategory(it);
+            const rawName = String(it.baseName || it.name || '').trim();
 
-                if (isPizzaLibreSoldItem(it)) {
-                    if (price > 0) {
-                        const persons = Number(it.librePersons) || qty || 1;
-                        add('Pizza Libre', info.catName || 'Pizzas', persons, price * qty, true);
-                    }
-                } else if (/parrilla/i.test(rawName)) {
-                    if (/menor/i.test(rawName)) {
-                        add('Parrilla Menores', info.catName || 'Parrilla', qty, price * qty, true);
-                    } else {
-                        add('Parrilla', info.catName || 'Parrilla', qty, price * qty, true);
-                    }
-                } else if (it.perPerson) {
-                    add(`${getSoldItemBaseName(it)} (por persona)`, info.catName, qty, price * qty, true);
-                } else {
-                    add(it.name, info.catName, qty, price * qty, false);
+            if (isPizzaLibreSoldItem(it)) {
+                if (price > 0) {
+                    const persons = Number(it.librePersons) || qty || 1;
+                    add('Pizza Libre', info.catName || 'Pizzas', 'Pizza Libre', persons, price * qty, true);
                 }
-            });
-        } else if (p.itemsSummary) {
-            String(p.itemsSummary).split(',').map(s => s.trim()).filter(Boolean).forEach(part => {
-                const m = part.match(/^(\d+)x\s*(.+)$/);
-                const qty = m ? parseInt(m[1], 10) : 1;
-                const name = m ? m[2].trim() : part;
-                if (/pizza\s*libre/i.test(name)) {
-                    if (/ronda\)/i.test(name) && !/1ra/i.test(name)) return;
-                    add('Pizza Libre', 'Pizzas', qty, 0, true);
-                } else if (/parrilla/i.test(name)) {
-                    if (/menor/i.test(name)) {
-                        add('Parrilla Menores', 'Parrilla', qty, 0, true);
-                    } else {
-                        add('Parrilla', 'Parrilla', qty, 0, true);
-                    }
+            } else if (/parrill/i.test(rawName)) {
+                if (/menor/i.test(rawName)) {
+                    add('Parrilla Menores', info.catName || 'Parrilla', 'Parrilla Menores', qty, price * qty, true);
                 } else {
-                    add(name, 'Otros', qty, 0, false);
+                    add('Parrilla', info.catName || 'Parrilla', 'Parrilla', qty, price * qty, true);
                 }
-            });
-        }
+            } else if (it.perPerson) {
+                add(`${getSoldItemBaseName(it)} (por persona)`, info.catName, info.subcategory, qty, price * qty, true);
+            } else {
+                const displayName = info.itemDisplayName || getSoldItemBaseName(it);
+                add(displayName, info.catName, info.subcategory, qty, price * qty, false);
+            }
+        });
     });
 
     return Object.values(stats).sort((a, b) => (b.qty - a.qty) || (b.revenue - a.revenue));
+}
+
+function computeWaiterReportStats() {
+    const waiterStats = {};
+    staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
+        waiterStats[m.name] = { closed: 0, tables: 0, sales: 0, tips: 0 };
+    });
+
+    paymentHistory.forEach(p => {
+        if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
+            const entries = Object.entries(p.waiterTips);
+            const shareCount = Math.max(1, entries.length);
+            const shareSales = Math.round((Number(p.total) || 0) / shareCount);
+
+            entries.forEach(([wRaw, wTip]) => {
+                const w = String(wRaw).trim();
+                if (!w) return;
+                if (!waiterStats[w]) waiterStats[w] = { closed: 0, tables: 0, sales: 0, tips: 0 };
+                waiterStats[w].tips += Number(wTip) || 0;
+                waiterStats[w].closed += 1;
+                waiterStats[w].tables += 1;
+                waiterStats[w].sales += shareSales;
+            });
+        } else {
+            let wName = p.waiter || 'Otro';
+            const isWAdmin = wName.toLowerCase().includes('encargado') || wName.toLowerCase().includes('admin');
+            if (isWAdmin && p.table) {
+                const matchCmd = kitchenOrders.find(k => k.table === p.table && k.waiterName && !k.waiterName.toLowerCase().includes('encargado') && !k.waiterName.toLowerCase().includes('admin'));
+                if (matchCmd) {
+                    wName = matchCmd.waiterName;
+                    p.waiter = matchCmd.waiterName;
+                }
+            }
+
+            if (!waiterStats[wName]) {
+                waiterStats[wName] = { closed: 0, tables: 0, sales: 0, tips: 0 };
+            }
+            waiterStats[wName].closed += 1;
+            waiterStats[wName].tables += 1;
+            waiterStats[wName].sales += Number(p.total) || 0;
+            waiterStats[wName].tips += Number(p.tip) || 0;
+        }
+    });
+
+    return waiterStats;
+}
+
+let activeReportScope = 'all'; // 'all' | 'paid' | 'active'
+
+function setReportScope(scope) {
+    activeReportScope = scope || 'all';
+    renderNightReportView();
+}
+
+function getScopedReportRecords(allShiftRecords) {
+    if (activeReportScope === 'paid') {
+        return allShiftRecords.filter(r => !r.isActive);
+    }
+    if (activeReportScope === 'active') {
+        return allShiftRecords.filter(r => r.isActive);
+    }
+    return allShiftRecords;
+}
+
+function computeHourlyBreakdown(payments = paymentHistory) {
+    const hours = {};
+    (payments || []).forEach(p => {
+        const rawTime = String(p.time || '').trim();
+        const m = rawTime.match(/(\d{1,2}):\d{2}/);
+        let hourLabel = 'Sin hora';
+        let sortKey = 99;
+        if (m) {
+            let h = parseInt(m[1], 10);
+            const lower = rawTime.toLowerCase();
+            if (lower.includes('p.m.') && h < 12) h += 12;
+            if (lower.includes('a.m.') && h === 12) h = 0;
+            hourLabel = `${h < 10 ? '0' + h : h}:00 hs`;
+            // Ordenar noche corrida: 18..23 primero, luego 00..06
+            sortKey = h >= 12 ? h : h + 24;
+        }
+        if (!hours[hourLabel]) {
+            hours[hourLabel] = { label: hourLabel, sortKey, tables: 0, total: 0, tips: 0 };
+        }
+        hours[hourLabel].tables += 1;
+        hours[hourLabel].total += Number(p.total) || 0;
+        hours[hourLabel].tips += Number(p.tip) || 0;
+    });
+    return Object.values(hours).sort((a, b) => a.sortKey - b.sortKey);
 }
 
 function renderNightReportView() {
@@ -7128,13 +7964,27 @@ function renderNightReportView() {
         repDateElem.innerText = `Resumen: ${shiftInfo.shiftTitle}`;
     }
 
-    const shiftRecords = getAllShiftConsumptionRecords();
-    const activeTables = shiftRecords.filter(r => r.isActive);
+    // Actualizar botones de filtro de alcance (Todo / Cobrado / Salón)
+    ['all', 'paid', 'active'].forEach(sc => {
+        const btn = document.getElementById(`rep-scope-${sc}`);
+        if (!btn) return;
+        if (sc === activeReportScope) {
+            btn.className = "px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#2563eb] text-white transition-all cursor-pointer";
+        } else {
+            btn.className = "px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-slate-900 transition-all cursor-pointer";
+        }
+    });
+
+    const allShiftRecords = getAllShiftConsumptionRecords();
+    const shiftRecords = getScopedReportRecords(allShiftRecords);
+    const activeTables = allShiftRecords.filter(r => r.isActive);
     const activeTablesTotal = activeTables.reduce((acc, r) => acc + (r.total || 0), 0);
 
     const totalSales = paymentHistory.reduce((acc, p) => acc + p.total, 0);
-    const totalCash = paymentHistory.filter(p => p.method === 'Efectivo').reduce((acc, p) => acc + p.total, 0);
-    const totalTransfer = paymentHistory.filter(p => p.method === 'Transferencia').reduce((acc, p) => acc + p.total, 0);
+    const cashPayments = paymentHistory.filter(p => p.method === 'Efectivo');
+    const transferPayments = paymentHistory.filter(p => p.method === 'Transferencia');
+    const totalCash = cashPayments.reduce((acc, p) => acc + p.total, 0);
+    const totalTransfer = transferPayments.reduce((acc, p) => acc + p.total, 0);
     const ordersCount = paymentHistory.length;
     const avgTicket = ordersCount > 0 ? Math.round(totalSales / ordersCount) : 0;
 
@@ -7148,52 +7998,183 @@ function renderNightReportView() {
     document.getElementById('rep-kpi-cash').innerText = `$${totalCash.toLocaleString()}`;
     document.getElementById('rep-kpi-transfer').innerText = `$${totalTransfer.toLocaleString()}`;
     document.getElementById('rep-kpi-tips').innerText = `$${generalTipsPool.toLocaleString()}`;
-    document.getElementById('rep-kpi-tip-split').innerText = `$${tipPerWaiter.toLocaleString()} por mozo (${waiterCount})`;
+    document.getElementById('rep-kpi-tip-split').innerText = `$${tipPerWaiter.toLocaleString()} promedio (${waiterCount} mozos)`;
     document.getElementById('rep-kpi-avg').innerText = `$${avgTicket.toLocaleString()}`;
 
-    // 1. Ventas por Categoría (toda la carta) con desglose por tipo / subcategoría
-    // Tomado de todas las mesas del turno (salón y cobradas)
+    // Auditoría de Medios de Pago (Efectivo vs Transferencia + % propina real)
+    const methodsAuditEl = document.getElementById('rep-payment-methods-audit');
+    if (methodsAuditEl) {
+        if (ordersCount === 0) {
+            methodsAuditEl.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Sin cobros cerrados todavía.</p>`;
+        } else {
+            const cashPct = totalSales > 0 ? Math.round((totalCash / totalSales) * 1000) / 10 : 0;
+            const transPct = totalSales > 0 ? Math.round((totalTransfer / totalSales) * 1000) / 10 : 0;
+            const cashTips = cashPayments.reduce((a, p) => a + (Number(p.tip) || 0), 0);
+            const transTips = transferPayments.reduce((a, p) => a + (Number(p.tip) || 0), 0);
+            const avgTipPct = totalSales > 0 ? Math.round((generalTipsPool / totalSales) * 1000) / 10 : 0;
+            const totalEntered = totalSales + generalTipsPool;
+
+            methodsAuditEl.innerHTML = `
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-emerald-800 flex items-center gap-1.5"><i class="fa-solid fa-money-bill-wave text-emerald-600"></i> Efectivo (${cashPayments.length} cobros)</span>
+                        <span class="font-black text-slate-900">$${totalCash.toLocaleString()} <span class="text-slate-400 font-semibold">(${cashPct}%)</span></span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div class="bg-emerald-500 h-2 rounded-full" style="width: ${cashPct}%"></div>
+                    </div>
+                    <div class="text-[10px] text-slate-500 flex justify-between">
+                        <span>Ticket prom. efectivo: <strong>$${cashPayments.length > 0 ? Math.round(totalCash / cashPayments.length).toLocaleString() : 0}</strong></span>
+                        <span>Propinas efectivo: <strong class="text-emerald-700">$${cashTips.toLocaleString()}</strong></span>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5 pt-2 border-t border-slate-100">
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-indigo-800 flex items-center gap-1.5"><i class="fa-solid fa-building-columns text-indigo-600"></i> Transferencia (${transferPayments.length} cobros)</span>
+                        <span class="font-black text-slate-900">$${totalTransfer.toLocaleString()} <span class="text-slate-400 font-semibold">(${transPct}%)</span></span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div class="bg-indigo-500 h-2 rounded-full" style="width: ${transPct}%"></div>
+                    </div>
+                    <div class="text-[10px] text-slate-500 flex justify-between">
+                        <span>Ticket prom. digital: <strong>$${transferPayments.length > 0 ? Math.round(totalTransfer / transferPayments.length).toLocaleString() : 0}</strong></span>
+                        <span>Propinas digital: <strong class="text-indigo-700">$${transTips.toLocaleString()}</strong></span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+                        <span class="text-[10px] text-slate-500 block">Ingreso Total (Ventas + Propinas)</span>
+                        <strong class="text-sm text-slate-900">$${totalEntered.toLocaleString()}</strong>
+                    </div>
+                    <div class="bg-blue-50/60 border border-blue-200 rounded-xl p-2">
+                        <span class="text-[10px] text-[#2563eb] block">Propina sobre Facturación</span>
+                        <strong class="text-sm text-[#2563eb]">${avgTipPct}% promedio</strong>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Flujo de Cobros por Hora
+    const hourlyEl = document.getElementById('rep-hourly-breakdown');
+    if (hourlyEl) {
+        const hourlyData = computeHourlyBreakdown(paymentHistory);
+        if (hourlyData.length === 0) {
+            hourlyEl.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Sin cobros registrados por franja horaria.</p>`;
+        } else {
+            const maxHourTotal = Math.max(...hourlyData.map(h => h.total), 1);
+            hourlyEl.innerHTML = hourlyData.map(h => {
+                const pct = Math.round((h.total / maxHourTotal) * 100);
+                return `
+                    <div class="space-y-1">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-800">${h.label} <span class="text-[10px] text-slate-400 font-semibold">(${h.tables} mesa${h.tables === 1 ? '' : 's'})</span></span>
+                            <span class="font-black text-slate-900">$${h.total.toLocaleString()}</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-indigo-500 h-1.5 rounded-full" style="width: ${pct}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 1. Ventas por Categoría (toda la carta) con desglose completo por subcategoría y producto individual
     const catSales = computeCategorySales(shiftRecords);
     const catBadge = document.getElementById('rep-cat-summary-badge');
+    const paidBadge = document.getElementById('rep-cat-paid-badge');
+    const activeBadge = document.getElementById('rep-cat-active-badge');
+
+    if (paidBadge) {
+        paidBadge.innerText = `Cobrado: $${catSales.paidRevenue.toLocaleString()}`;
+    }
+    if (activeBadge) {
+        if (catSales.activeRevenue > 0) {
+            activeBadge.innerText = `En Salón: $${catSales.activeRevenue.toLocaleString()}`;
+            activeBadge.classList.remove('hidden');
+        } else {
+            activeBadge.classList.add('hidden');
+        }
+    }
     if (catBadge) {
         const totUnits = catSales.list.reduce((a, c) => a + c.units, 0);
         const totPersons = catSales.list.reduce((a, c) => a + c.persons, 0);
         catBadge.innerText = `${catSales.list.length} categoría${catSales.list.length === 1 ? '' : 's'} | ${formatSalesQtyLabel(totUnits, totPersons)}`;
     }
+
     const catContainer = document.getElementById('rep-category-breakdown');
     if (catContainer) {
         if (catSales.list.length === 0) {
             catContainer.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-6 text-center">Sin consumos registrados en las mesas.</p>`;
         } else {
-            catContainer.innerHTML = catSales.list.map(c => `
-                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="flex items-center gap-1.5 min-w-0">
-                            <i class="fa-solid ${c.icon} text-[#2563eb] text-xs shrink-0"></i>
-                            <span class="font-bold text-sm text-slate-900 truncate">${c.name}</span>
-                        </span>
-                        <span class="text-[10px] font-bold text-slate-500 shrink-0">${c.pct}% de salidas</span>
-                    </div>
-                    <div class="flex items-end justify-between gap-2">
-                        <span class="text-xs font-bold text-slate-700">${formatSalesQtyLabel(c.units, c.persons)}</span>
-                        <strong class="text-base text-slate-900">$${c.revenue.toLocaleString()}</strong>
-                    </div>
-                    <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                        <div class="bg-[#2563eb] h-1.5 rounded-full" style="width: ${Math.min(100, c.pct)}%"></div>
-                    </div>
-                    ${c.extraRounds > 0 ? `<p class="text-[10px] text-slate-500">Rondas extra de libre servidas: ${c.extraRounds}</p>` : ''}
-                    ${c.subList.length > 0 ? `
-                        <div class="pt-1.5 border-t border-slate-200 space-y-1">
-                            ${c.subList.map(s => `
-                                <div class="flex justify-between text-[11px] text-slate-600">
-                                    <span class="truncate mr-2">${s.name}</span>
-                                    <span class="shrink-0"><strong class="text-slate-800">${formatSalesQtyLabel(s.units, s.persons)}</strong> | $${s.revenue.toLocaleString()}</span>
-                                </div>
-                            `).join('')}
+            catContainer.innerHTML = catSales.list.map(c => {
+                const showDetailedProducts = c.subList.some(s =>
+                    s.itemList && (s.itemList.length > 1 || (s.itemList.length === 1 && s.itemList[0].name.toLowerCase() !== s.name.toLowerCase()))
+                );
+
+                return `
+                <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 flex flex-col justify-between avoid-break">
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="flex items-center gap-1.5 min-w-0">
+                                <span class="w-6 h-6 rounded-lg bg-blue-100/80 text-[#2563eb] flex items-center justify-center shrink-0">
+                                    <i class="fa-solid ${c.icon} text-xs"></i>
+                                </span>
+                                <span class="font-bold text-sm text-slate-900 truncate">${c.name}</span>
+                            </span>
+                            <span class="text-[10px] font-bold bg-blue-50 text-[#2563eb] border border-blue-200 px-2 py-0.5 rounded-full shrink-0">${c.pct}%</span>
                         </div>
-                    ` : ''}
+
+                        <div class="flex items-baseline justify-between gap-2">
+                            <span class="text-xs font-extrabold text-slate-700">${formatSalesQtyLabel(c.units, c.persons)}</span>
+                            <strong class="text-base font-black text-slate-900">$${c.revenue.toLocaleString()}</strong>
+                        </div>
+
+                        ${c.activeRevenue > 0 ? `
+                            <div class="flex justify-between text-[10px] text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200/70">
+                                <span>Cobrado: <strong class="text-emerald-700">$${c.paidRevenue.toLocaleString()}</strong></span>
+                                <span>Salón: <strong class="text-amber-700">$${c.activeRevenue.toLocaleString()}</strong></span>
+                            </div>
+                        ` : ''}
+
+                        <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-[#2563eb] h-1.5 rounded-full" style="width: ${Math.min(100, c.pct)}%"></div>
+                        </div>
+
+                        ${c.extraRounds > 0 ? `<p class="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg font-semibold">Rondas extra de libre servidas ($0): ${c.extraRounds}</p>` : ''}
+
+                        ${c.subList.length > 0 ? `
+                            <div class="pt-2 border-t border-slate-200/90 space-y-1.5">
+                                ${c.subList.map(s => {
+                                    const subHasDistinctItems = s.itemList && (s.itemList.length > 1 || (s.itemList.length === 1 && s.itemList[0].name.toLowerCase() !== s.name.toLowerCase()));
+                                    return `
+                                    <div class="space-y-0.5">
+                                        <div class="flex justify-between items-center text-[11px] text-slate-700 font-semibold">
+                                            <span class="truncate mr-2">${s.name}</span>
+                                            <span class="shrink-0"><strong class="text-slate-900">${formatSalesQtyLabel(s.units, s.persons)}</strong> | $${s.revenue.toLocaleString()}</span>
+                                        </div>
+                                        ${subHasDistinctItems ? `
+                                            <div class="pl-2.5 border-l-2 border-blue-200/70 space-y-0.5 mt-0.5">
+                                                ${s.itemList.map(prod => `
+                                                    <div class="flex justify-between text-[10px] text-slate-500">
+                                                        <span class="truncate mr-2">• ${prod.name}</span>
+                                                        <span class="shrink-0 font-medium">${formatSalesQtyLabel(prod.units, prod.persons)} ($${prod.revenue.toLocaleString()})</span>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
     }
 
@@ -7237,12 +8218,15 @@ function renderNightReportView() {
     } else {
         topList.innerHTML = sortedProducts.map((p, idx) => {
             const pct = Math.round((p.qty / maxQty) * 100);
+            const subTag = (p.subName && p.subName.toLowerCase() !== p.catName.toLowerCase() && p.subName.toLowerCase() !== p.name.toLowerCase())
+                ? `${p.catName} • ${p.subName}`
+                : p.catName;
             return `
                 <div class="space-y-1 text-xs">
                     <div class="flex justify-between items-center">
                         <span class="font-bold text-slate-800 truncate mr-2">
                             <span class="text-slate-400 font-semibold mr-1">${idx + 1}°.</span> ${p.name}
-                            <span class="text-[10px] text-slate-400 font-medium ml-1">${p.catName}</span>
+                            <span class="text-[10px] text-slate-400 font-medium ml-1">(${subTag})</span>
                         </span>
                         <div class="text-right shrink-0">
                             <strong class="text-slate-900">${p.qty} ${p.isPersons ? 'pers.' : 'u.'}</strong>
@@ -7257,42 +8241,8 @@ function renderNightReportView() {
         }).join('');
     }
 
-    // 4. Rendimiento por Mozo
-    const waiterStats = {};
-    activeWaiters.forEach(w => {
-        waiterStats[w.name] = { closed: 0, sales: 0, tips: 0 };
-    });
-
-    paymentHistory.forEach(p => {
-        if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
-            for (const [w, wTip] of Object.entries(p.waiterTips)) {
-                if (!waiterStats[w]) waiterStats[w] = { closed: 0, sales: 0, tips: 0 };
-                waiterStats[w].tips += Number(wTip) || 0;
-            }
-            const primaryWaiter = p.waiter ? p.waiter.split('/')[0].trim() : 'Otro';
-            if (!waiterStats[primaryWaiter]) waiterStats[primaryWaiter] = { closed: 0, sales: 0, tips: 0 };
-            waiterStats[primaryWaiter].closed += 1;
-            waiterStats[primaryWaiter].sales += p.total;
-        } else {
-            let wName = p.waiter || 'Otro';
-            const isWAdmin = wName.toLowerCase().includes('encargado') || wName.toLowerCase().includes('admin');
-            if (isWAdmin && p.table) {
-                const matchCmd = kitchenOrders.find(k => k.table === p.table && k.waiterName && !k.waiterName.toLowerCase().includes('encargado') && !k.waiterName.toLowerCase().includes('admin'));
-                if (matchCmd) {
-                    wName = matchCmd.waiterName;
-                    p.waiter = matchCmd.waiterName;
-                }
-            }
-
-            if (!waiterStats[wName]) {
-                waiterStats[wName] = { closed: 0, sales: 0, tips: 0 };
-            }
-            waiterStats[wName].closed += 1;
-            waiterStats[wName].sales += p.total;
-            waiterStats[wName].tips += (p.tip || 0);
-        }
-    });
-
+    // 4. Rendimiento por Mozo (unificado con propinas divididas)
+    const waiterStats = computeWaiterReportStats();
     const waiterContainer = document.getElementById('rep-waiter-breakdown');
     waiterContainer.innerHTML = Object.keys(waiterStats).map(wName => {
         const ws = waiterStats[wName];
@@ -7449,44 +8399,29 @@ function copyNightReportText() {
     const ranking = computeProductRanking(shiftRecords);
 
     // Desglose de propinas por mozo
-    const waiterStats = {};
-    staffList.filter(s => s.role.includes('Mozo')).forEach(m => {
-        waiterStats[m.name] = { tips: 0, tables: 0, sales: 0 };
-    });
-    paymentHistory.forEach(p => {
-        if (p.waiterTips && typeof p.waiterTips === 'object' && Object.keys(p.waiterTips).length > 0) {
-            for (const [w, wTip] of Object.entries(p.waiterTips)) {
-                if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
-                waiterStats[w].tips += Number(wTip) || 0;
-            }
-            const primaryWaiter = p.waiter ? p.waiter.split('/')[0].trim() : 'Otro';
-            if (!waiterStats[primaryWaiter]) waiterStats[primaryWaiter] = { tips: 0, tables: 0, sales: 0 };
-            waiterStats[primaryWaiter].tables += 1;
-            waiterStats[primaryWaiter].sales += p.total;
-        } else {
-            const w = p.waiter || 'Otro';
-            if (!waiterStats[w]) waiterStats[w] = { tips: 0, tables: 0, sales: 0 };
-            waiterStats[w].tips += (p.tip || 0);
-            waiterStats[w].tables += 1;
-            waiterStats[w].sales += p.total;
-        }
-    });
+    const waiterStats = computeWaiterReportStats();
     const waiterTipLines = Object.keys(waiterStats)
         .map(w => `- ${w}: $${waiterStats[w].tips.toLocaleString()} propinas (${waiterStats[w].tables} mesas cobradas | $${waiterStats[w].sales.toLocaleString()})`)
         .join('\n');
 
     const catLines = catSales.list.length > 0
         ? catSales.list.map(c => {
-            let line = `- ${c.name}: ${formatSalesQtyLabel(c.units, c.persons)} | $${c.revenue.toLocaleString()} (${c.pct}%)`;
+            let line = `- *${c.name}*: ${formatSalesQtyLabel(c.units, c.persons)} | $${c.revenue.toLocaleString()} (${c.pct}%)`;
             c.subList.forEach(s => {
-                line += `\n     ${s.name}: ${formatSalesQtyLabel(s.units, s.persons)} | $${s.revenue.toLocaleString()}`;
+                line += `\n     • ${s.name}: ${formatSalesQtyLabel(s.units, s.persons)} | $${s.revenue.toLocaleString()}`;
+                const subHasDistinctItems = s.itemList && (s.itemList.length > 1 || (s.itemList.length === 1 && s.itemList[0].name.toLowerCase() !== s.name.toLowerCase()));
+                if (subHasDistinctItems) {
+                    s.itemList.forEach(prod => {
+                        line += `\n        - ${prod.name}: ${formatSalesQtyLabel(prod.units, prod.persons)} ($${prod.revenue.toLocaleString()})`;
+                    });
+                }
             });
             return line;
         }).join('\n')
         : '- Sin ventas registradas';
 
     const topProducts = ranking.length > 0
-        ? ranking.slice(0, 10).map((p, idx) => `${idx + 1}. ${p.name}: ${p.qty} ${p.isPersons ? 'pers.' : 'u.'}`).join('\n')
+        ? ranking.slice(0, 12).map((p, idx) => `${idx + 1}. ${p.name} [${p.catName}]: ${p.qty} ${p.isPersons ? 'pers.' : 'u.'} ($${p.revenue.toLocaleString()})`).join('\n')
         : '- Sin ventas registradas';
 
     const topFlavors = pizzaStats.sortedFlavors.length > 0
@@ -7509,15 +8444,15 @@ function copyNightReportText() {
         `Transferencias: $${totalTransfer.toLocaleString()}\n` +
         `Caja de Propinas: $${generalTipsPool.toLocaleString()}\n\n` +
         `*PROPINAS Y RENDIMIENTO POR MOZO:*\n${waiterTipLines || '- Sin propinas registradas'}\n\n` +
-        `*SALIDA POR CATEGORÍA (MESAS Y COBROS):*\n${catLines}\n\n` +
-        `*LO MÁS VENDIDO / CONSUMIDO (TOP 10):*\n${topProducts}\n\n` +
+        `*SALIDA POR CATEGORÍA (TODA LA CARTA):*\n${catLines}\n\n` +
+        `*LO MÁS VENDIDO / CONSUMIDO (TOP 12):*\n${topProducts}\n\n` +
         `*GUSTOS DE PIZZA MÁS VENDIDOS:*\n${topFlavors}\n\n` +
         `*DETALLE DE COBRANZAS DE MESAS:*\n` +
         (tablesBreakdown || 'Sin cobranzas registradas') + '\n\n' +
         `_Generado automáticamente desde Sarmiento POS_`;
 
     navigator.clipboard.writeText(text).then(() => {
-        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con las salidas por categoría, lo más vendido, los gustos de pizza y los cobros por mozo, listo para enviar por WhatsApp.');
+        showModal('Resumen Copiado', 'El texto fue copiado al portapapeles con las salidas por categoría, subcategorías, productos individuales, gustos de pizza y cobros por mozo, listo para enviar por WhatsApp.');
     }).catch(err => {
         console.error(err);
     });
@@ -7528,36 +8463,46 @@ function downloadNightReportCSV() {
     const catSales = computeCategorySales(shiftRecords);
     const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
     const ranking = computeProductRanking(shiftRecords);
+    const waiterStats = computeWaiterReportStats();
     const q = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`;
 
     let csv = "ID,Mesa,Mozo,Hora,Metodo,Total,Pago,Propina,Personas (servicios por persona),Detalle\n";
     shiftRecords.forEach(p => {
         let personsInTable = 0;
-        if (Array.isArray(p.items)) {
-            p.items.forEach(it => {
-                if (isPizzaLibreSoldItem(it)) {
-                    if (Number(it.price) > 0) personsInTable += (Number(it.librePersons) || Number(it.qty) || 1);
-                } else if (it.perPerson) {
-                    personsInTable += Number(it.qty) || 0;
-                }
-            });
-        }
+        const items = extractNormalizedItemsFromRecord(p);
+        items.forEach(it => {
+            if (isPizzaLibreSoldItem(it)) {
+                if (Number(it.price) > 0) personsInTable += (Number(it.librePersons) || Number(it.qty) || 1);
+            } else if (it.perPerson || /parrill/i.test(String(it.baseName || it.name || ''))) {
+                personsInTable += Number(it.qty) || 0;
+            }
+        });
         csv += `${q(p.id)},${q(p.table)},${q(p.waiter)},${q(p.time || '')},${q(p.method)},${p.total},${p.paidWith || p.total},${p.tip || 0},${personsInTable},${q(p.itemsSummary || '')}\n`;
     });
 
-    csv += "\n--- SALIDAS / VENTAS POR CATEGORIA ---\n";
-    csv += "Categoria,Subcategoria,Unidades,Personas,Facturado,% de Salidas\n";
+    csv += "\n--- SALIDAS / VENTAS POR CATEGORIA, SUBCATEGORIA Y PRODUCTO ---\n";
+    csv += "Categoria,Subcategoria,Producto,Unidades,Personas,Facturado Total,Cobrado,En Salon,% de Salidas\n";
     catSales.list.forEach(c => {
-        csv += `${q(c.name)},${q('(Total)')},${c.units},${c.persons},${c.revenue},${c.pct}\n`;
+        csv += `${q(c.name)},${q('(TOTAL CATEGORIA)')},${q('(Todos)')},${c.units},${c.persons},${c.revenue},${c.paidRevenue},${c.activeRevenue},${c.pct}\n`;
         c.subList.forEach(s => {
-            csv += `${q(c.name)},${q(s.name)},${s.units},${s.persons},${s.revenue},\n`;
+            csv += `${q(c.name)},${q(s.name)},${q('(Subtotal Subcategoria)')},${s.units},${s.persons},${s.revenue},,,\n`;
+            (s.itemList || []).forEach(prod => {
+                csv += `${q(c.name)},${q(s.name)},${q(prod.name)},${prod.units},${prod.persons},${prod.revenue},,,\n`;
+            });
         });
     });
 
+    csv += "\n--- RENDIMIENTO Y PROPINAS POR MOZO ---\n";
+    csv += "Mozo,Mesas Cerradas,Facturado Asociado,Propinas\n";
+    Object.keys(waiterStats).forEach(w => {
+        const ws = waiterStats[w];
+        csv += `${q(w)},${ws.tables},${ws.sales},${ws.tips}\n`;
+    });
+
     csv += "\n--- LO MAS VENDIDO EN MESAS ---\n";
-    csv += "Posicion,Producto,Categoria,Cantidad,Tipo,Facturado\n";
+    csv += "Posicion,Producto,Categoria,Subcategoria,Cantidad,Tipo,Facturado\n";
     ranking.forEach((p, idx) => {
-        csv += `${idx + 1},${q(p.name)},${q(p.catName)},${p.qty},${q(p.isPersons ? 'Personas' : 'Unidades')},${p.revenue}\n`;
+        csv += `${idx + 1},${q(p.name)},${q(p.catName)},${q(p.subName || '')},${p.qty},${q(p.isPersons ? 'Personas' : 'Unidades')},${p.revenue}\n`;
     });
 
     csv += "\n--- GUSTOS DE PIZZA MAS VENDIDOS ---\n";
@@ -7585,6 +8530,8 @@ async function printNightReportThermal() {
     const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
     const catSales = computeCategorySales(shiftRecords);
     const ranking = computeProductRanking(shiftRecords);
+    const waiterStats = computeWaiterReportStats();
+    const waiterBreakdown = Object.keys(waiterStats).map(w => ({ name: w, ...waiterStats[w] }));
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const dateStr = new Date().toLocaleDateString('es-AR');
 
@@ -7598,6 +8545,7 @@ async function printNightReportThermal() {
         tipsPool: generalTipsPool,
         ordersCount,
         categories: catSales.list,
+        waiterBreakdown,
         topProducts: ranking.slice(0, 15),
         topFlavors: pizzaStats.sortedFlavors,
         payments: paymentHistory
@@ -7711,7 +8659,7 @@ function renderAdminStaffList() {
     document.getElementById('staff-count-badge').innerText = `${staffList.length} usuarios`;
 
     container.innerHTML = staffList.map(s => {
-        const tablesClosed = paymentHistory.filter(p => p.waiter === s.name).length;
+        const tablesClosed = paymentHistory.filter(p => isPaymentAssociatedWithWaiter(p, s.name)).length;
         const isMozo = s.role.includes('Mozo');
 
         return `
@@ -7815,23 +8763,29 @@ async function removeStaffMember(staffId) {
     const s = staffList.find(x => x.id === staffId);
     const staffName = s ? s.name : 'Personal';
 
-    staffList = staffList.filter(s => s.id !== staffId);
+    showConfirmModal(
+        `Dar de baja a "${staffName}"`,
+        `¿Seguro que deseas eliminar a "${staffName}" del equipo? Ya no podrá ingresar desde los celulares.`,
+        async () => {
+            staffList = staffList.filter(x => x.id !== staffId);
 
-    saveLocalState();
-    renderAdminStaffList();
-    renderStaffLoginList();
+            saveLocalState();
+            renderAdminStaffList();
+            renderStaffLoginList();
 
-    try {
-        const res = await fetch(`/api/staff/${encodeURIComponent(staffId)}`, { method: 'DELETE' });
-        if (res.ok) {
-            isOnlineWithServer = true;
-            setConnectionIndicator(true);
+            try {
+                const res = await fetch(`/api/staff/${encodeURIComponent(staffId)}`, { method: 'DELETE' });
+                if (res.ok) {
+                    isOnlineWithServer = true;
+                    setConnectionIndicator(true);
+                }
+            } catch (e) {
+                console.warn('Error eliminando personal en Neon DB:', e);
+            }
+
+            showToast(`"${staffName}" eliminado de la base de datos`, 'info');
         }
-    } catch (e) {
-        console.warn('Error eliminando personal en Neon DB:', e);
-    }
-
-    showToast(`"${staffName}" eliminado de la base de datos`, 'info');
+    );
 }
 
 // ================= MODAL GENÉRICO DE AVISOS (CERO ALERTS NATIVOS) =================
