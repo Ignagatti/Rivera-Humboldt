@@ -3432,16 +3432,13 @@ function renderOrderList() {
                     <span class="text-slate-400 text-[11px]">$${item.price.toLocaleString()} c/u</span>
                 </div>
 
-                <div class="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
-                    <button onclick="updateQuantity('${item.id}', -1)" class="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer" title="Restar 1 unidad">
-                        <i class="fa-solid fa-minus text-[9px]"></i>
+                <div class="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
+                    <button type="button" onclick="updateQuantity('${item.id}', -1)" class="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer active:scale-95" title="Restar unidad">
+                        <i class="fa-solid fa-minus text-[10px]"></i>
                     </button>
-                    <span class="font-bold w-5 text-center text-slate-800 text-xs">${item.qty}</span>
-                    <button onclick="updateQuantity('${item.id}', 1)" class="w-6 h-6 rounded-lg bg-white text-[#2563eb] hover:bg-blue-50 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer" title="Sumar 1 unidad">
-                        <i class="fa-solid fa-plus text-[9px]"></i>
-                    </button>
-                    <button onclick="promptDeleteItemFromTable('${item.id}')" class="w-6 h-6 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-all cursor-pointer ml-0.5" title="Eliminar este plato de la cuenta">
-                        <i class="fa-solid fa-trash-can text-[9px]"></i>
+                    <span class="font-bold min-w-[22px] text-center text-slate-800 text-xs">${item.qty}</span>
+                    <button type="button" onclick="updateQuantity('${item.id}', 1)" class="w-7 h-7 rounded-lg bg-white text-[#2563eb] hover:bg-blue-50 flex items-center justify-center font-bold shadow-sm transition-all cursor-pointer active:scale-95" title="Sumar 1 unidad">
+                        <i class="fa-solid fa-plus text-[10px]"></i>
                     </button>
                 </div>
 
@@ -4051,10 +4048,66 @@ function renderPaymentHistoryList() {
                             ${tipPillText}
                         </span>
                     </div>
+                    <div class="pt-1">
+                        <button type="button" onclick="promptRestoreClosedTable('${p.id}', '${(p.table || '').replace(/'/g, "\\'")}')"
+                            class="text-[10px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-2 py-1 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                            title="Reabrir esta mesa y anular el cobro (si ya está ocupada, se crea como Bis)">
+                            <i class="fa-solid fa-rotate-left text-[9px]"></i>
+                            <span>Restaurar Mesa</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
     }).join('');
+}
+
+async function promptRestoreClosedTable(paymentId, tableName) {
+    const p = paymentHistory.find(x => x.id === paymentId);
+    if (!p) return;
+
+    const consolidatedNow = getTableConsolidatedOrder(tableName);
+    const isCurrentlyOccupied = consolidatedNow && Array.isArray(consolidatedNow.items) && consolidatedNow.items.length > 0;
+    const bisWarning = isCurrentlyOccupied
+        ? ` Como "${tableName}" ahora está ocupada por otros clientes, se restaurará automáticamente como "${tableName.replace(/\s+Bis(\s+\d+)?$/i, '').trim()} Bis" sin afectar la mesa actual.`
+        : ` La mesa volverá a abrirse en el salón con todos sus consumos.`;
+
+    showConfirmModal(
+        `Restaurar ${tableName}`,
+        `¿Seguro que querés restaurar el cobro de ${tableName} ($${Number(p.total).toLocaleString()})? Se anulará este pago del registro.${bisWarning}`,
+        async () => {
+            markLocalTableEdited();
+            markLocalKitchenMutated();
+            kitchenMutationInFlightCount++;
+            try {
+                const res = await fetch(`/api/payments/${encodeURIComponent(paymentId)}/restore`, {
+                    method: 'POST'
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) {
+                    showToast(data.error || 'No se pudo restaurar la mesa', 'error');
+                    return;
+                }
+
+                // Traer estado fresco desde el servidor para mostrar la mesa (o la Bis) de inmediato
+                kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+                lastLocalTableEditAt = 0;
+                lastLocalKitchenMutationAt = 0;
+                await fetchServerState(false);
+
+                closePaymentHistoryModal();
+                const msg = data.openedAsBis
+                    ? `"${data.originalTable}" estaba ocupada: se restauró como "${data.restoredTable}"`
+                    : `"${data.restoredTable}" restaurada y abierta en el salón`;
+                showToast(msg, 'success');
+            } catch (e) {
+                console.warn('Error al restaurar mesa cobrada:', e);
+                showToast('Error de conexión al restaurar la mesa', 'error');
+            } finally {
+                kitchenMutationInFlightCount = Math.max(0, kitchenMutationInFlightCount - 1);
+            }
+        }
+    );
 }
 
 // ================= CAJA DE PROPINAS =================
@@ -8302,6 +8355,14 @@ function renderNightReportView() {
                                     : `Propina: $${(p.tip || 0).toLocaleString()}`
                                 }
                             </span>
+                        </div>
+                        <div class="pt-1 no-print">
+                            <button type="button" onclick="promptRestoreClosedTable('${p.id}', '${(p.table || '').replace(/'/g, "\\'")}')"
+                                class="text-[10px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                                title="Reabrir esta mesa y anular el cobro (si ya está ocupada, se crea como Bis)">
+                                <i class="fa-solid fa-rotate-left text-[9px]"></i>
+                                <span>Restaurar Mesa</span>
+                            </button>
                         </div>
                     </div>
                 </div>

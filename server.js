@@ -1010,6 +1010,114 @@ app.post('/api/checkout', async (req, res) => {
   }
 });
 
+// 6b. Restaurar una mesa ya cobrada (revierte el pago y si la mesa está ocupada la abre como "Bis")
+app.post('/api/payments/:id/restore', async (req, res) => {
+  const { id } = req.params;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const payRes = await client.query(
+      "SELECT * FROM pos_payment_history WHERE id = $1 FOR UPDATE",
+      [id]
+    );
+    if (payRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Pago no encontrado o ya restaurado.' });
+    }
+
+    const payment = payRes.rows[0];
+    const originalTable = String(payment.table_name || 'Mesa').trim();
+    const restoredItems = (Array.isArray(payment.items) ? payment.items : []).map(it => ({
+      ...it,
+      qty: Number(it.qty) || 1,
+      sentQty: Number(it.qty) || 1,
+      price: Number(it.price) || 0,
+      status: 'delivered',
+      printed: true
+    }));
+
+    // Verificar si la mesa original ya está ocupada por nuevos clientes
+    const isTableBusy = async (tName) => {
+      const tblRes = await client.query("SELECT items FROM pos_table_orders WHERE table_name = $1", [tName]);
+      const hasDraft = tblRes.rows.length > 0 && Array.isArray(tblRes.rows[0].items) && tblRes.rows[0].items.length > 0;
+      const cmdRes = await client.query("SELECT id FROM pos_kitchen_orders WHERE table_name = $1 AND status != 'paid' LIMIT 1", [tName]);
+      return hasDraft || cmdRes.rows.length > 0;
+    };
+
+    let targetTable = originalTable;
+    let openedAsBis = false;
+
+    if (await isTableBusy(targetTable)) {
+      openedAsBis = true;
+      const baseName = originalTable.replace(/\s+Bis(\s+\d+)?$/i, '').trim();
+      let candidate = `${baseName} Bis`;
+      let suffix = 2;
+      while (await isTableBusy(candidate)) {
+        candidate = `${baseName} Bis ${suffix}`;
+        suffix++;
+      }
+      targetTable = candidate;
+    }
+
+    // 1. Restaurar los ítems en pos_table_orders (crea la fila si es "Bis")
+    await client.query(`
+      INSERT INTO pos_table_orders (table_name, items, note, updated_at)
+      VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (table_name)
+      DO UPDATE SET items = EXCLUDED.items, note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP
+    `, [targetTable, JSON.stringify(restoredItems), `Restaurada (${payment.id})`]);
+
+    // 2. Crear comanda activa en cocina marcada como 'delivered' (ya servida) para que sume en el total y permita cobrarla de nuevo
+    const restoredCmdId = `CMD-R${Date.now().toString().slice(-4)}`;
+    const restoredTotal = restoredItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0) || Number(payment.total) || 0;
+    const restoredWaiter = payment.waiter || 'Mozo';
+    const restoredTime = payment.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    await client.query(`
+      INSERT INTO pos_kitchen_orders (id, table_name, waiter_name, time, status, printed, items, total, note, created_at)
+      VALUES ($1, $2, $3, $4, 'delivered', TRUE, $5::jsonb, $6, $7, CURRENT_TIMESTAMP)
+    `, [restoredCmdId, targetTable, restoredWaiter, restoredTime, JSON.stringify(restoredItems), restoredTotal, `Mesa restaurada desde cobro ${payment.id}`]);
+
+    // 3. Eliminar el pago del historial
+    await client.query("DELETE FROM pos_payment_history WHERE id = $1", [id]);
+
+    // 4. Descontar la propina del pozo general si tenía propina
+    const tipToSubtract = Number(payment.tip) || 0;
+    let newTipsPool = 0;
+    const tipsRes = await client.query("SELECT value FROM pos_config WHERE key = 'general_tips_pool'");
+    const currentTips = tipsRes.rows.length > 0 ? Number(tipsRes.rows[0].value) : 0;
+    newTipsPool = Math.max(0, currentTips - tipToSubtract);
+
+    if (tipToSubtract > 0) {
+      await client.query(`
+        INSERT INTO pos_config (key, value)
+        VALUES ('general_tips_pool', $1::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `, [JSON.stringify(newTipsPool)]);
+    }
+
+    await client.query('COMMIT');
+
+    broadcast({ type: 'STATE_REFRESH_REQUESTED' });
+
+    res.json({
+      success: true,
+      restoredTable: targetTable,
+      originalTable,
+      openedAsBis,
+      newTipsPool
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error al restaurar mesa cobrada:', err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // 7. Categorías: Crear nueva
 app.post('/api/menu/category', async (req, res) => {
   const { id, name, icon } = req.body;
