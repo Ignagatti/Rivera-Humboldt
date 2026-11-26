@@ -4594,16 +4594,18 @@ function renderKitchenOrders() {
                             </div>
                             <div class="space-y-1.5">
                                 ${displayPending.map((item, idx) => `
-                                    <div class="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg bg-white/70 border border-amber-100">
-                                        <div class="flex items-center space-x-2 min-w-0">
-                                            <span class="inline-block bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md font-black text-xs shrink-0">${item.qty}x</span>
-                                            <div class="min-w-0">
-                                                <span class="font-bold text-slate-900 truncate block">${stripBracketNotes(item.name)}</span>
-                                                ${item.note ? `<span class="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold block mt-0.5">${item.note}</span>` : ''}
+                                    <div class="flex items-center justify-between gap-1.5 text-xs py-1.5 px-2 rounded-lg bg-white/80 border border-amber-100">
+                                        <div class="flex items-center space-x-1.5 min-w-0 flex-1">
+                                            <span class="inline-block bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-md font-black text-xs shrink-0">${item.qty}x</span>
+                                            <div class="min-w-0 flex-1">
+                                                <div class="flex items-center gap-1 flex-wrap">
+                                                    <span class="font-bold text-slate-900 break-words leading-tight">${stripBracketNotes(item.name)}</span>
+                                                    ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1 py-0.2 rounded font-bold shrink-0">Agregado</span>' : ''}
+                                                </div>
+                                                ${item.note ? `<span class="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold inline-block mt-0.5 break-words">${item.note}</span>` : ''}
                                             </div>
-                                            ${item.isAddon ? '<span class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0">Agregado</span>' : ''}
                                         </div>
-                                        <div class="flex items-center space-x-1 shrink-0 ml-2">
+                                        <div class="flex items-center space-x-1 shrink-0">
                                             <button onclick="deliverIndividualKitchenItem('${cmd.id}', '${item.id || item.name}', '${(item.name || '').replace(/'/g, "\\'")}')" title="Marcar este plato como entregado" class="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold flex items-center space-x-1 shrink-0 active:scale-95 transition-all cursor-pointer">
                                                 <i class="fa-solid fa-check"></i>
                                                 <span>Entregar</span>
