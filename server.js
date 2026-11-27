@@ -207,7 +207,8 @@ app.get('/api/state', async (req, res) => {
     }));
 
     // Cierres de noche archivados
-    const reportRes = await pool.query("SELECT id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note, created_at, details FROM pos_night_reports ORDER BY created_at DESC");
+    // SELECT * para no romper si la columna 'details' todavía no existe en la base de producción
+    const reportRes = await pool.query("SELECT * FROM pos_night_reports ORDER BY created_at DESC");
     const savedNightReports = reportRes.rows.map(r => ({
       id: r.id,
       dateStr: r.date_str,
@@ -1453,6 +1454,8 @@ app.post('/api/night-report/close', async (req, res) => {
     await client.query('BEGIN');
 
     const reportId = id || `CIERRE-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
+
+    await client.query(`ALTER TABLE pos_night_reports ADD COLUMN IF NOT EXISTS details JSONB DEFAULT NULL;`);
 
     await client.query(`
       INSERT INTO pos_night_reports (id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note, details)
