@@ -7301,9 +7301,11 @@ async function saveEditedMenuItem() {
         return;
     }
 
+    let oldName = name;
     if (menuData[catKey]) {
         const item = menuData[catKey].items.find(i => i.id === itemId);
         if (item) {
+            oldName = item.name || name;
             item.name = name;
             item.price = price;
             item.desc = desc;
@@ -7312,10 +7314,71 @@ async function saveEditedMenuItem() {
         }
     }
 
+    // Actualizar inmediatamente el precio en las cuentas activas en memoria (mesas abiertas y comandas no cobradas)
+    const cleanBase = (s) => String(s || '')
+        .replace(/\s*\[[^\]]*\]\s*/g, ' ')
+        .replace(/\s*\(\d+\s*personas?\)\s*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    const targetNewBase = cleanBase(name);
+    const targetOldBase = cleanBase(oldName);
+    const isLibreItem = itemId === 'pz_libre' || targetNewBase === 'pizza libre';
+
+    const matchesEditedItem = (it) => {
+        if (!it) return false;
+        if (isLibreItem) {
+            const itIsLibre = Boolean(it.isPizzaLibre || (it.id && String(it.id).startsWith('pz_libre')) || /^pizza\s+libre/i.test(String(it.name || '')));
+            return itIsLibre && Number(it.price) > 0;
+        }
+        if (it.id === itemId || it.menuItemId === itemId) return true;
+        if (it.id && String(it.id).startsWith(itemId + '_p_')) return true;
+        const itBase = cleanBase(it.baseName || it.name);
+        if (itBase && (itBase === targetNewBase || (targetOldBase && itBase === targetOldBase))) return true;
+        if (catKey === 'pizzas') {
+            const rawLower = cleanBase(it.name);
+            if (rawLower === `pizza ${targetNewBase} (entera)` || (targetOldBase && rawLower === `pizza ${targetOldBase} (entera)`)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    let localTablesUpdated = 0;
+    Object.keys(ordersByTable).forEach(tName => {
+        const tOrder = ordersByTable[tName];
+        if (tOrder && Array.isArray(tOrder.items)) {
+            let changed = false;
+            tOrder.items.forEach(it => {
+                if (matchesEditedItem(it) && Number(it.price) !== price) {
+                    it.price = price;
+                    changed = true;
+                }
+            });
+            if (changed) localTablesUpdated++;
+        }
+    });
+
+    kitchenOrders.forEach(cmd => {
+        if (cmd.status !== 'paid' && Array.isArray(cmd.items)) {
+            let changed = false;
+            cmd.items.forEach(it => {
+                if (matchesEditedItem(it) && Number(it.price) !== price) {
+                    it.price = price;
+                    changed = true;
+                }
+            });
+            if (changed) {
+                cmd.total = cmd.items.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+            }
+        }
+    });
+
     saveLocalState();
     closeEditMenuItemModal();
     renderAdminMenuManager();
     renderMenuGrid();
+    refreshActiveViews();
 
     try {
         const res = await fetch('/api/menu/item', {
@@ -7326,12 +7389,16 @@ async function saveEditedMenuItem() {
         if (res.ok) {
             isOnlineWithServer = true;
             setConnectionIndicator(true);
+            await fetchServerState(true);
         }
     } catch (e) {
         console.warn('Error guardando cambios en Neon DB:', e);
     }
 
-    showToast(`Plato "${name}" actualizado en la base de datos`, 'success');
+    const activeMsg = localTablesUpdated > 0
+        ? ` y actualizado en ${localTablesUpdated} cuenta(s) activa(s)`
+        : '';
+    showToast(`Plato "${name}" actualizado a $${price.toLocaleString()}${activeMsg}`, 'success');
 }
 
 // ================= PESTAÑA 3: REPORTE DE LA NOCHE Y PDF =================

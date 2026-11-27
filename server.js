@@ -1159,13 +1159,19 @@ app.delete('/api/menu/category/:id', async (req, res) => {
   }
 });
 
-// 9. Productos: Agregar
+// 9. Productos: Agregar / Editar (y actualizar precio en cuentas activas no cobradas)
 app.post('/api/menu/item', async (req, res) => {
   const { id, categoryId, name, price, desc, subcategory, perPerson } = req.body;
   try {
     const itemId = id || `it_${Date.now().toString().slice(-6)}`;
+    const newPrice = Number(price) || 0;
+
     await pool.query(`ALTER TABLE pos_menu_items ADD COLUMN IF NOT EXISTS subcategory VARCHAR(80) DEFAULT '';`);
     await pool.query(`ALTER TABLE pos_menu_items ADD COLUMN IF NOT EXISTS per_person BOOLEAN DEFAULT FALSE;`);
+
+    const prevRes = await pool.query("SELECT name, price FROM pos_menu_items WHERE id = $1", [itemId]);
+    const oldName = prevRes.rows.length > 0 ? prevRes.rows[0].name : name;
+
     await pool.query(`
       INSERT INTO pos_menu_items (id, category_id, name, price, description, subcategory, per_person)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -1176,7 +1182,7 @@ app.post('/api/menu/item', async (req, res) => {
         description = EXCLUDED.description,
         subcategory = EXCLUDED.subcategory,
         per_person = EXCLUDED.per_person
-    `, [itemId, categoryId, name, price, desc || '', String(subcategory || '').trim().slice(0, 80), perPerson === true]);
+    `, [itemId, categoryId, name, newPrice, desc || '', String(subcategory || '').trim().slice(0, 80), perPerson === true]);
 
     if (categoryId === 'pizzas') {
       try {
@@ -1184,14 +1190,129 @@ app.post('/api/menu/item', async (req, res) => {
           UPDATE pizzas_precios
           SET precio_entera = $1, updated_at = CURRENT_TIMESTAMP
           WHERE LOWER(name) = LOWER($2)
-        `, [price, name]);
+        `, [newPrice, name]);
       } catch (_) { }
     }
 
+    // Propagar el nuevo precio a las cuentas activas (mesas abiertas y comandas no cobradas), NUNCA a las ya cobradas
+    let updatedActiveTables = 0;
+    if (newPrice > 0) {
+      const cleanBase = (s) => String(s || '')
+        .replace(/\s*\[[^\]]*\]\s*/g, ' ')
+        .replace(/\s*\(\d+\s*personas?\)\s*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+
+      const targetNewBase = cleanBase(name);
+      const targetOldBase = cleanBase(oldName);
+      const isLibreItem = itemId === 'pz_libre' || targetNewBase === 'pizza libre';
+
+      const matchesEditedMenuItem = (it) => {
+        if (!it) return false;
+        if (isLibreItem) {
+          const itIsLibre = Boolean(it.isPizzaLibre || (it.id && String(it.id).startsWith('pz_libre')) || /^pizza\s+libre/i.test(String(it.name || '')));
+          return itIsLibre && Number(it.price) > 0;
+        }
+        if (it.id === itemId || it.menuItemId === itemId) return true;
+        if (it.id && String(it.id).startsWith(itemId + '_p_')) return true;
+        const itBase = cleanBase(it.baseName || it.name);
+        if (itBase && (itBase === targetNewBase || (targetOldBase && itBase === targetOldBase))) return true;
+        if (categoryId === 'pizzas') {
+          const rawLower = cleanBase(it.name);
+          if (rawLower === `pizza ${targetNewBase} (entera)` || (targetOldBase && rawLower === `pizza ${targetOldBase} (entera)`)) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      // 1. Actualizar en pos_table_orders (mesas abiertas)
+      const tRes = await pool.query("SELECT table_name, items, note FROM pos_table_orders");
+      for (const row of tRes.rows) {
+        const items = Array.isArray(row.items) ? row.items : [];
+        let changed = false;
+        const updatedItems = items.map(it => {
+          if (matchesEditedMenuItem(it) && Number(it.price) !== newPrice) {
+            changed = true;
+            return { ...it, price: newPrice };
+          }
+          return it;
+        });
+
+        if (changed) {
+          // Consolidar filas que ahora compartan mismo nombre y precio
+          const mergedMap = new Map();
+          updatedItems.forEach(it => {
+            const cleanName = String(it.name || '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+            const key = `${cleanName.toLowerCase()}___${Number(it.price) || 0}`;
+            if (mergedMap.has(key)) {
+              mergedMap.get(key).qty = (Number(mergedMap.get(key).qty) || 0) + (Number(it.qty) || 0);
+              mergedMap.get(key).sentQty = (Number(mergedMap.get(key).sentQty) || 0) + (Number(it.sentQty) || 0);
+            } else {
+              mergedMap.set(key, { ...it, name: cleanName });
+            }
+          });
+          const finalTableItems = Array.from(mergedMap.values());
+
+          await pool.query(
+            "UPDATE pos_table_orders SET items = $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE table_name = $2",
+            [JSON.stringify(finalTableItems), row.table_name]
+          );
+          broadcast({
+            type: 'TABLE_UPDATED',
+            tableName: row.table_name,
+            items: finalTableItems,
+            note: row.note || ''
+          });
+          updatedActiveTables++;
+        }
+      }
+
+      // 2. Actualizar en pos_kitchen_orders (SOLO comandas activas con status != 'paid')
+      const kRes = await pool.query("SELECT id, table_name, waiter_name, time, status, printed, items, total, note FROM pos_kitchen_orders WHERE status != 'paid'");
+      for (const row of kRes.rows) {
+        const items = Array.isArray(row.items) ? row.items : [];
+        let changed = false;
+        const updatedItems = items.map(it => {
+          if (matchesEditedMenuItem(it) && Number(it.price) !== newPrice) {
+            changed = true;
+            return { ...it, price: newPrice };
+          }
+          return it;
+        });
+
+        if (changed) {
+          const newTotal = updatedItems.reduce((acc, i) => acc + (Number(i.price) * Number(i.qty)), 0);
+          await pool.query(
+            "UPDATE pos_kitchen_orders SET items = $1::jsonb, total = $2 WHERE id = $3",
+            [JSON.stringify(updatedItems), newTotal, row.id]
+          );
+          const orderData = {
+            id: row.id,
+            table: row.table_name,
+            waiterName: row.waiter_name,
+            time: row.time,
+            status: row.status,
+            printed: row.printed,
+            items: updatedItems,
+            total: newTotal,
+            note: row.note || ''
+          };
+          broadcast({
+            type: 'ORDER_STATUS_CHANGED',
+            id: row.id,
+            status: row.status,
+            order: orderData
+          });
+        }
+      }
+    }
+
     broadcast({ type: 'MENU_REFRESH_REQUESTED' });
-    res.json({ success: true, itemId });
+    res.json({ success: true, itemId, updatedActiveTables });
   } catch (err) {
-    console.error('Error al agregar plato:', err);
+    console.error('Error al agregar/editar plato:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
