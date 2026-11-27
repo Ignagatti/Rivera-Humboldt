@@ -207,10 +207,11 @@ app.get('/api/state', async (req, res) => {
     }));
 
     // Cierres de noche archivados
-    const reportRes = await pool.query("SELECT id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note FROM pos_night_reports ORDER BY created_at DESC");
+    const reportRes = await pool.query("SELECT id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note, created_at FROM pos_night_reports ORDER BY created_at DESC");
     const savedNightReports = reportRes.rows.map(r => ({
       id: r.id,
       dateStr: r.date_str,
+      createdAt: r.created_at,
       totalSales: Number(r.total_sales),
       cashSales: Number(r.cash_sales),
       transferSales: Number(r.transfer_sales),

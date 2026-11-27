@@ -8439,7 +8439,28 @@ function renderNightReportView() {
         }).join('');
     }
 
-    // 4. Historial de Cierres Nocturnos Guardados
+function formatSavedNightDate(report) {
+    if (!report) return '';
+    let raw = String(report.dateStr || '').trim();
+    // Si contiene la fecha real (DD/MM/AAAA) la devolvemos tal cual
+    if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(raw)) {
+        return raw;
+    }
+    // Si viene con el formato viejo "Hoy • HH:MM hs", intentar recuperar la fecha exacta desde createdAt
+    if (report.createdAt) {
+        try {
+            const d = new Date(report.createdAt);
+            if (!isNaN(d.getTime())) {
+                const datePart = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const timePart = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return `${datePart} • ${timePart} hs`;
+            }
+        } catch (_) {}
+    }
+    return raw;
+}
+
+// 4. Historial de Cierres Nocturnos Guardados
     const archiveList = document.getElementById('saved-nights-archive-list');
     if (savedNightReports.length === 0) {
         archiveList.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Aún no se han archivado cierres nocturnos.</p>`;
@@ -8447,7 +8468,7 @@ function renderNightReportView() {
         archiveList.innerHTML = savedNightReports.map(r => `
             <div class="p-3 sm:p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1.5">
                 <div class="flex justify-between items-center">
-                    <span class="font-bold text-slate-900 text-xs sm:text-sm truncate">${r.dateStr}</span>
+                    <span class="font-bold text-slate-900 text-xs sm:text-sm truncate">${formatSavedNightDate(r)}</span>
                     <span class="bg-blue-50 text-[#2563eb] text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">${r.id}</span>
                 </div>
                 <div class="flex flex-wrap gap-2 sm:gap-4 text-slate-600">
@@ -8731,11 +8752,15 @@ async function confirmNightClosure() {
     const shiftRecords = getAllShiftConsumptionRecords();
     const pizzaStats = computePizzaAndFlavorStats(shiftRecords);
     const reportId = `CIERRE-${Date.now().toString().slice(-4)}`;
-    const dateStr = `Hoy • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} hs`;
+    const now = new Date();
+    const dateFormatted = now.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = `${dateFormatted} • ${timeFormatted} hs`;
 
     const newReport = {
         id: reportId,
         dateStr: dateStr,
+        createdAt: now.toISOString(),
         totalSales: totalSales,
         cashSales: totalCash,
         transferSales: totalTransfer,
