@@ -1350,6 +1350,53 @@
         </div>
     </div>
 
+    <!-- ================= MODAL: DETALLE / REABRIR CIERRE DE NOCHE ARCHIVADO ================= -->
+    <div id="saved-night-detail-modal"
+        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-[#2563eb] flex items-center justify-center border border-blue-200 shrink-0">
+                        <i class="fa-solid fa-receipt"></i>
+                    </div>
+                    <div>
+                        <h3 id="saved-night-detail-title" class="font-black text-sm sm:text-base text-slate-900">Auditoría de Cierre</h3>
+                        <p id="saved-night-detail-subtitle" class="text-[11px] text-slate-500">Detalle de productos y ventas archivadas</p>
+                    </div>
+                </div>
+                <button onclick="closeSavedNightDetailModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-all cursor-pointer">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Contenido scrolleable del detalle -->
+            <div id="saved-night-detail-body" class="flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
+                <!-- Se inyecta dinámicamente -->
+            </div>
+
+            <!-- Botonera inferior -->
+            <div class="border-t border-slate-100 pt-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div class="flex items-center gap-2">
+                    <button id="btn-print-archived-night" type="button" onclick="printArchivedNightThermal()"
+                        class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer">
+                        <i class="fa-solid fa-print"></i>
+                        <span>Reimprimir Ticket</span>
+                    </button>
+                    <button id="btn-restore-archived-night" type="button" onclick="restoreArchivedNightShift()"
+                        class="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                        title="Reabrir este turno para que sus cobros vuelvan al panel activo">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span>Reabrir Turno</span>
+                    </button>
+                </div>
+                <button type="button" onclick="closeSavedNightDetailModal()"
+                    class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all cursor-pointer ml-auto">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- ================= MODAL: CHECKOUT DE COBRO Y PROPINA A VOLUNTAD ================= -->
     <div id="payment-modal"
         class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">

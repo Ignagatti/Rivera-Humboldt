@@ -170,8 +170,14 @@ async function initDatabase() {
         tips_pool NUMERIC(12, 2) NOT NULL,
         orders_count INT NOT NULL,
         note TEXT DEFAULT '',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        details JSONB DEFAULT NULL
       );
+    `);
+
+    await client.query(`
+      ALTER TABLE pos_night_reports
+      ADD COLUMN IF NOT EXISTS details JSONB DEFAULT NULL;
     `);
 
     // Configuración de propinas en $0 si no existe

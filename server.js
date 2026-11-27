@@ -207,7 +207,7 @@ app.get('/api/state', async (req, res) => {
     }));
 
     // Cierres de noche archivados
-    const reportRes = await pool.query("SELECT id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note, created_at FROM pos_night_reports ORDER BY created_at DESC");
+    const reportRes = await pool.query("SELECT id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note, created_at, details FROM pos_night_reports ORDER BY created_at DESC");
     const savedNightReports = reportRes.rows.map(r => ({
       id: r.id,
       dateStr: r.date_str,
@@ -217,7 +217,8 @@ app.get('/api/state', async (req, res) => {
       transferSales: Number(r.transfer_sales),
       tipsPool: Number(r.tips_pool),
       ordersCount: Number(r.orders_count),
-      note: r.note || ''
+      note: r.note || '',
+      details: r.details || null
     }));
 
     res.json({
@@ -1445,7 +1446,7 @@ app.delete('/api/staff/:id', async (req, res) => {
 
 // 14. Guardar Cierre de Noche
 app.post('/api/night-report/close', async (req, res) => {
-  const { id, dateStr, totalSales, cashSales, transferSales, tipsPool, ordersCount, note, resetShift } = req.body;
+  const { id, dateStr, totalSales, cashSales, transferSales, tipsPool, ordersCount, note, resetShift, details } = req.body;
 
   const client = await pool.connect();
   try {
@@ -1454,9 +1455,9 @@ app.post('/api/night-report/close', async (req, res) => {
     const reportId = id || `CIERRE-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
 
     await client.query(`
-      INSERT INTO pos_night_reports (id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    `, [reportId, dateStr, totalSales, cashSales, transferSales, tipsPool, ordersCount, note || '']);
+      INSERT INTO pos_night_reports (id, date_str, total_sales, cash_sales, transfer_sales, tips_pool, orders_count, note, details)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `, [reportId, dateStr, totalSales, cashSales, transferSales, tipsPool, ordersCount, note || '', details ? JSON.stringify(details) : null]);
 
     if (resetShift) {
       // Reiniciar caja de propinas a 0
@@ -1481,6 +1482,68 @@ app.post('/api/night-report/close', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error al cerrar noche:', err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// 14.b Restaurar Cierre de Noche (Reabrir turno archivado)
+app.post('/api/night-report/:id/restore', async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const repRes = await client.query("SELECT * FROM pos_night_reports WHERE id = $1 FOR UPDATE", [id]);
+    if (repRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Reporte de cierre no encontrado.' });
+    }
+
+    const report = repRes.rows[0];
+    const details = report.details || {};
+    const payments = Array.isArray(details.payments) ? details.payments : [];
+
+    let restoredCount = 0;
+    for (const p of payments) {
+      if (!p || !p.id) continue;
+      const chk = await client.query("SELECT id FROM pos_payment_history WHERE id = $1", [p.id]);
+      if (chk.rows.length === 0) {
+        await client.query(`
+          INSERT INTO pos_payment_history (id, table_name, waiter, time, method, total, paid_with, tip, items_summary, items, waiter_tips, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+        `, [
+          p.id,
+          p.table || p.table_name || 'Mesa',
+          p.waiter || 'Mozo',
+          p.time || '00:00',
+          p.method || 'Efectivo',
+          Number(p.total) || 0,
+          Number(p.paidWith || p.paid_with) || Number(p.total) || 0,
+          Number(p.tip) || 0,
+          p.itemsSummary || p.items_summary || '',
+          p.items ? JSON.stringify(p.items) : '[]',
+          p.waiterTips ? JSON.stringify(p.waiterTips) : null
+        ]);
+        restoredCount++;
+      }
+    }
+
+    if (Number(report.tips_pool) > 0) {
+      await client.query(`
+        INSERT INTO pos_config (key, value)
+        VALUES ('general_tips_pool', $1::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = (COALESCE(pos_config.value::numeric, 0) + $1::numeric)::text::jsonb
+      `, [Number(report.tips_pool)]);
+    }
+
+    await client.query('COMMIT');
+    broadcast({ type: 'STATE_REFRESH_REQUESTED' });
+    res.json({ success: true, reportId: id, restoredCount });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error al restaurar cierre de noche:', err);
     res.status(500).json({ success: false, error: err.message });
   } finally {
     client.release();

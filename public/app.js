@@ -8466,7 +8466,7 @@ function formatSavedNightDate(report) {
         archiveList.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Aún no se han archivado cierres nocturnos.</p>`;
     } else {
         archiveList.innerHTML = savedNightReports.map(r => `
-            <div class="p-3 sm:p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1.5">
+            <div class="p-3 sm:p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-2">
                 <div class="flex justify-between items-center">
                     <span class="font-bold text-slate-900 text-xs sm:text-sm truncate">${formatSavedNightDate(r)}</span>
                     <span class="bg-blue-50 text-[#2563eb] text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">${r.id}</span>
@@ -8480,7 +8480,29 @@ function formatSavedNightDate(report) {
                     ${r.librePersons !== undefined ? `<span>Pizza Libre: <strong class="text-blue-700">${r.librePersons} personas</strong></span>` : ''}
                     ${r.pizzasCount !== undefined ? `<span>Pizzas: <strong class="text-amber-700">${r.pizzasCount} u.</strong></span>` : ''}
                 </div>
-                ${r.note ? `<p class="text-[11px] text-slate-500 italic mt-1">>> "${r.note}"</p>` : ''}
+                ${r.note ? `<p class="text-[11px] text-slate-500 italic">>> "${r.note}"</p>` : ''}
+                <div class="pt-1 flex items-center justify-between gap-2 border-t border-slate-200/60 no-print">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button type="button" onclick="openSavedNightDetailModal('${r.id}')"
+                            class="text-[10px] font-bold text-[#2563eb] bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                            title="Ver productos vendidos, categorías y mozos de esta noche">
+                            <i class="fa-solid fa-list-check text-[9px]"></i>
+                            <span>Ver Detalle / Auditoría</span>
+                        </button>
+                        <button type="button" onclick="printArchivedNightById('${r.id}')"
+                            class="text-[10px] font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                            title="Reimprimir ticket de cierre para impresora térmica">
+                            <i class="fa-solid fa-print text-[9px]"></i>
+                            <span>Reimprimir Ticket</span>
+                        </button>
+                    </div>
+                    <button type="button" onclick="restoreArchivedNightPrompt('${r.id}')"
+                        class="text-[10px] font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-2 py-1 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95 ml-auto"
+                        title="Reabrir este turno para que sus cobros vuelvan al panel activo">
+                        <i class="fa-solid fa-rotate-left text-[9px]"></i>
+                        <span>Reabrir Turno</span>
+                    </button>
+                </div>
             </div>
         `).join('');
     }
@@ -8757,6 +8779,20 @@ async function confirmNightClosure() {
     const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const dateStr = `${dateFormatted} • ${timeFormatted} hs`;
 
+    const catSales = computeCategorySales(shiftRecords);
+    const ranking = computeProductRanking(shiftRecords);
+    const waiterStats = computeWaiterReportStats();
+    const waiterBreakdown = Object.keys(waiterStats).map(w => ({ name: w, ...waiterStats[w] }));
+
+    const closureDetails = {
+        savedAt: now.toISOString(),
+        categories: catSales.list,
+        ranking: ranking,
+        waiterBreakdown: waiterBreakdown,
+        payments: paymentHistory,
+        pizzaStats: pizzaStats
+    };
+
     const newReport = {
         id: reportId,
         dateStr: dateStr,
@@ -8769,7 +8805,8 @@ async function confirmNightClosure() {
         librePersons: pizzaStats.librePersonsTotal,
         pizzasCount: pizzaStats.totalPizzasDespachadas,
         note: note,
-        resetShift: shouldReset
+        resetShift: shouldReset,
+        details: closureDetails
     };
 
     savedNightReports.unshift(newReport);
@@ -8805,6 +8842,260 @@ async function confirmNightClosure() {
     }
 
     showModal('Cierre de Turno Guardado', `El reporte ${reportId} fue archivado con éxito en la base de datos.`);
+}
+
+// ================= GESTIÓN Y AUDITORÍA DE CIERRES ARCHIVADOS =================
+
+let activeDetailReportId = null;
+
+function openSavedNightDetailModal(reportId) {
+    const report = savedNightReports.find(r => r.id === reportId);
+    if (!report) {
+        showToast('Reporte no encontrado', 'warning');
+        return;
+    }
+    activeDetailReportId = reportId;
+
+    const modal = document.getElementById('saved-night-detail-modal');
+    const title = document.getElementById('saved-night-detail-title');
+    const subtitle = document.getElementById('saved-night-detail-subtitle');
+    const body = document.getElementById('saved-night-detail-body');
+
+    if (title) title.innerText = `Auditoría: ${report.id}`;
+    if (subtitle) subtitle.innerText = `${formatSavedNightDate(report)} • Total: $${Number(report.totalSales || 0).toLocaleString('es-AR')}`;
+
+    const details = report.details || {};
+    const categories = Array.isArray(details.categories) ? details.categories : [];
+    const ranking = Array.isArray(details.ranking) ? details.ranking : [];
+    const waiters = Array.isArray(details.waiterBreakdown) ? details.waiterBreakdown : [];
+    const payments = Array.isArray(details.payments) ? details.payments : [];
+
+    let html = `
+        <!-- Resumen Financiero -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+            <div>
+                <span class="text-[10px] text-slate-400 block font-medium">Facturado:</span>
+                <strong class="text-sm text-slate-900 font-black">$${Number(report.totalSales || 0).toLocaleString('es-AR')}</strong>
+            </div>
+            <div>
+                <span class="text-[10px] text-slate-400 block font-medium">Efectivo:</span>
+                <strong class="text-sm text-emerald-700 font-bold">$${Number(report.cashSales || 0).toLocaleString('es-AR')}</strong>
+            </div>
+            <div>
+                <span class="text-[10px] text-slate-400 block font-medium">Transferencia:</span>
+                <strong class="text-sm text-blue-700 font-bold">$${Number(report.transferSales || 0).toLocaleString('es-AR')}</strong>
+            </div>
+            <div>
+                <span class="text-[10px] text-slate-400 block font-medium">Propinas:</span>
+                <strong class="text-sm text-[#2563eb] font-bold">$${Number(report.tipsPool || 0).toLocaleString('es-AR')}</strong>
+            </div>
+        </div>
+    `;
+
+    if (report.note) {
+        html += `
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-[11px] text-amber-900">
+                <i class="fa-solid fa-note-sticky text-amber-600 mr-1"></i>
+                <strong>Observación:</strong> "${report.note}"
+            </div>
+        `;
+    }
+
+    // Ranking de Productos Vendidos
+    if (ranking.length > 0) {
+        html += `
+            <div class="space-y-1.5">
+                <div class="flex items-center justify-between text-xs font-bold text-slate-800 border-b border-slate-200 pb-1">
+                    <span class="flex items-center gap-1.5">
+                        <i class="fa-solid fa-ranking-star text-amber-500"></i>
+                        <span>Productos Vendidos (${ranking.length})</span>
+                    </span>
+                    <span class="text-[10px] text-slate-400 font-semibold">Cant. / Recaudado</span>
+                </div>
+                <div class="space-y-1 max-h-48 overflow-y-auto pr-1">
+                    ${ranking.map((p, idx) => `
+                        <div class="flex items-center justify-between py-1 px-1.5 rounded-lg bg-slate-50 border border-slate-100 text-xs">
+                            <span class="flex items-center gap-2 truncate min-w-0">
+                                <span class="text-[10px] font-bold text-slate-400 w-4">${idx + 1}.</span>
+                                <strong class="text-slate-900 truncate">${p.name}</strong>
+                            </span>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span class="bg-blue-50 text-[#2563eb] border border-blue-200 text-[10px] font-bold px-1.5 py-0.2 rounded">${p.qty} u.</span>
+                                <strong class="text-slate-800 text-xs">$${Number(p.revenue || 0).toLocaleString('es-AR')}</strong>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Desglose por Categoría
+    if (categories.length > 0) {
+        html += `
+            <div class="space-y-1.5">
+                <div class="text-xs font-bold text-slate-800 border-b border-slate-200 pb-1 flex items-center gap-1.5">
+                    <i class="fa-solid fa-layer-group text-[#2563eb]"></i>
+                    <span>Ventas por Categoría</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    ${categories.map(c => `
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs space-y-1">
+                            <div class="flex justify-between items-center font-bold text-slate-900">
+                                <span>${c.name}</span>
+                                <span>$${Number(c.revenue || 0).toLocaleString('es-AR')}</span>
+                            </div>
+                            <div class="text-[10px] text-slate-500 flex justify-between">
+                                <span>${c.units || 0} unidades (${c.pct || 0}%)</span>
+                                <span>${(c.subList || []).length} subcategorías</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Mozos y Propinas
+    if (waiters.length > 0) {
+        html += `
+            <div class="space-y-1.5">
+                <div class="text-xs font-bold text-slate-800 border-b border-slate-200 pb-1 flex items-center gap-1.5">
+                    <i class="fa-solid fa-users text-indigo-600"></i>
+                    <span>Personal y Propinas</span>
+                </div>
+                <div class="space-y-1 max-h-36 overflow-y-auto pr-1">
+                    ${waiters.map(w => `
+                        <div class="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100 text-xs">
+                            <span class="font-bold text-slate-900">${w.name}</span>
+                            <div class="flex items-center gap-3 text-[11px] text-slate-600">
+                                <span>${w.tables || 0} mesas</span>
+                                <span>Ventas: <strong>$${Number(w.sales || 0).toLocaleString('es-AR')}</strong></span>
+                                <span>Propina: <strong class="text-[#2563eb]">$${Number(w.tips || 0).toLocaleString('es-AR')}</strong></span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (ranking.length === 0 && categories.length === 0) {
+        html += `
+            <div class="text-center py-6 text-slate-400 space-y-1">
+                <i class="fa-solid fa-box-open text-2xl text-slate-300"></i>
+                <p class="text-xs">Este cierre se guardó antes de activar la auditoría detallada.</p>
+                <p class="text-[10px] text-slate-400">Los próximos cierres archivarán automáticamente el ranking plato por plato.</p>
+            </div>
+        `;
+    }
+
+    if (body) body.innerHTML = html;
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeSavedNightDetailModal() {
+    const modal = document.getElementById('saved-night-detail-modal');
+    if (modal) modal.classList.add('hidden');
+    activeDetailReportId = null;
+}
+
+async function printArchivedNightById(reportId) {
+    const report = savedNightReports.find(r => r.id === reportId);
+    if (!report) {
+        showToast('Reporte no encontrado', 'warning');
+        return;
+    }
+
+    const details = report.details || {};
+    const categories = Array.isArray(details.categories) ? details.categories : [];
+    const ranking = Array.isArray(details.ranking) ? details.ranking : [];
+    const waiterBreakdown = Array.isArray(details.waiterBreakdown) ? details.waiterBreakdown : [];
+    const payments = Array.isArray(details.payments) ? details.payments : [];
+
+    const closureTicketData = {
+        type: 'closure',
+        dateStr: formatSavedNightDate(report),
+        time: '',
+        totalSales: Number(report.totalSales || 0),
+        cashSales: Number(report.cashSales || 0),
+        transferSales: Number(report.transferSales || 0),
+        tipsPool: Number(report.tipsPool || 0),
+        ordersCount: Number(report.ordersCount || 0),
+        categories: categories,
+        waiterBreakdown: waiterBreakdown,
+        topProducts: ranking.slice(0, 15),
+        topFlavors: (details.pizzaStats && details.pizzaStats.sortedFlavors) ? details.pizzaStats.sortedFlavors : [],
+        payments: payments
+    };
+
+    if (winPrintEndpoint && selectedWinPrinter) {
+        try {
+            const bytes = buildEscPosBytes(closureTicketData);
+            const dataBase64 = uint8ToBase64(bytes);
+            const res = await fetchWithTimeout(winPrintEndpoint.printUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    printerName: selectedWinPrinter,
+                    dataBase64
+                })
+            }, 15000);
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                throw new Error((result && result.error) || 'Error imprimiendo cierre');
+            }
+            showToast(`Cierre archivado ${report.id} impreso en ${selectedWinPrinter}`, 'success');
+            return;
+        } catch (err) {
+            console.error('Error imprimiendo cierre en Windows:', err);
+            showToast(`Error imprimiendo cierre: ${err.message}`, 'error');
+            return;
+        }
+    }
+
+    currentTicketData = closureTicketData;
+    triggerBrowserPrint();
+}
+
+function printArchivedNightThermal() {
+    if (!activeDetailReportId) return;
+    printArchivedNightById(activeDetailReportId);
+}
+
+function restoreArchivedNightPrompt(reportId) {
+    const report = savedNightReports.find(r => r.id === reportId);
+    if (!report) return;
+
+    showConfirmModal(
+        '¿Reabrir este Turno?',
+        `¿Deseas restaurar los cobros del cierre "${report.id}" (${formatSavedNightDate(report)}) al panel activo de ventas? Esto volverá a sumar sus mesas y propinas al turno actual.`,
+        async () => {
+            try {
+                const res = await fetch(`/api/night-report/${report.id}/restore`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast(`Turno ${report.id} restaurado (${data.restoredCount} cobro(s) recuperados)`, 'success');
+                    await fetchServerState(true);
+                    refreshActiveViews();
+                    closeSavedNightDetailModal();
+                } else {
+                    showToast(data.error || 'No se pudo restaurar el turno', 'error');
+                }
+            } catch (err) {
+                console.error('Error restaurando turno:', err);
+                showToast('Error de red al restaurar turno', 'error');
+            }
+        }
+    );
+}
+
+function restoreArchivedNightShift() {
+    if (!activeDetailReportId) return;
+    restoreArchivedNightPrompt(activeDetailReportId);
 }
 
 // ================= PESTAÑA 4: MOZOS / PERSONAL =================
